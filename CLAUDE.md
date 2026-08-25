@@ -4,10 +4,13 @@
 
 ## 命令
 
-- 构建：`pnpm build`（必须无错误退出）
-- 测试：`pnpm test`（全绿；失败的测试永远不许跳过或删除，只能修代码）
-- 检查：`pnpm lint`（零警告）
-- 集成验证：`pnpm dsh web` 启动宿主，手动验证终端连接/收发（需本地可达的测试设备或回环 mock）
+- 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
+- 测试：`pnpm test`（M2 起接入；接入前此命令不存在，勿跳过后续测试）
+- 检查：`pnpm lint`（M2 起接入）
+- 启动验证：harness 检出目录下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
+  - profile `tm-dev` 位于 `~/.dsh/profiles/tm-dev`，层序：dsh-base → dsh-web-app → 本插件
+  - 健康输出：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
+  - 注意：3080 端口可能被用户自己的 DSH 实例占用，验证用 3180
 
 ## 验证你的工作
 

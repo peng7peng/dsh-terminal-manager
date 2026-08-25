@@ -1,0 +1,3 @@
+- insert:
+    - id: terminal-manager
+      name: dsh-terminal-manager

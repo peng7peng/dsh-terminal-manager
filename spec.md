@@ -2,7 +2,7 @@
 
 - 派生自：`intent/intent.md`（Accepted，commit `453beb6`）
 - 作者：Claude Code（agent）+ 产品负责人
-- 状态：草稿（Draft）
+- 状态：已批准（Approved）— 2026-08-25
 - 日期：2026-08-25
 
 ## 需求

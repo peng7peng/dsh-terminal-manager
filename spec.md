@@ -62,11 +62,10 @@
 
 ### 关键决策（与备选方案）
 
-**D1：不复用 `ctx.terminals`，插件自持 SessionManager。**
-`ctx.terminals` 的语义是「以精确 Agent 为 owner 的本机 PTY」：`spawn` 请求（`type/name/cwd`）没有承载连接参数的字段；`signal/pid/进程树`等概念对网络会话无意义；GUI（人）发起的会话没有 Agent owner，而 owner 校验会拒绝非 owner 操作。这与「人在 GUI 连接、Agent 随后操作同一会话」的核心场景直接冲突。
-备选：注册 `ssh`/`telnet` backend 到 `ctx.terminals`——被否（上述三点）。
-代价：放弃复用 `tool-terminal` 的六个工具，自建 `tm_*` 工具；工作量可控（会话生命周期比 PTY 简单）。
-收益：会话对人和 Agent 同等可见；连接参数一等公民；不受 PTY 语义牵制。
+**D1：不复用 `ctx.terminals` / `tool-terminal`，插件自持 SessionManager。**
+先澄清内置物：`packages/terminal` + `tool-terminal` 是 DSH 自带的「AI Agent 本机终端」能力（`terminal_open` 等六个工具），只能开本机 shell，且会话被「开它的那个 Agent」独占（`spawn(owner: Agent)`，所有操作校验 owner），体系中不存在「人」的位置。
+产品负责人的核心要求是**人与 AI 双向平等**：双方都能开终端、AI 能读人开的终端、人能操作 AI 开的终端。这在内置体系中不可达（人开的会话无 Agent owner，Agent 无法触碰；反之亦然）。
+因此：会话是插件管理的**公共资产**，不归任何人所有——人经 GUI、AI 经工具，访问同一批会话。备选「注册 ssh backend 到 `ctx.terminals`」被否（除上述原因，`spawn` 请求也无字段承载连接参数）。代价：不复用 `tool-terminal`，自建 `tm_*` 工具。
 
 **D2：控制面与数据面分离。**
 控制面（配置、连接、状态、Agent 工具）走 DSH 既有 `/api` RPC（`ctx.typert.remotes.register` 注册 `termManager` 服务，浏览器半经 `ctx.remote.termManager.*` 调用）。数据面（终端字节流）走插件自注册的 WebSocket upgrade 路由 `/term-io`（`ctx.webServer.registerUpgrade`，参照 `client-connection` 的信任栅栏），单条连接多路复用，帧带 `sessionId`。
@@ -78,6 +77,7 @@
 ② 提示符：输出末尾匹配连接级可配置的 `promptPattern`（正则，如 `[\w.-]+[>#]\s*$`）；
 ③ 超时：`timeoutMs`（默认 30000）兜底。
 返回 `{ output, waitReason: 'quiet'|'prompt'|'timeout', truncated }`，Agent 可据 `waitReason` 判断置信度。`wait: 'immediate'` 只提交输入立即返回，配合 `tm_read` 取缓冲区快照（长命令观察场景）。
+三个参数均为**技术默认值而非产品决策**：静默期与提示符正则是每连接的配置项（`ConnectionConfig.quietMs/promptPattern`），联调真实设备时按设备调整；设备提示符形态未知时先用静默期判定，联调观察后再补正则。
 
 **D4：打包为「双半包」单一 npm 包。**
 一个包同时声明 `dsh.bundle`（host 半：`cordis.patch.yml` 插入插件行）与 `dsh.client`（浏览器半：参照 `ui-cordis` 的 manifest 形态，platform: web）。开发与分发路径遵循官方 `docs/user/develop/basic/`：
@@ -149,11 +149,23 @@ interface ConnectionConfig {
 
 #### 6. GUI（浏览器半）
 
-- **入口**：`ctx.slots.inject('sidebar.footer.action', ...)` 注册面板按钮（参照 `ui-cordis` 的 `cordis-panel` 模式）。
-- **面板三区**：
-  1. **连接栏**：连接卡片列表（名称、目标、协议图标、状态徽标：未连接/连接中/已连接/错误），内嵌新建/编辑表单（协议下拉切换字段集）；
-  2. **终端网格**：已打开会话按网格排布，每格 = 标题条（名称 + 断开按钮）+ `xterm.js`（`@xterm/xterm` + `@xterm/addon-fit`）；焦点格接收键盘输入发往设备；
-  3. **广播栏**（底部固定）：命令输入 + 目标选择（全部 / 多选子集）+ 发送按钮；发送后各终端正常回显结果。
+**布局（与产品负责人确认）**：DSH 原生三栏为「左侧边栏 ｜ 中间聊天 ｜ 右侧详情面板（宽度可拖动）」。聊天保留在中间原生主区，终端工作区挂载到**右侧 `details` 栏**——即负责人认可的「中间与右边互换」方案：
+
+```
+┌──────────┬──────────────────────┬───────────────────────┐
+│ DSH 侧边栏 │     聊天对话框（原生）   │   终端工作区（可拖宽）     │
+│ + 入口按钮 │   用户与 AI 对话      │ ① 连接面板（上）          │
+│          │                      │ ② 终端网格（下）          │
+└──────────┴──────────────────────┴───────────────────────┘
+```
+
+- **入口**：`ctx.slots.inject('sidebar.footer.action', ...)` 注册侧边栏按钮（参照 `ui-cordis` 的 `cordis-panel` 模式），点击展开/收起右侧工作区。
+- **工作区内部两区**：
+  1. **连接面板（上）**：连接卡片列表（名称、目标、协议图标、状态徽标：未连接/连接中/已连接/错误），内嵌新建/编辑表单（协议下拉切换字段集），每张卡片有「连接/断开」按钮；
+  2. **终端网格（下）**：已打开会话按网格排布，每格 = 标题条（名称 + 断开按钮）+ `xterm.js`（`@xterm/xterm` + `@xterm/addon-fit`）；焦点格接收键盘输入发往设备；底部固定**广播栏**（命令输入 + 目标选择「全部/多选子集」+ 发送按钮）。
+- **已知约束与对策**（列入验证项）：
+  - `details` 栏在**切换聊天会话时自动收起**（AppFrame 行为）；会话状态全部在宿主进程，面板重新展开时浏览器半重新 `attach` 即恢复，不丢会话、不丢输出（回放环形缓冲尾部）。
+  - `details` 栏的可用性可能与「存在当前聊天会话」绑定（AppFrame 以 `detailsSession` 计算栏宽）；垂直切片阶段验证无会话/空白会话时的行为，必要时在入口交互上要求先有会话，或改用 `shell.overlay` 覆盖层作为**全屏工作区**备用方案。
 - 主题：跟随 DSH 明暗；终端配色用低饱和中性色板。
 - 依赖：`@xterm/xterm`、`@xterm/addon-fit`（仅浏览器半）。
 
@@ -204,6 +216,8 @@ terminal-manager/
 | 问题 | 处理 |
 |---|---|
 | `dsh.client` 外部包装配细节 | Build M1 垂直切片验证；参考 `packages/extensions/ui-cordis` + `cordis-client-runner`。负责人：实现者 |
+| `details` 栏与聊天会话的绑定行为（无会话时栏宽为 0、切换会话自动收起） | Build 垂直切片验证；必要时改用 `shell.overlay` 全屏工作区方案。负责人：实现者 |
+| 设备提示符形态（用于 `promptPattern` 预置） | 联调时观察收集；不阻塞开发。负责人：产品负责人协助 |
 | `$DSH_HOME` 路径解析用哪个框架服务 | Build 时查 `dsh-settings`/boot 是否暴露数据目录服务；否则用环境变量 + 默认值。负责人：实现者 |
 | 面板入口是否需要快捷键 | 延后，MVP 不做 |
 | SSH 主机密钥 TOFU | 延后到 MVP 后首个安全迭代 |

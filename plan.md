@@ -1,7 +1,7 @@
 # DSH Terminal Manager — 构建计划
 
 - 派生自：`spec.md`（Approved，commit 见 git 历史）
-- 状态：草稿（Draft）
+- 状态：已批准（Approved）— 2026-08-25
 - 日期：2026-08-25
 - 修订：2026-08-25 按产品负责人要求，插入「方案讲解 + GUI 方案选型」里程碑（M1）
 

@@ -1,6 +1,6 @@
 # DSH 终端管理插件 — 方案设计
 
-- 版本：v3（吸收外部 AI 评审 10 条意见后修订）
+- 版本：v4（第三部分重构：3.0 模块地图 → 3.1 一模块一图 → 3.2 代码在哪）
 - 日期：2026-08-26
 - 状态：已随 M1 定稿（定稿依据：产品负责人多轮评审并逐项确认，见 `prototypes/SELECTION.zh.md` 及提交记录 `31a5baf`→`f94d2ce`）；实施基准
 
@@ -66,22 +66,33 @@
 ## 2.1 整体架构（一张图理清）
 
 ```mermaid
-flowchart TB
-    subgraph 你的电脑
-        subgraph 浏览器["浏览器（前端）"]
-            FE["前端：6 个界面模块"]
-        end
-        subgraph host进程["DSH host 进程（后端，Node.js）"]
-            BE["后端：7 个服务模块"]
-            AI["DSH AI"]
-        end
+flowchart LR
+    subgraph 前端["前端（浏览器）"]
+        A["UI 面板"]
     end
-    DEV["远程设备（SSH / Telnet）"]
 
-    FE <-. "管道① HTTP：控制指令（连接/配置）" .-> BE
-    FE <-. "管道② WebSocket：字符流（键入/输出）" .-> BE
-    BE <-- "管道③ SSH 加密通道 / ④ 裸 TCP" --> DEV
-    AI -- "管道⑤ 六个工具调用" --> BE
+    subgraph 后端["后端（Node.js + DSH）"]
+        B["指令通道<br/>RPC"]
+        C["会话管理器<br/>（公共连接池）"]
+        D["数据流通道<br/>WebSocket"]
+        E["AI 工具层"]
+        F["SSH 驱动"]
+        G["Telnet 驱动"]
+    end
+
+    subgraph 设备["远程设备"]
+        H["SSH 设备"]
+        I["Telnet 设备"]
+    end
+
+    A -->|"① 指令（连/断/配）"| B
+    A <-->|"② 数据流（敲键/输出）"| D
+    E -->|"⑤ 工具调用"| C
+    B --> C
+    D --> C
+    C --> F & G
+    F <-->|"③ SSH"| H
+    G <-->|"④ Telnet"| I
 ```
 
 五条管道，各管一件事：
@@ -115,67 +126,191 @@ flowchart TB
 
 # 第三部分：核心功能模块拆解与代码组织
 
-## 3.1 核心逻辑一句话
+## 3.0 整体模块地图（桥梁）
 
-**所有会话归后端「会话管理器」统一持有；人从前端进来、AI 从工具进来，走的是同一个池子**——这就是"人机共用"的代码落点。每个活跃会话内部：一条设备连接 + 一块输出缓冲 + 一组等待者。
+先看全景再进细节：**左列是前端（浏览器），右列是后端（Node.js 进程），中间两条通道相连**。
+
+**核心逻辑一句话**：所有会话归后端「会话管理器」统一持有；人从前端进来、AI 从工具进来，走的是同一个池子——这就是"人机共用"的代码落点。每个活跃会话内部：一条设备连接 + 一块输出缓冲 + 一组等待者。
 
 ```mermaid
-flowchart TB
-    subgraph 后端["后端（DSH host 进程内）"]
+flowchart LR
+    subgraph FE["前端（浏览器）"]
         direction TB
-        门A["🚪 AI 工具层 ×6（B6）"]
-        门B["🚪 控制面 RPC（B7）"]
-        门C["🚪 数据面 WebSocket（B7）"]
-        SM["🧠 B4 会话管理器：<br/>会话注册表 + 状态机 + 环形缓冲 + 输出分发"]
-        WP["B5 完成判定"]
-        CS["B1 连接存储"]
-        T1["B2 SSH 传输"]
-        T2["B3 Telnet 传输"]
-        门A --> SM
-        门B --> SM & CS
-        门C --> SM
-        SM --> WP
-        SM --> T1 & T2
-        SM <-. 读配置 .-> CS
+        F1["F1 入口与外壳"]
+        F2["F2 连接页"]
+        F3["F3 终端页"]
+        F4["F4 终端组件"]
+        F5["F5 WS 客户端"]
+        F6["F6 状态同步"]
+        F1 --- F2 & F3
+        F3 --- F4
+        F4 --- F5
+        F1 --- F6
     end
-    subgraph 前端["前端（浏览器内）"]
-        UI1["F1 入口与面板外壳"]
-        UI2["F2 连接页（卡片+表单）"]
-        UI3["F3 终端页（状态条+网格+广播栏）"]
-        UI4["F4 终端组件（xterm 显示）"]
-        UI5["F5 WS 客户端"]
-        UI6["F6 状态同步"]
+
+    subgraph BE["后端（Node.js · DSH host 进程）"]
+        direction TB
+        B7a["B7a 指令通道<br/>remotes.ts"]
+        B7b["B7b 数据流通道<br/>ws-io.ts"]
+        B6["B6 AI 工具层 ×6"]
+        B4["B4 会话管理器"]
+        B5["B5 完成判定"]
+        B1["B1 连接存储"]
+        B2["B2 SSH 传输"]
+        B3["B3 Telnet 传输"]
+        B7a --> B4 & B1
+        B7b --> B4
+        B6 --> B4
+        B4 --> B5
+        B4 --> B2 & B3
+        B4 <-. 读配置 .-> B1
     end
-    UI2 & UI3 & UI6 <-. "管道①" .-> 门B
-    UI4 & UI5 <-. "管道②" .-> 门C
-    AI["🤖 AI"] --> 门A
-    T1 & T2 <-- "管道③④" --> DEV["远程设备"]
+
+    AI["🤖 AI"] --> B6
+    F2 & F6 <-. "通道① HTTP 指令<br/>（连/断/配置/快照）" .-> B7a
+    F5 <-. "通道② WebSocket 数据流<br/>（键入/输出/状态帧）" .-> B7b
+    B2 <--> D1["SSH 设备"]
+    B3 <--> D2["Telnet 设备"]
 ```
 
-## 3.2 模块清单与安放位置
+两条通道的分工（详见第二部分管道表）：**通道①** 一问一答，管"配置与动作"；**通道②** 双向长流，管"字符与状态"，两者互不牵连，一边故障不影响另一边。
 
-### 后端 7 模块（`src/`，M2–M3 实现）
+## 3.1 单模块拆解（一模块一图）
 
-| 模块 | 文件 | 职责 | 覆盖场景 |
-|---|---|---|---|
-| B1 连接存储 | `src/connection-store.ts` | 连接配置增删改查 + JSON 落盘；文件权限尽力限为仅本人（含 Windows 处理） | S1/S12 |
-| B2 SSH 传输 | `src/transport/ssh.ts` | ssh2 连接/认证/收发/关闭；统一 `shell()` 交互通道（带 PTY，尺寸随终端调整） | S2/S11 |
-| B3 Telnet 传输 | `src/transport/telnet.ts` | 裸 TCP 连接/收发/关闭（协议协商接缝已留） | S2/S11 |
-| B4 会话管理器 | `src/session-manager.ts` | 会话状态机、缓冲、输出分发、广播、独占发送 | 几乎全部 |
-| B5 完成判定 | `src/wait-policy.ts` | 静默/提示符/超时三重判定 | S7/S8 |
-| B6 AI 工具层 | `src/tools.ts` | tm_connect/list/send/send_all/read/disconnect | S7–S9 |
-| B7 通信端点 | `src/remotes.ts`（控制面 RPC）+ `src/ws-io.ts`（数据面 WS），**两个独立文件、两套互不牵连的错误处理**——WS 挂了不影响控制指令，反之亦然 | 前端所有操作 |
+每个模块一张小图：进来什么、它干什么、出去什么。
 
-### 前端 6 模块（`client/`，M4 实现，视觉基准 = `prototypes/full-view-bc.html`）
+### 后端 7 模块
 
-| 模块 | 文件 | 职责 | 覆盖场景 |
-|---|---|---|---|
-| F1 入口与外壳 | `client/index.tsx`、`TerminalPanel.tsx` | 侧边栏入口、面板开关、双页签 | 全部 |
-| F2 连接页 | `client/ConnectionsTab.tsx` | 连接卡片 + 新建/编辑表单（必填/选填校验） | S1/S12 |
-| F3 终端页 | `client/TerminalsTab.tsx` | 状态条 + 终端网格（CSS Grid 自动换行：单格最小约 340px，放得下就并排、放不下自动折行，超出滚动；3 个以内并排、更多则多行）+ 广播栏；视觉基准 = `prototypes/full-view-bc.html` | S3–S6/S13/S14 |
-| F4 终端组件 | `client/TermView.tsx` | xterm.js 渲染 + 键盘输入 + 最大化 | S3/S4/S14 |
-| F5 WS 客户端 | `client/ws.ts` | 字符管道收发、断线重连、帧分发 | S3/S4 |
-| F6 状态同步 | `TerminalPanel.tsx` 内 | 会话状态变化由数据面 WS 的 `{kind:'status'}` 帧推送（与字符流同一条连接，先后顺序天然一致）；面板打开/重连时经控制面 RPC 拉一次全量快照 | 全部 |
+#### B1 连接存储 — 设备清单的"档案室"（场景 S1/S12）
+
+```mermaid
+flowchart LR
+    A["连接页表单：新建/编辑/删除"] --> M["B1 连接存储<br/>校验 + 增删改查"]
+    M --> F["connections.json 落盘（权限限本人）"]
+    M -. "连接时读取地址/凭据" .-> B4["B4 会话管理器"]
+```
+
+#### B2 SSH 传输 — ssh2 驱动（场景 S2/S11）
+
+```mermaid
+flowchart LR
+    B4["B4：请连接/发送/关闭"] --> M["B2 SSH 传输<br/>握手 + 认证 + shell() PTY"]
+    M <--> D["SSH 设备"]
+    D -. "输出字节回调" .-> M
+```
+
+#### B3 Telnet 传输 — 裸 TCP 驱动（场景 S2/S11）
+
+```mermaid
+flowchart LR
+    B4["B4：请连接/发送/关闭"] --> M["B3 Telnet 传输<br/>net.connect（协议协商接缝已留）"]
+    M <--> D["Telnet 设备"]
+    D -. "输出字节回调" .-> M
+```
+
+#### B4 会话管理器 — 整个插件的心脏（覆盖几乎全部场景）
+
+```mermaid
+flowchart LR
+    A["指令通道（人的动作）"] --> M
+    B["数据流通道（键入）"] --> M["B4 会话管理器<br/>状态机 + 环形缓冲 + 输出分发 + 广播 + 独占发送"]
+    C["AI 工具（tm_*）"] --> M
+    M --> T["B2/B3 传输：写入命令"]
+    T -. "输出流" .-> M
+    M --> O1["推给前端订阅者（看）"]
+    M --> O2["喂给 B5 完成判定（AI 等）"]
+```
+
+#### B5 完成判定 — "命令跑完没"的裁判（场景 S7/S8）
+
+```mermaid
+flowchart LR
+    IN["输出流"] --> M["B5 完成判定（纯逻辑，无 I/O）<br/>① 静默 0.5s ② 提示符正则 ③ 超时 30s"]
+    M --> OUT["判定完成 → 整段输出 + waitReason"]
+```
+
+#### B6 AI 工具层 — AI 的六只"手"（场景 S7–S9）
+
+```mermaid
+flowchart LR
+    AI["AI 调用 tm_connect/list/send/send_all/read/disconnect"] --> M["B6 工具层：参数校验 + 卡片呈现"]
+    M --> B4["B4 会话管理器"]
+    B4 --> R["返回：{输出, waitReason} 或 {code, message}"]
+```
+
+#### B7a 指令通道 — 前端动作的门卫（`src/remotes.ts`）
+
+```mermaid
+flowchart LR
+    FE["前端 HTTP 请求：配置增删改/连接/断开/拉快照"] --> M["B7a：路由 + 校验 + 统一错误格式"]
+    M --> B1["B1 连接存储"]
+    M --> B4["B4 会话管理器"]
+    B1 & B4 --> R["数据 或 {code, message}"]
+```
+
+#### B7b 数据流通道 — 字符流的交换台（`src/ws-io.ts`）
+
+```mermaid
+flowchart LR
+    FE["前端 WS 帧：attach/input/resize/detach"] --> M["B7b：帧分发 + 订阅登记 + 30s 心跳"]
+    M --> B4["B4：键入送达 / 输出回推"]
+    B4 --> M
+    M --> FE2["下行帧：output / status"]
+```
+
+### 前端 6 模块
+
+#### F1 入口与外壳 — 面板骨架
+
+```mermaid
+flowchart LR
+    DSH["DSH 侧边栏 slot"] --> M["F1：入口按钮 → 面板 → 双页签"]
+    M --> F2["F2 连接页"]
+    M --> F3["F3 终端页"]
+```
+
+#### F2 连接页 — 配置的家（场景 S1/S12）
+
+```mermaid
+flowchart LR
+    M["F2：连接卡片列表 + 新建/编辑表单（必填/选填校验）"]
+    M <-. "通道①：增删改查 + 连接/断开" .-> B7a["B7a 指令通道"]
+```
+
+#### F3 终端页 — 主战场（场景 S3–S6/S13/S14）
+
+```mermaid
+flowchart LR
+    M["F3：状态条（芯片显隐）+ 终端网格 + 广播栏"]
+    M --> F4["F4 终端组件 ×N"]
+    M <-. "状态帧" .-> F6["F6 状态同步"]
+```
+
+#### F4 终端组件 — 单个终端窗格（场景 S3/S4/S14）
+
+```mermaid
+flowchart LR
+    M["F4：xterm.js 渲染 + 最大化/还原"]
+    M -- "键盘输入" --> F5["F5 WS 客户端"]
+    F5 -- "输出帧" --> M
+```
+
+#### F5 WS 客户端 — 那条电话线
+
+```mermaid
+flowchart LR
+    M["F5：维持一条 WS + 断线重连 + 按会话分发帧"]
+    M <-. "通道②" .-> B7b["B7b 数据流通道"]
+```
+
+#### F6 状态同步 — 让徽标不撒谎
+
+```mermaid
+flowchart LR
+    S1["状态帧（通道②推送）"] --> M["F6：会话列表 + 状态徽标"]
+    S2["全量快照（通道①，打开/重连时拉一次）"] --> M
+    M --> UI["F1/F2/F3 界面刷新"]
+```
 
 ### 依赖规则（谁能调用谁）
 
@@ -189,13 +324,13 @@ flowchart TB
 DSH 没有 `ctx.router`/`ctx.ws` 这类东西，真实 API 与参考如下（均已在框架源码核实）：
 
 ```ts
-// ① 数据面：WebSocket 路由（参考框架内建 packages/client/connection/src/index.ts）
+// ① 数据流通道：WebSocket 路由（参考框架内建 packages/client/connection/src/index.ts）
 ctx.effect(
   () => ctx.webServer.registerUpgrade({ path: '/term-io', handler: onTermIo }),
-  'term-manager: 数据面 WS',
+  'term-manager: 数据流通道 WS',
 )
 
-// ② 控制面 RPC：两种候选，M2 第一天验证后定案——
+// ② 指令通道 RPC：两种候选，M2 第一天验证后定案——
 //    a) ctx.connection.rpc.handle('/term-manager', handler)（通用 RPC 通道）
 //    b) 经 typert remotes 注册，前端得到类型化的 ctx.remote.termManager.*
 //    （参考 packages/extensions/ui-cordis + packages/api/gateway 的接线方式）
@@ -203,6 +338,59 @@ ctx.effect(
 // ③ AI 工具：参考框架官方教程 docs/cookbook/adding-a-tool.md
 ctx.tools.register(defineTool({ name: 'tm_send', /* … */ }))
 ```
+
+## 3.2 代码文件在哪
+
+### 目录树
+
+```
+terminal-manager/
+├── intent/intent.md          # 意图（已接受）
+├── spec.md                   # 需求与设计规格（已批准）
+├── plan.md                   # 构建计划（已批准）
+├── docs/                     # 方案文档（本文）
+├── prototypes/               # M1 交互原型 + 选型结论
+├── src/                      # 后端（M2–M3 实现）
+│   ├── index.ts              # 插件入口：装配所有模块
+│   ├── config.ts             # 插件配置（默认值、数据目录）
+│   ├── connection-store.ts   # B1 连接存储
+│   ├── transport/
+│   │   ├── types.ts          # 传输层接口（write/resize/close/onData）
+│   │   ├── ssh.ts            # B2 SSH 传输（ssh2，shell()+PTY）
+│   │   └── telnet.ts         # B3 Telnet 传输（裸 TCP）
+│   ├── session-manager.ts    # B4 会话管理器（心脏）
+│   ├── wait-policy.ts        # B5 完成判定
+│   ├── tools.ts              # B6 AI 工具 ×6
+│   ├── remotes.ts            # B7a 指令通道
+│   └── ws-io.ts              # B7b 数据流通道
+├── client/                   # 前端（M4 实现）
+│   ├── index.tsx             # F1 入口挂载
+│   ├── TerminalPanel.tsx     # F1 面板外壳 + F6 状态同步
+│   ├── ConnectionsTab.tsx    # F2 连接页
+│   ├── TerminalsTab.tsx      # F3 终端页
+│   ├── TermView.tsx          # F4 终端组件
+│   ├── ws.ts                 # F5 WS 客户端
+│   └── *.module.css          # 样式（视觉基准 = prototypes/full-view-bc.html）
+├── tests/                    # 自动化测试（每模块必配）
+└── evals/                    # Test 阶段的场景考题（每场景 ≥1 条）
+```
+
+### 新人必看映射表：想改什么 → 去改哪个文件
+
+| 想改什么 | 去改哪个文件 |
+|---|---|
+| 加一种新协议（如串口） | `src/transport/` 加一个实现 + `client/ConnectionsTab.tsx` 加协议选项 |
+| 连接表单的必填/选填规则 | `client/ConnectionsTab.tsx`（前端校验）+ `src/connection-store.ts`（后端校验） |
+| 连接配置存哪、什么格式 | `src/connection-store.ts` |
+| 完成判定的默认值/行为 | `src/wait-policy.ts` + `src/config.ts` |
+| 给 AI 加一个新工具 | `src/tools.ts` |
+| 终端的长相、网格布局、状态条 | `client/TerminalsTab.tsx`、`client/TermView.tsx` + 对应 `.module.css`（照 `prototypes/full-view-bc.html`） |
+| 广播的行为（后端逻辑） | `src/session-manager.ts` 的 broadcast |
+| 广播栏的交互（前端） | `client/TerminalsTab.tsx` |
+| 错误码增删 | 本文档 3.6 + 后端错误产生处（`src/` 各模块） |
+| 面板入口/页签结构 | `client/index.tsx` + `client/TerminalPanel.tsx` |
+| 状态徽标不同步 | `client/TerminalPanel.tsx`（F6）+ `src/ws-io.ts`（status 帧） |
+| WS 断线重连表现 | `client/ws.ts` + `src/ws-io.ts`（心跳） |
 
 ## 3.3 核心需求 → 代码路径（走一遍）
 
@@ -251,7 +439,7 @@ ctx.tools.register(defineTool({ name: 'tm_send', /* … */ }))
 
 ## 3.6 错误码约定
 
-所有错误（控制面 RPC 响应、数据面 `{kind:'status'}` 帧、AI 工具返回）统一格式：
+所有错误（指令通道 RPC 响应、数据流通道 `{kind:'status'}` 帧、AI 工具返回）统一格式：
 
 ```
 { code: 错误码, message: 人话描述 }
@@ -286,30 +474,6 @@ ctx.tools.register(defineTool({ name: 'tm_send', /* … */ }))
 
 原则：**新增协议 = 加一个传输实现；新增能力 = 加一个工具 + 接缝模块；核心池（会话管理器）保持稳定**。
 
-## 3.8 仓库目录总览
-
-```
-terminal-manager/
-├── intent/intent.md      # 意图（已接受）
-├── spec.md               # 需求与设计规格（已批准）
-├── plan.md               # 构建计划（已批准）
-├── docs/                 # 方案文档（本文）
-├── prototypes/           # M1 交互原型 + 选型结论
-├── src/                  # 后端（M2–M3）
-│   ├── index.ts          # 插件入口（装配所有模块）
-│   ├── config.ts         # 插件配置
-│   ├── connection-store.ts   # B1
-│   ├── transport/{types,ssh,telnet}.ts   # B2/B3
-│   ├── session-manager.ts    # B4
-│   ├── wait-policy.ts        # B5
-│   ├── tools.ts              # B6
-│   ├── remotes.ts            # B7 控制面
-│   └── ws-io.ts              # B7 数据面
-├── client/               # 前端（M4）
-├── tests/                # 自动化测试（每模块必配）
-└── evals/                # Test 阶段的场景考题（每场景 ≥1 条）
-```
-
 ---
 
 # 附：里程碑与场景对应
@@ -317,8 +481,8 @@ terminal-manager/
 | 里程碑 | 交付 | 覆盖场景 |
 |---|---|---|
 | M2 连接核心 | B1/B2/B3/B4/B5 + 测试 | S2、S4、S5、S7（后端）、S11 |
-| M3 AI 工具面 | B6/B7 控制面 + 测试 | S7、S8、S9 |
-| M4 真界面 | 前端 6 模块 + B7 数据面 | S1、S3、S6、S10、S12、S13、S14 |
+| M3 AI 工具面 | B6/B7 指令通道 + 测试 | S7、S8、S9 |
+| M4 真界面 | 前端 6 模块 + B7 数据流通道 | S1、S3、S6、S10、S12、S13、S14 |
 | M5 收尾验收 | 边界打磨 + 文档 + 14 场景验收 + eval 考题 | 全部 |
 
 # 附：待确认项

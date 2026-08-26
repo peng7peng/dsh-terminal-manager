@@ -59,6 +59,9 @@ function findFrame(): HTMLElement | null {
  *（避免 ui-conversation 的 DetailsPanel 冒出来），聊天固定宽、终端覆盖层占右侧空白。
  * 关闭时还原 DSH 原值，聊天恢复 1fr。
  * 返回终端区左边界（= sidebar + chat），供覆盖层定位。
+ *
+ * 性能：用 rAF 合批 apply（每帧最多一次），MutationObserver 只盯 style 被 DSH 覆盖，
+ * ResizeObserver 盯侧边栏宽度变化（收起/展开）；避免每次样式变更都强制 reflow。
  */
 export function useFrameLayout(active: boolean, chat: number): number {
   const [left, setLeft] = useState(0)
@@ -67,7 +70,6 @@ export function useFrameLayout(active: boolean, chat: number): number {
   const chatRef = useRef(chat)
   chatRef.current = chat
 
-  // 激活/关闭：装 observer、记原值；关闭时还原
   useEffect(() => {
     if (!active) {
       const frame = frameRef.current
@@ -83,23 +85,38 @@ export function useFrameLayout(active: boolean, chat: number): number {
     if (frame === null) return
     frameRef.current = frame
     if (originalRef.current === undefined) originalRef.current = frame.style.gridTemplateColumns
+
+    let raf = 0
     const apply = (): void => {
-      const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
+      raf = 0
+      const f = frameRef.current
+      if (f === null) return
+      const sidebar = (f.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
       const target = `${sidebar}px ${chatRef.current}px 0px`
-      if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
-      setLeft(prev => (prev === sidebar + chatRef.current ? prev : sidebar + chatRef.current))
+      if (f.style.gridTemplateColumns !== target) f.style.gridTemplateColumns = target
+      const next = sidebar + chatRef.current
+      setLeft(prev => (prev === next ? prev : next))
     }
-    apply()
-    const mo = new MutationObserver(apply)
-    mo.observe(frame, { attributes: true, attributeFilter: ['style', 'class'], childList: true })
-    window.addEventListener('resize', apply)
+    const schedule = (): void => {
+      if (raf !== 0) return
+      raf = requestAnimationFrame(apply)
+    }
+
+    schedule()
+    const mo = new MutationObserver(schedule)
+    mo.observe(frame, { attributes: true, attributeFilter: ['style'] })
+    const sidebar = frame.children[0] as HTMLElement | undefined
+    const ro = new ResizeObserver(schedule)
+    if (sidebar !== undefined) ro.observe(sidebar)
+    window.addEventListener('resize', schedule)
     return () => {
+      if (raf !== 0) cancelAnimationFrame(raf)
       mo.disconnect()
-      window.removeEventListener('resize', apply)
+      ro.disconnect()
+      window.removeEventListener('resize', schedule)
     }
   }, [active])
 
-  // chat 变化（拖动）时重设网格
   useEffect(() => {
     if (!active) return
     const frame = frameRef.current
@@ -107,7 +124,8 @@ export function useFrameLayout(active: boolean, chat: number): number {
     const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
     const target = `${sidebar}px ${chat}px 0px`
     if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
-    setLeft(prev => (prev === sidebar + chat ? prev : sidebar + chat))
+    const next = sidebar + chat
+    setLeft(prev => (prev === next ? prev : next))
   }, [active, chat])
 
   return left

@@ -62,9 +62,8 @@
   .status-strip .summary b { color: var(--ok); }
   .s-chip { display: flex; align-items: center; gap: 7px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 4px 12px; font-size: 12px; white-space: nowrap; font-weight: 600; }
   .s-chip .led { width: 8px; height: 8px; border-radius: 50%; }
-  .led.on { background: var(--ok); box-shadow: 0 0 7px var(--ok); animation: pulse 2s infinite; }
+  .led.on { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
   .led.off { background: var(--dim); opacity: .45; }
-  @keyframes pulse { 50% { opacity: .45; } }
   .s-chip button { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .s-chip button:hover { color: var(--accent); }
   .s-chip.clickable { cursor: pointer; }
@@ -276,9 +275,8 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 /* ── 状态条（C）：芯片点选 = 显示/隐藏终端；✕/▶ = 断开/连接（分离，防误触） ── */
 function renderStrip() {
   const on = CONNS.filter(c => c.status === 'on').length;
-  const hiddenCount = SESSIONS.filter(s => s.hidden).length;
   $('statusStrip').innerHTML =
-    `<span class="summary">在线 <b>${on}</b> / ${CONNS.length}${hiddenCount > 0 ? ` · 已隐藏 ${hiddenCount}` : ''}</span>` +
+    `<span class="summary">在线 <b>${on}</b> / ${CONNS.length}</span>` +
     CONNS.map(c => {
       const s = SESSIONS.find(x => x.connId === c.id);
       const hid = s !== undefined && s.hidden === true;

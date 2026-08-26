@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>重新设计 · DSH 仿真 v5 — 网格分屏（列优先→窄则定行高→右侧滚动）</title>
+<title>重新设计 · DSH 仿真 v5 — 上下堆叠（高度均分→矮于阈值固定→右侧滚动）</title>
 <style>
   :root {
     --dsw-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Helvetica Neue',Helvetica,Arial,sans-serif;
@@ -188,7 +188,7 @@
   .colHandle::after { content:''; position:absolute; inset:0 2px; border-radius:3px; opacity:0; transition:opacity .15s; background:var(--dsw-alias-state-business-primary); }
   .colHandle:hover::after,.colHandle.drag::after { opacity:1; }
 
-  /* 中右：真终端（网格分屏） */
+  /* 中右：真终端（上下堆叠） */
   .term { flex:1 1 0; min-width:300px; display:flex; flex-direction:column; min-height:0; background:var(--dsw-alias-bg-base); border-right:1px solid var(--dsw-alias-border-l2); }
   .termHead { flex:none; display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); }
   .termHead .t { font-size:13px; font-weight:600; }
@@ -357,7 +357,7 @@ const CONNS=[
 ];
 const SESSIONS=[]; // {id,connId,lines,input,hidden}
 let editing=null,seq=0,authMode='password',proto='ssh',focusedSid=null,viewMax=false;
-const MIN_COL_W=200, MIN_ROW_H=180; // 阈值：列宽<200 换行；行高溢出后固定 180
+const MIN_ROW_H=180; // 阈值：行高矮于 180 就锁死,超出高度右侧滚动
 const $=id=>document.getElementById(id);
 const promptOf=c=>c.proto==='ssh'?`${c.user||'admin'}@${c.label}:~$ `:`${c.label}> `;
 const FAKE_OUTPUT=cmd=>[`执行: ${cmd}`,'----------------------------------------','Interface      Status    Protocol','Gig0/0         up        up','Gig0/1         up        up',`完成于 ${new Date().toLocaleTimeString()}`];
@@ -383,7 +383,7 @@ function disconnect(cid){const c=CONNS.find(x=>x.id===cid);if(c)c.status='off';c
 function openSession(c){if(SESSIONS.some(s=>s.connId===c.id))return;const s={id:'s'+(++seq),connId:c.id,lines:[],input:'',hidden:false};SESSIONS.push(s);pushLine(s,`[已连接 ${c.host}:${c.port}]`,'sys');pushLine(s,c.proto==='ssh'?`Welcome to ${c.label} (SSH)`:`Connected to ${c.label}`,'sys');focusedSid=s.id;renderGrid();renderBchips();}
 function toggleHide(cid){const s=SESSIONS.find(x=>x.connId===cid);if(!s)return;s.hidden=!s.hidden;if(s.hidden&&focusedSid===s.id)focusedSid=null;renderSess();renderGrid();}
 
-/* ─── 网格分屏：列优先 → 窄于阈值换行 → 行高溢出固定+右侧滚动 ─── */
+/* ─── 上下堆叠：单列,高度先均分；矮于阈值固定行高,右侧滚动 ─── */
 function renderGrid(){
   const wrap=$('splitwrap'),grid=$('grid');
   $('onlineCount').textContent=CONNS.filter(c=>c.status==='on').length;
@@ -394,14 +394,12 @@ function renderGrid(){
   if(vis.length===0){grid.style.setProperty('--cols',1);grid.style.gridAutoRows='100%';grid.innerHTML='<div class="pane empty">所有终端已隐藏 —— 点最右「活跃会话」恢复（连接保持）</div>';renderBchips();return;}
   let panes=vis;
   if(viewMax&&focusedSid)panes=vis.filter(s=>s.id===focusedSid);
-  const W=wrap.clientWidth,H=wrap.clientHeight;
-  let cols,rows,rowH;
-  if(viewMax&&focusedSid){cols=1;rows=1;rowH=H;}
+  const H=wrap.clientHeight;
+  let cols=1,rows,rowH;
+  if(viewMax&&focusedSid){rows=1;rowH=H;}
   else{
-    cols=Math.max(1,Math.floor((W+1)/MIN_COL_W)); // 能放几列（列宽阈值）
-    cols=Math.min(cols,panes.length);             // 不超过窗格数
-    rows=Math.ceil(panes.length/cols);
-    rowH=(rows*MIN_ROW_H<=H)?Math.floor(H/rows):MIN_ROW_H; // 撑得下→按行均分；撑不下→固定行高（右侧滚动）
+    rows=panes.length;                                       // 单列上下堆叠
+    rowH=(rows*MIN_ROW_H<=H)?Math.floor(H/rows):MIN_ROW_H;   // 撑得下→按行均分；撑不下→固定行高（右侧滚动）
   }
   grid.style.setProperty('--cols',cols);
   grid.style.gridAutoRows=rowH+'px';
@@ -462,7 +460,7 @@ function delConn(id){disconnect(id);const i=CONNS.findIndex(x=>x.id===id);if(i>=
 /* 尺寸变化（窗口缩放 / 拖动中间条）时按阈值重排列 */
 if(window.ResizeObserver){new ResizeObserver(()=>renderGrid()).observe($('splitwrap'));}
 
-appendMsg('ai','你好，我是终端助手。右侧是网格分屏终端——列优先铺，窄到阈值就换行并固定行高，超出高度右侧出现滚动条；点哪个窗格就在哪个里直接敲（真终端，无底部输入条）；中间分隔条可拖动。','AI');
+appendMsg('ai','你好，我是终端助手。右侧终端是上下堆叠：新会话往下叠，高度先均分；叠到每个矮于阈值就锁死行高，右侧出现滚动条；点哪个窗格就在哪个里直接敲（真终端，无底部输入条）；中间分隔条可拖动。','AI');
 setProto('ssh');renderConns();renderSess();renderGrid();
 </script>
 </body>

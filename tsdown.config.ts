@@ -1,4 +1,23 @@
 import { defineConfig } from 'tsdown'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+
+/** 把第三方 CSS 文本内联成虚拟模块 `tm:xterm-css`（对齐 DSH `?inline` 的产物形态，但避开 query 解析歧义）。 */
+const inlineCssPlugin = {
+  name: 'tm-inline-css',
+  resolveId(source: string) {
+    if (source === 'tm:xterm-css') return '\0tm-xterm-css'
+    return null
+  },
+  load(id: string) {
+    if (id !== '\0tm-xterm-css') return null
+    const path = require.resolve('@xterm/xterm/css/xterm.css')
+    const content = readFileSync(path, 'utf8')
+    return `export default ${JSON.stringify(content)};`
+  },
+}
 
 /**
  * 客户端 bundle 的模块表基线（与 deepseek-harness packages/client/web/src/platform.ts
@@ -42,6 +61,7 @@ export default defineConfig([
     jsx: 'automatic',
     jsxImportSource: 'react',
     external: CLIENT_BASELINE_EXTERNALS,
+    plugins: [inlineCssPlugin],
     outputOptions: {
       entryFileNames: 'client.js',
       banner: 'window.__ModuleLoader__.load({ id: "dsh-terminal-manager", factory: (require) => {',

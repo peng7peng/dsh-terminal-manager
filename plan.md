@@ -81,7 +81,7 @@
 3. 产品负责人体验后**选定一个**（可提混合意见），选型结论记录进 git 提交，作为 M4 界面实现的视觉基准；未选定前 M4 不开工。
 
 **M2 — 连接核心（host 半，无 UI）**
-1. `wait-policy` + `connection-store`（含持久化与 0600）+ 单测。
+1. `wait-policy` + `command-guard` + `connection-store`（含持久化与权限处理）+ 单测。
 2. `transport/ssh` + `transport/telnet`；`transport.spec.ts` 用进程内 ssh2 Server / TCP echo 跑通连接、收发、断连、错误路径。
 3. `session-manager`：状态机、环形缓冲、订阅、独占发送、`sendAndWait`；单测覆盖并发与忙碌路径。
 4. 验收：`pnpm test` 全绿；无 UI 也能用脚本走通「保存连接 → connect → sendAndWait → read → disconnect」。

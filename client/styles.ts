@@ -5,7 +5,7 @@
  */
 
 export const WORKSPACE_CSS = `
-.tm-overlay { position:fixed; top:0; right:0; bottom:0; z-index:50; display:flex; background:var(--dsw-alias-bg-base, #fff); color:var(--dsw-alias-label-primary, #000); font:14px/1.5 var(--dsw-font-family, system-ui, sans-serif); box-shadow:-2px 0 12px rgba(0,0,0,.12); }
+.tm-overlay { position:fixed; top:0; right:0; bottom:0; width:var(--tm-width,45%); z-index:50; display:flex; background:var(--dsw-alias-bg-base, #fff); color:var(--dsw-alias-label-primary, #000); font:14px/1.5 var(--dsw-font-family, system-ui, sans-serif); box-shadow:-2px 0 12px rgba(0,0,0,.12); }
 .tm-overlay[hidden] { display:none; }
 
 /* 两栏：终端区 | 连接面板 */

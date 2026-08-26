@@ -4,7 +4,7 @@
  * @module dsh-terminal-manager/client/store
  */
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 let visible = false
 const listeners = new Set<() => void>()
@@ -30,42 +30,22 @@ export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-/** DSH 布局面板 API（apply 时注入）。 */
-export interface LayoutPanel {
-  openDetails(): void
-  closeDetails(): void
-}
-let layoutPanel: LayoutPanel | undefined
-export function setLayoutPanel(panel: LayoutPanel | undefined): void { layoutPanel = panel }
+/** 工作区打开时注入的布局覆盖：把 .app 网格第三列强制成终端宽，聊天（第二列 1fr）自动收窄。 */
+const LAYOUT_OVERRIDE_ID = 'tm-layout-override'
+const LAYOUT_OVERRIDE_CSS = `.app { grid-template-columns: var(--sbw,264px) minmax(0,1fr) var(--tm-width,45%) !important; }`
 
-/** 测 DSH 详情栏宽度（.app grid 第三列）。详情栏关闭时为 0。 */
-function readDetailsWidth(): number {
-  if (typeof document === 'undefined') return 0
-  const app = document.querySelector('.app')
-  if (app === null) return 0
-  const cols = getComputedStyle(app).gridTemplateColumns.split(/\s+/)
-  const details = parseFloat(cols[2] ?? '0')
-  return Number.isFinite(details) ? details : 0
-}
-
-/** 跟踪详情栏宽度（开/关、拖动、收起侧边栏都重测）。 */
-export function useDetailsWidth(): number {
-  const [w, setW] = useState(() => readDetailsWidth())
-  useEffect(() => {
-    const measure = (): void => setW(readDetailsWidth())
-    measure()
-    const app = document.querySelector('.app')
-    const mo = new MutationObserver(measure)
-    if (app !== null) mo.observe(app, { attributes: true, attributeFilter: ['class', 'style'] })
-    window.addEventListener('resize', measure)
-    // 详情栏宽度变化是异步的（state → 重渲染），多量几次
-    const t = setInterval(measure, 200)
-    return () => { mo.disconnect(); window.removeEventListener('resize', measure); clearInterval(t) }
-  }, [])
-  return w
-}
-
-/** 打开终端工作区时调用：撑开详情栏让聊天收窄。 */
-export function ensureDetailsOpen(): void {
-  try { layoutPanel?.openDetails() } catch { /* 布局未就绪 */ }
+/** 注入/移除布局覆盖。打开时调 true，关闭时调 false。 */
+export function setLayoutOverride(on: boolean): void {
+  if (typeof document === 'undefined') return
+  const existing = document.getElementById(LAYOUT_OVERRIDE_ID)
+  if (on) {
+    if (existing === null) {
+      const tag = document.createElement('style')
+      tag.id = LAYOUT_OVERRIDE_ID
+      tag.textContent = LAYOUT_OVERRIDE_CSS
+      document.head.appendChild(tag)
+    }
+  } else if (existing !== null) {
+    existing.remove()
+  }
 }

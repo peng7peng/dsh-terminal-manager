@@ -98,7 +98,8 @@ export const REMOTE_ERROR_CODES = [
 
 /**
  * 把指令通道挂到 ctx.connection.rpc（若可用）。返回卸载函数。
- * 通道路径 /term-manager；信任策略 trusted-host（受信主机/loopback 均可）。
+ * 挂载方式：在共享 /api 通道上拦截 `term-manager.*` 端点（浏览器已知往 /api POST）。
+ * 信任策略 trusted-host（受信主机/loopback 均可）。
  */
 export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
   const connection = ctx.get('connection')
@@ -106,11 +107,14 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
     // 测试环境或无 client-connection 的部署：不挂载，调度函数仍可直测
     return () => {}
   }
-  const handler = async (endpoint: string, payload: unknown, signal: AbortSignal) =>
-    dispatch(endpoint, (payload ?? {}) as Payload, deps, signal)
+  const matches = (endpoint: string): boolean => endpoint.startsWith('term-manager.')
+  const handler = async (endpoint: string, payload: unknown, signal: AbortSignal) => {
+    // 拦截器收到的 endpoint 形如 'term-manager.connections.list'；dispatch 用后缀
+    const method = endpoint.replace(/^term-manager\./, '')
+    return dispatch(method, (payload ?? {}) as Payload, deps, signal)
+  }
   let disposer: Promise<() => Promise<void>> | undefined
-  // 注册异步返回卸载器；effect 同步返回清理函数，内部 await 卸载
-  void connection.rpc.handle('/term-manager', handler, { authority: 'trusted-host' }).then(d => { disposer = d })
+  void connection.rpc.intercept('/api', matches, handler, { authority: 'trusted-host' }).then(d => { disposer = d })
   return () => {
     void disposer?.then(d => d())
   }

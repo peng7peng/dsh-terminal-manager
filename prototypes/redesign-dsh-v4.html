@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>重新设计 · DSH 仿真 v4 — 真终端 + 递归分屏 + 可拖动</title>
+<style>
+  :root {
+    --dsw-font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Helvetica Neue',Helvetica,Arial,sans-serif;
+    --dsw-font-code:'SF Mono','JetBrains Mono','Fira Code',Consolas,'Liberation Mono',Menlo,Courier,'PingFang SC','Microsoft YaHei';
+    --ds-ease-in-out:cubic-bezier(.4,0,.2,1); --ds-transition-duration-slow:.3s;
+    --dsw-static-neutral-bluish-00:rgb(255,255,255); --dsw-static-neutral-bluish-50:rgb(249,250,251);
+    --dsw-static-neutral-bluish-60:rgb(245,246,247); --dsw-static-neutral-bluish-75:rgb(241,243,245);
+    --dsw-static-neutral-bluish-100:rgb(235,238,242); --dsw-static-neutral-bluish-200:rgb(225,229,238);
+    --dsw-static-neutral-bluish-300:rgb(207,211,214); --dsw-static-neutral-bluish-400:rgb(173,178,184);
+    --dsw-static-neutral-bluish-500:rgb(151,157,166); --dsw-static-neutral-bluish-600:rgb(129,133,140);
+    --dsw-static-neutral-bluish-700:rgb(97,102,107); --dsw-static-neutral-bluish-750:rgb(67,69,74);
+    --dsw-static-neutral-bluish-800:rgb(53,54,56); --dsw-static-neutral-bluish-850:rgb(44,44,46);
+    --dsw-static-neutral-bluish-875:rgb(35,35,36); --dsw-static-neutral-bluish-900:rgb(27,27,28);
+    --dsw-static-neutral-bluish-950:rgb(21,21,23); --dsw-static-neutral-bluish-1000:rgb(15,17,21);
+    --dsw-static-deepseek-50:rgb(237,243,254); --dsw-static-deepseek-100:rgb(228,237,253);
+    --dsw-static-deepseek-200:rgb(211,226,255); --dsw-static-deepseek-300:rgb(183,200,254);
+    --dsw-static-deepseek-400:rgb(103,158,254); --dsw-static-deepseek-450:rgb(86,134,254);
+    --dsw-static-deepseek-500:rgb(65,118,230); --dsw-static-deepseek-600:rgb(72,104,178);
+    --dsw-static-deepseek-800:rgb(52,65,91); --dsw-static-deepseek-900:rgb(40,49,66);
+    --dsw-static-green-400:rgb(78,209,126); --dsw-static-green-500:rgb(34,197,94); --dsw-static-green-100:rgb(230,250,237);
+    --dsw-static-red-400:rgb(242,90,90); --dsw-static-red-500:rgb(239,68,68); --dsw-static-red-600:rgb(236,19,19);
+    --dsw-static-amber-400:rgb(247,173,49); --dsw-static-amber-500:rgb(245,158,11); --dsw-static-amber-600:rgb(221,134,41);
+    --dsw-alias-bg-base:var(--dsw-static-neutral-bluish-00);
+    --dsw-alias-bg-layer-2:var(--dsw-static-neutral-bluish-00);
+    --dsw-alias-bg-module-platform:var(--dsw-static-neutral-bluish-60);
+    --dsw-specific-sidebar-fill:var(--dsw-static-neutral-bluish-50);
+    --dsw-specific-input-major:var(--dsw-static-neutral-bluish-00);
+    --dsw-specific-selector:var(--dsw-static-neutral-bluish-60);
+    --dsw-specific-bubble:var(--dsw-static-deepseek-50);
+    --dsw-specific-bubble-highlight:var(--dsw-static-deepseek-200);
+    --dsw-alias-bg-mask-1:rgba(0,0,0,.24);
+    --dsw-alias-border-l1:rgba(0,0,0,.1);
+    --dsw-alias-border-l2-darkmode-thin:rgba(0,0,0,.09);
+    --dsw-alias-border-l2:rgba(0,0,0,.1);
+    --dsw-alias-border-l3:rgba(0,0,0,.12);
+    --dsw-alias-border-l4:rgba(0,0,0,.16);
+    --dsw-alias-label-primary:var(--dsw-static-neutral-bluish-1000);
+    --dsw-alias-label-primary-inverted:var(--dsw-static-neutral-bluish-00);
+    --dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-700);
+    --dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-600);
+    --dsw-alias-label-caption:var(--dsw-static-neutral-bluish-400);
+    --dsw-alias-button-info-fill:var(--dsw-static-deepseek-500);
+    --dsw-alias-button-info-hover:var(--dsw-static-deepseek-400);
+    --dsw-alias-button-elevated-fill:var(--dsw-static-neutral-bluish-00);
+    --dsw-alias-button-floating-hover:var(--dsw-static-neutral-bluish-75);
+    --dsw-alias-interactive-bg-hover:rgba(38,49,72,.06);
+    --dsw-alias-interactive-bg-hover-accent:rgba(38,49,72,.14);
+    --dsw-alias-interactive-bg-active:rgba(38,49,72,.1);
+    --dsw-alias-state-business-primary:var(--dsw-static-deepseek-500);
+    --dsw-alias-state-business-tertiary:var(--dsw-static-deepseek-100);
+    --dsw-alias-state-success-primary:var(--dsw-static-green-500);
+    --dsw-alias-state-success-tertiary:var(--dsw-static-green-100);
+    --dsw-alias-state-error-primary:var(--dsw-static-red-600);
+    --dsw-alias-state-warn-primary:var(--dsw-static-amber-500);
+    --dsw-shadow-lv2:0 4px 16px rgba(0,0,0,.06);
+    --term-bg:#0b0e14; --term-text:#d8dee9; --term-dim:#5c6370; --term-cmd:#61afef; --term-green:#98c379;
+    --term-bar:#13161c; --term-bar-focus:#1b2333; --term-cursor:#e6c07b;
+  }
+  body[data-ds-dark-theme] {
+    --dsw-static-neutral-bluish-50:rgb(249,250,251); --dsw-static-neutral-bluish-60:rgb(249,250,251);
+    --dsw-static-neutral-bluish-75:rgb(241,243,245); --dsw-static-neutral-bluish-100:rgb(235,238,242);
+    --dsw-static-neutral-bluish-200:rgb(225,229,238); --dsw-static-neutral-bluish-300:rgb(207,211,214);
+    --dsw-static-neutral-bluish-400:rgb(173,178,184); --dsw-static-neutral-bluish-500:rgb(151,157,166);
+    --dsw-static-neutral-bluish-600:rgb(129,133,140); --dsw-static-neutral-bluish-700:rgb(97,102,107);
+    --dsw-static-neutral-bluish-750:rgb(67,69,74); --dsw-static-neutral-bluish-800:rgb(53,54,56);
+    --dsw-static-neutral-bluish-850:rgb(44,44,46); --dsw-static-neutral-bluish-875:rgb(35,35,36);
+    --dsw-static-neutral-bluish-900:rgb(27,27,28); --dsw-static-neutral-bluish-950:rgb(21,21,23);
+    --dsw-static-neutral-bluish-1000:rgb(15,17,21); --dsw-static-neutral-bluish-00:rgb(255,255,255);
+    --dsw-alias-bg-base:var(--dsw-static-neutral-bluish-950);
+    --dsw-alias-bg-layer-2:var(--dsw-static-neutral-bluish-850);
+    --dsw-alias-bg-module-platform:var(--dsw-static-neutral-bluish-800);
+    --dsw-specific-sidebar-fill:var(--dsw-static-neutral-bluish-900);
+    --dsw-specific-input-major:var(--dsw-static-neutral-bluish-850);
+    --dsw-specific-selector:var(--dsw-static-neutral-bluish-800);
+    --dsw-specific-bubble:var(--dsw-static-neutral-bluish-850);
+    --dsw-specific-bubble-highlight:var(--dsw-static-neutral-bluish-750);
+    --dsw-alias-bg-mask-1:rgba(0,0,0,.5);
+    --dsw-alias-border-l1:rgba(255,255,255,.1);
+    --dsw-alias-border-l2-darkmode-thin:rgba(255,255,255,.06);
+    --dsw-alias-border-l2:rgba(255,255,255,.1);
+    --dsw-alias-border-l3:rgba(255,255,255,.16);
+    --dsw-alias-border-l4:rgba(255,255,255,.2);
+    --dsw-alias-label-primary:var(--dsw-static-neutral-bluish-50);
+    --dsw-alias-label-primary-inverted:var(--dsw-static-neutral-bluish-900);
+    --dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-300);
+    --dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-400);
+    --dsw-alias-label-caption:var(--dsw-static-neutral-bluish-600);
+    --dsw-alias-button-info-fill:var(--dsw-static-deepseek-400);
+    --dsw-alias-button-info-hover:var(--dsw-static-deepseek-500);
+    --dsw-alias-button-elevated-fill:var(--dsw-static-neutral-bluish-850);
+    --dsw-alias-button-floating-hover:var(--dsw-static-neutral-bluish-800);
+    --dsw-alias-interactive-bg-hover:rgba(255,255,255,.08);
+    --dsw-alias-interactive-bg-hover-accent:rgba(255,255,255,.24);
+    --dsw-alias-interactive-bg-active:rgba(255,255,255,.14);
+    --dsw-alias-state-business-primary:var(--dsw-static-deepseek-400);
+    --dsw-alias-state-business-tertiary:var(--dsw-static-deepseek-800);
+    --dsw-alias-state-error-primary:var(--dsw-static-red-400);
+    --dsw-shadow-lv2:0 4px 16px rgba(0,0,0,.4);
+    --term-bg:#0b0e14; --term-bar:#0f1218; --term-bar-focus:#19223a;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); font-family:var(--dsw-font-family); font-size:14px; line-height:1.5; height:100vh; overflow:hidden; -webkit-font-smoothing:antialiased; }
+  .app { display:flex; height:100vh; width:100%; --sbw:264px; --cw:460px; }
+
+  /* ─── 左：DSH 侧边栏（忠实） ─── */
+  .sidebar { flex:0 0 var(--sbw); width:var(--sbw); background:var(--dsw-specific-sidebar-fill); border-right:1px solid var(--dsw-alias-border-l1); display:flex; flex-direction:column; height:100%; padding:6px 12px; overflow:hidden; transition:flex-basis .2s var(--ds-ease-in-out),width .2s var(--ds-ease-in-out); font-size:14px; }
+  .app.collapsed { --sbw:56px; }
+  .app.collapsed .sidebar { padding:18px 10px 6px; }
+  .logoRow { flex:none; display:flex; align-items:center; justify-content:flex-end; gap:8px; height:60px; padding:8px 0 8px 4px; margin-bottom:8px; overflow:hidden; }
+  .app.collapsed .logoRow { height:36px; padding:0; margin-bottom:12px; justify-content:flex-start; }
+  .brand { flex:1; min-width:0; display:inline-flex; align-items:center; overflow:hidden; border:none; background:transparent; color:inherit; cursor:pointer; }
+  .brandIdentity { display:inline-flex; align-items:center; gap:8px; height:24px; min-width:0; }
+  .brandMark { flex:none; font-size:20px; line-height:1; }
+  .brandName { font-size:18px; font-weight:600; line-height:24px; letter-spacing:.04em; white-space:nowrap; }
+  .app.collapsed .brandName,.app.collapsed .newSessionLabel,.app.collapsed .sessTxt,.app.collapsed .sessMeta,.app.collapsed .footTxt { display:none; }
+  .app.collapsed .brand { display:none; }
+  .iconButton { flex:none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; border-radius:50%; background:transparent; cursor:pointer; color:var(--dsw-alias-label-secondary); font-size:16px; }
+  .iconButton:hover { background:var(--dsw-alias-interactive-bg-hover); }
+  .app.collapsed .iconButton { width:36px; height:36px; color:var(--dsw-alias-label-primary); }
+  .newSession { flex:none; display:flex; align-items:center; justify-content:center; gap:6px; height:38px; padding:8px 16px; margin:0 2px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:12px; background:var(--dsw-alias-button-elevated-fill); color:var(--dsw-alias-label-primary); font-size:14px; font-weight:500; cursor:pointer; overflow:hidden; }
+  .newSession:hover { background:var(--dsw-alias-button-floating-hover); }
+  .app.collapsed .newSession { align-self:flex-start; width:36px; height:36px; padding:0; margin:0 0 12px; border-color:transparent; background:transparent; }
+  .newSessionLabel { max-width:200px; overflow:hidden; white-space:nowrap; }
+  .regionArea { flex:1; min-height:0; display:flex; flex-direction:column; margin-left:-4px; margin-right:-12px; padding-left:4px; overflow:hidden; }
+  .app.collapsed .regionArea { margin:0; padding:0; }
+  .sessScroll { flex:1; overflow-y:auto; }
+  .sessItem { display:flex; align-items:center; gap:9px; padding:8px 12px; border-radius:8px; color:var(--dsw-alias-label-secondary); font-size:13px; cursor:pointer; white-space:nowrap; margin:0 4px; }
+  .sessItem:hover { background:var(--dsw-alias-interactive-bg-hover); color:var(--dsw-alias-label-primary); }
+  .sessItem.active { background:var(--dsw-alias-interactive-bg-hover-accent); color:var(--dsw-alias-label-primary); }
+  .sessItem .ico { flex:none; width:16px; text-align:center; color:var(--dsw-alias-state-business-primary); }
+  .sessTxt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .sessMeta { font-size:11px; color:var(--dsw-alias-label-caption); flex:none; }
+  .footArea { flex:none; display:flex; flex-direction:column; }
+  .footBtn { display:flex; align-items:center; gap:9px; padding:8px 12px; border-radius:8px; color:var(--dsw-alias-label-secondary); font-size:13px; cursor:pointer; white-space:nowrap; margin:0 4px; }
+  .footBtn:hover { background:var(--dsw-alias-interactive-bg-hover); color:var(--dsw-alias-label-primary); }
+  .footBtn .ico { flex:none; width:16px; text-align:center; }
+  .app.collapsed .footBtn { justify-content:center; }
+
+  /* ─── 中：DSH 原生对话 ─── */
+  .center { flex:0 0 var(--cw); width:var(--cw); min-width:300px; display:flex; flex-direction:column; min-height:0; background:var(--dsw-alias-bg-base); }
+  .chatHead { flex:none; position:relative; padding:12px 28px 0 20px; }
+  .chatHead::after { content:''; position:absolute; right:0; bottom:0; left:0; height:1px; background:var(--dsw-alias-border-l2); }
+  .titleRow { display:flex; align-items:center; gap:8px; min-height:32px; }
+  .titleRow .t { font-size:15px; font-weight:600; }
+  .titleRow .run { font-size:12px; color:var(--dsw-alias-state-success-primary); }
+  .titleRow .sp { flex:1; }
+  .titleRow .util { font-size:12px; color:var(--dsw-alias-label-tertiary); }
+  .tabs { display:flex; gap:36px; margin-top:4px; padding-left:8px; }
+  .tab { position:relative; padding:0 0 11px; border:none; background:transparent; font-size:13px; font-weight:500; color:var(--dsw-alias-label-tertiary); cursor:pointer; }
+  .tab::after { content:''; position:absolute; right:0; bottom:1px; left:0; height:2px; border-radius:2px; background:transparent; }
+  .tab.active { color:var(--dsw-alias-state-business-primary); }
+  .tab.active::after { background:var(--dsw-alias-state-business-primary); }
+  .scrollBody { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; }
+  .msgs { max-width:748px; margin:0 auto; padding:18px 0; display:flex; flex-direction:column; gap:18px; }
+  .mrow { display:flex; gap:12px; max-width:748px; }
+  .mrow.user { flex-direction:row-reverse; }
+  .av { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:15px; }
+  .av.ai { background:linear-gradient(135deg,var(--dsw-static-deepseek-400),var(--dsw-static-deepseek-600)); color:#fff; }
+  .av.usr { background:var(--dsw-alias-interactive-bg-hover-accent); color:var(--dsw-alias-label-primary); font-size:13px; font-weight:600; }
+  .mbody { min-width:0; flex:1; }
+  .mbody .who { font-size:12px; color:var(--dsw-alias-label-tertiary); margin-bottom:3px; }
+  .mrow.user .mbody { text-align:right; }
+  .mtext { font-size:14px; line-height:22px; color:var(--dsw-alias-label-primary); white-space:pre-wrap; word-break:break-word; }
+  .mrow.user .mtext { display:inline-block; background:var(--dsw-specific-bubble-highlight); padding:8px 13px; border-radius:14px; border-top-right-radius:4px; }
+  .toolcard { margin-top:8px; border:1px solid var(--dsw-alias-border-l2); border-radius:10px; background:var(--dsw-alias-bg-layer-2); overflow:hidden; font-size:12.5px; text-align:left; }
+  .toolcard .hd { display:flex; align-items:center; gap:7px; padding:6px 10px; border-bottom:1px solid var(--dsw-alias-border-l2); font-weight:600; }
+  .toolcard .hd .dot { width:7px; height:7px; border-radius:50%; background:var(--dsw-alias-state-success-primary); }
+  .toolcard .bd { padding:7px 10px; color:var(--dsw-alias-label-secondary); font-family:var(--dsw-font-code); font-size:11.5px; }
+  .composeSeat { position:sticky; bottom:0; background:linear-gradient(180deg,transparent 0px,var(--dsw-alias-bg-base) 36px); padding:8px 16px 12px; }
+  .composeCard { max-width:780px; margin:0 auto; display:flex; flex-direction:column; gap:8px; padding:12px 14px 10px; border:1px solid var(--dsw-alias-border-l2-darkmode-thin); border-radius:22px; background:var(--dsw-specific-input-major); box-shadow:var(--dsw-shadow-lv2); }
+  .composeBox { min-height:24px; color:var(--dsw-alias-label-primary); font-size:15px; line-height:22px; outline:none; white-space:pre-wrap; word-break:break-word; }
+  .composeBox.empty::before { content:attr(data-ph); color:var(--dsw-alias-label-caption); }
+  .composeRow { display:flex; align-items:center; gap:8px; }
+  .composeRow .sp { flex:1; }
+  .composeRow .util { font-size:12px; color:var(--dsw-alias-label-tertiary); }
+  .send { display:grid; place-items:center; width:32px; height:32px; border:none; border-radius:50%; background:var(--dsw-alias-button-info-fill); color:#fff; cursor:pointer; font-size:14px; }
+  .send:hover { background:var(--dsw-alias-button-info-hover); }
+  .composeHelp { max-width:780px; margin:0 auto; font-size:11px; color:var(--dsw-alias-label-caption); text-align:center; padding-bottom:10px; }
+
+  /* ─── 中间可拖动分隔条（对话 ↔ 终端） ─── */
+  .colHandle { flex:0 0 6px; cursor:col-resize; background:transparent; position:relative; z-index:3; }
+  .colHandle::after { content:''; position:absolute; inset:0 2px; border-radius:3px; opacity:0; transition:opacity .15s; background:var(--dsw-alias-state-business-primary); }
+  .colHandle:hover::after,.colHandle.drag::after { opacity:1; }
+
+  /* ─── 中右：真终端（递归分屏） ─── */
+  .term { flex:1 1 0; min-width:300px; display:flex; flex-direction:column; min-height:0; background:var(--dsw-alias-bg-base); border-right:1px solid var(--dsw-alias-border-l2); }
+  .termHead { flex:none; display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+  .termHead .t { font-size:13px; font-weight:600; }
+  .termHead .onb { font-size:12px; color:var(--dsw-alias-label-tertiary); }
+  .termHead .onb b { color:var(--dsw-alias-state-success-primary); }
+  .termHead .sp { flex:1; }
+  .switch { font-size:12px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; padding:3px 10px; color:var(--dsw-alias-label-secondary); cursor:pointer; user-select:none; background:var(--dsw-alias-bg-base); }
+  .switch:hover { border-color:var(--dsw-alias-state-business-primary); color:var(--dsw-alias-state-business-primary); }
+  .splitwrap { flex:1; min-height:0; overflow:hidden; background:#000; }
+  #split { height:100%; display:flex; flex-direction:column; min-height:0; min-width:0; }
+  .splitnode { display:flex; min-width:0; min-height:0; }
+  .splitnode.row { flex-direction:row; }
+  .splitnode.col { flex-direction:column; }
+  .divider { flex:0 0 6px; background:#000; position:relative; z-index:2; }
+  .divider.v { cursor:col-resize; }
+  .divider.h { cursor:row-resize; }
+  .divider::after { content:''; position:absolute; inset:0 2px; border-radius:3px; opacity:0; transition:opacity .15s; background:var(--dsw-alias-state-business-primary); }
+  .divider:hover::after,.divider.drag::after { opacity:1; }
+  .pane { background:var(--term-bg); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+  .pane.focus .paneBar { background:var(--term-bar-focus); }
+  .pane.focus { box-shadow:inset 0 0 0 2px var(--dsw-alias-state-business-primary); }
+  .paneBar { flex:none; display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--term-bar); border-bottom:1px solid #000; font-size:11.5px; color:var(--term-text); }
+  .paneBar .dot { width:7px; height:7px; border-radius:50%; background:var(--term-green); }
+  .paneBar .nm { font-weight:600; font-family:var(--dsw-font-code); }
+  .paneBar .tgt { color:var(--term-dim); font-family:var(--dsw-font-code); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .paneBar button { margin-left:auto; background:none; border:none; color:var(--term-dim); cursor:pointer; font-size:12px; padding:0 2px; }
+  .paneBar button:hover { color:var(--term-text); }
+  .paneBody { flex:1; overflow-y:auto; padding:6px 9px; color:var(--term-text); font:12px/1.5 var(--dsw-font-code); white-space:pre-wrap; word-break:break-all; outline:none; cursor:text; }
+  .paneBody .cmd { color:var(--term-cmd); }
+  .paneBody .sys { color:var(--term-dim); }
+  .paneBody .inputline { color:var(--term-text); }
+  .paneBody .inputline .p { color:var(--term-green); }
+  .cursor { display:inline-block; width:8px; height:1.05em; vertical-align:-2px; background:var(--term-dim); opacity:.45; }
+  .pane.focus .cursor { background:var(--term-cursor); opacity:1; animation:blink 1s steps(1,end) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .pane.empty { flex:1 1 auto; align-items:center; justify-content:center; color:var(--term-dim); font-family:var(--dsw-font-code); font-size:12px; }
+  .bcast { flex:none; display:flex; align-items:center; gap:6px; padding:7px 12px; border-top:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); }
+  .bcast .lb { font-size:12px; color:var(--dsw-alias-label-secondary); white-space:nowrap; }
+  .bchips { display:flex; gap:3px; flex-wrap:wrap; }
+  .bchip { font-size:11px; padding:1px 8px; border:1px solid var(--dsw-alias-border-l2); border-radius:999px; cursor:pointer; color:var(--dsw-alias-label-tertiary); user-select:none; white-space:nowrap; }
+  .bchip.on { border-color:var(--dsw-alias-state-business-primary); color:var(--dsw-alias-state-business-primary); background:var(--dsw-alias-state-business-tertiary); }
+  .bcast input { flex:1; min-width:50px; background:var(--dsw-alias-bg-module-platform); border:1px solid var(--dsw-alias-border-l2); border-radius:7px; color:var(--dsw-alias-label-primary); padding:4px 9px; font:12px var(--dsw-font-code); outline:none; }
+  .bcast input:focus { border-color:var(--dsw-alias-state-business-primary); }
+
+  /* ─── 最右：连接管理（AgentTerm 式） ─── */
+  .conns { flex:0 0 296px; width:296px; display:flex; flex-direction:column; min-height:0; background:var(--dsw-specific-sidebar-fill); }
+  .connsHead { flex:none; display:flex; align-items:center; gap:6px; padding:10px 12px; border-bottom:1px solid var(--dsw-alias-border-l2); }
+  .connsHead .t { font-size:13px; font-weight:600; }
+  .connsHead .sp { flex:1; }
+  .connsScroll { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:10px; }
+  .ptabs { display:flex; gap:2px; }
+  .ptab { flex:1; text-align:center; padding:5px 0; font-size:12px; font-weight:600; color:var(--dsw-alias-label-tertiary); cursor:pointer; border:1px solid var(--dsw-alias-border-l2); border-radius:7px; user-select:none; }
+  .ptab.on { color:#fff; background:var(--dsw-alias-state-business-primary); border-color:transparent; }
+  .formSec { display:flex; flex-direction:column; gap:7px; }
+  .secLabel { font-size:10px; color:var(--dsw-alias-label-caption); font-weight:600; letter-spacing:.5px; }
+  .fld { display:flex; flex-direction:column; gap:3px; }
+  .fld label { font-size:11px; color:var(--dsw-alias-label-secondary); }
+  .fld input { background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); border-radius:7px; color:var(--dsw-alias-label-primary); padding:6px 9px; font-size:12.5px; outline:none; width:100%; font-family:var(--dsw-font-family); }
+  .fld input:focus { border-color:var(--dsw-alias-state-business-primary); }
+  .fld.error input { border-color:var(--dsw-alias-state-error-primary); }
+  .req { color:var(--dsw-alias-state-error-primary); }
+  .opt-tag { font-size:9px; color:var(--dsw-alias-label-caption); border:1px solid var(--dsw-alias-border-l2); border-radius:5px; padding:0 4px; margin-left:3px; }
+  .authSwitch { display:flex; gap:4px; }
+  .authSwitch span { flex:1; text-align:center; font-size:11px; padding:4px 0; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; cursor:pointer; color:var(--dsw-alias-label-secondary); user-select:none; }
+  .authSwitch span.on { border-color:var(--dsw-alias-state-business-primary); color:var(--dsw-alias-state-business-primary); background:var(--dsw-alias-state-business-tertiary); }
+  .formBtns { display:flex; gap:6px; }
+  .btn { border:1px solid var(--dsw-alias-border-l2); background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-secondary); border-radius:8px; padding:6px 10px; font-size:12px; font-weight:500; cursor:pointer; font-family:var(--dsw-font-family); }
+  .btn:hover { border-color:var(--dsw-alias-state-business-primary); color:var(--dsw-alias-state-business-primary); }
+  .btn.primary { flex:1; background:var(--dsw-alias-button-info-fill); border-color:transparent; color:#fff; }
+  .btn.primary:hover { background:var(--dsw-alias-button-info-hover); color:#fff; }
+  .rlist,.slist { display:flex; flex-direction:column; gap:4px; }
+  .ritem,.sitem { display:flex; align-items:center; gap:7px; padding:6px 8px; border-radius:7px; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l2); font-size:12px; cursor:pointer; }
+  .ritem:hover,.sitem:hover { border-color:var(--dsw-alias-border-l3); }
+  .pico { font-size:9px; font-weight:700; padding:1px 5px; border-radius:4px; font-family:var(--dsw-font-code); flex:none; }
+  .pico.ssh { background:var(--dsw-alias-state-business-tertiary); color:var(--dsw-alias-state-business-primary); }
+  .pico.telnet { background:var(--dsw-alias-state-warn-primary); color:#fff; }
+  .ritem .nm,.sitem .nm2 { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+  .ritem .st { width:7px; height:7px; border-radius:50%; flex:none; }
+  .st.off { background:var(--dsw-alias-label-caption); opacity:.5; }
+  .st.connecting { background:var(--dsw-alias-state-warn-primary); }
+  .st.on { background:var(--dsw-alias-state-success-primary); box-shadow:0 0 4px var(--dsw-alias-state-success-primary); }
+  .ritem .x,.sitem .x { background:none; border:none; color:var(--dsw-alias-label-caption); cursor:pointer; font-size:12px; padding:0 2px; }
+  .ritem .x:hover,.sitem .x:hover { color:var(--dsw-alias-state-error-primary); }
+  .sitem.hid { opacity:.5; border-style:dashed; }
+  .sitem .led { width:7px; height:7px; border-radius:50%; background:var(--dsw-alias-state-success-primary); box-shadow:0 0 4px var(--dsw-alias-state-success-primary); flex:none; }
+  .empty { color:var(--dsw-alias-label-caption); padding:10px; text-align:center; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- 左：DSH 侧边栏 -->
+  <aside class="sidebar">
+    <div class="logoRow">
+      <button class="brand"><span class="brandIdentity"><span class="brandMark">🐳</span><span class="brandName">DeepSeek</span></span></button>
+      <button class="iconButton" onclick="toggleSidebar()" title="收起侧边栏">▤</button>
+    </div>
+    <button class="newSession"><span>✚</span><span class="newSessionLabel">新会话</span></button>
+    <div class="regionArea"><div class="sessScroll">
+      <div class="sessItem active"><span class="ico">💬</span><span class="sessTxt">终端插件联调</span><span class="sessMeta">1</span></div>
+      <div class="sessItem"><span class="ico">💬</span><span class="sessTxt">昨天那批设备重启</span></div>
+      <div class="sessItem"><span class="ico">💬</span><span class="sessTxt">代码评审</span></div>
+      <div class="sessItem"><span class="ico">💬</span><span class="sessTxt">ESL 环境排查</span></div>
+    </div></div>
+    <div class="footArea">
+      <div class="footBtn"><span class="ico">🖥️</span><span class="footTxt">终端管理</span></div>
+      <div class="footBtn" onclick="toggleTheme()"><span class="ico">🌗</span><span class="footTxt">切换明暗</span></div>
+      <div class="footBtn"><span class="ico">⚙</span><span class="footTxt">设置</span></div>
+    </div>
+  </aside>
+
+  <!-- 中：DSH 原生对话 -->
+  <div class="center">
+    <div class="chatHead">
+      <div class="titleRow"><span class="t">终端插件联调</span><span class="run">● running</span><span class="sp"></span><span class="util">上下文 12%</span><span class="util">Plan</span></div>
+      <div class="tabs"><div class="tab active">对话</div><div class="tab">轨迹</div></div>
+    </div>
+    <div class="scrollBody"><div class="msgs" id="aiMsgs"></div></div>
+    <div class="composeSeat">
+      <div class="composeCard">
+        <div class="composeBox empty" contenteditable="true" id="aiInput" data-ph="连上 web-01 和 db-02，都跑一下 show version…"></div>
+        <div class="composeRow"><span class="util">附件 · 引用</span><span class="sp"></span><button class="send" onclick="sendChat()">➤</button></div>
+      </div>
+      <div class="composeHelp">发送后右侧终端实时联动 · AI 调 tm_* 工具</div>
+    </div>
+  </div>
+
+  <!-- 可拖动分隔条 -->
+  <div class="colHandle" id="colHandle" title="拖动调整对话/终端宽度"></div>
+
+  <!-- 中右：真终端（递归分屏） -->
+  <div class="term">
+    <div class="termHead">
+      <span class="t">🖥️ 终端</span>
+      <span class="onb">在线 <b id="onlineCount">0</b> / <span id="allCount">0</span></span>
+      <span class="sp"></span>
+      <span class="switch" id="viewSwitch" onclick="toggleView()">分屏</span>
+    </div>
+    <div class="splitwrap"><div id="split"></div></div>
+    <div class="bcast">
+      <span class="lb">📢 广播到</span>
+      <div class="bchips" id="bchips"></div>
+      <input id="bcInput" placeholder="命令…" />
+      <button class="btn primary" id="bcSend" onclick="broadcast()" style="flex:none;">发送</button>
+    </div>
+  </div>
+
+  <!-- 最右：连接管理 -->
+  <div class="conns">
+    <div class="connsHead"><span class="t">📡 连接</span><span class="sp"></span><button class="btn" onclick="clearForm()" style="padding:4px 8px;">清空</button></div>
+    <div class="connsScroll">
+      <div class="ptabs"><div class="ptab on" data-p="ssh" onclick="setProto('ssh')">SSH</div><div class="ptab" data-p="telnet" onclick="setProto('telnet')">Telnet</div></div>
+      <div class="formSec">
+        <div class="secLabel">连接</div>
+        <div class="fld" id="fwLabel"><label>名称 <span class="req">*</span></label><input id="fLabel" placeholder="如 web-01" /></div>
+        <div class="fld" id="fwHost"><label>主机 <span class="req">*</span></label><input id="fHost" placeholder="192.168.1.10" /></div>
+        <div style="display:flex;gap:7px;">
+          <div class="fld" style="flex:0 0 88px;"><label>端口</label><input id="fPort" placeholder="22" /></div>
+          <div class="fld" id="fwUser" style="flex:1;"><label>用户名</label><input id="fUser" placeholder="admin" /></div>
+        </div>
+        <div id="authRow"><div class="authSwitch"><span class="on" id="authPwd" onclick="setAuth('password')">密码</span><span id="authKey" onclick="setAuth('key')">密钥</span></div></div>
+        <div id="pwdRow"><div class="fld" id="fwPass"><label>密码 <span class="req">*</span></label><input id="fPass" type="password" placeholder="登录密码" /></div></div>
+        <div id="keyRow" style="display:none;"><div class="fld" id="fwKey"><label>私钥 <span class="req">*</span></label><input id="fKey" placeholder="私钥内容或路径" /></div><div class="fld"><label>口令 <span class="opt-tag">选填</span></label><input id="fPassphrase" type="password" placeholder="口令" /></div></div>
+        <div class="fld"><label>备注 <span class="opt-tag">选填</span></label><input id="fNote" placeholder="用途、位置等" /></div>
+        <div class="formBtns"><button class="btn primary" onclick="saveConn()">保存</button><button class="btn" onclick="quickConnect()">连接</button></div>
+      </div>
+      <div><div class="secLabel">最近连接</div><div class="rlist" id="connList"></div></div>
+      <div><div class="secLabel">活跃会话</div><div class="slist" id="sessList"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CONNS=[
+  {id:'c1',label:'web-01',proto:'ssh',host:'10.0.1.5',port:22,user:'admin',note:'前端测试服务器',status:'off'},
+  {id:'c2',label:'db-02',proto:'telnet',host:'10.0.1.8',port:23,user:'',note:'',status:'off'},
+  {id:'c3',label:'cache-03',proto:'ssh',host:'10.0.1.12',port:22,user:'root',note:'缓存节点',status:'off'},
+  {id:'c4',label:'sw-04',proto:'ssh',host:'10.0.1.9',port:22,user:'admin',note:'汇聚交换机',status:'off'},
+  {id:'c5',label:'esl-lab7',proto:'telnet',host:'10.0.1.20',port:23,user:'',note:'ESL 环境',status:'off'},
+];
+const SESSIONS=[]; // {id,connId,lines,input,hidden}
+let editing=null,seq=0,authMode='password',proto='ssh',focusedSid=null,viewMax=false;
+let tree=null; // 递归分屏树:{leaf:true,sid} | {leaf:false,orient:'row'|'col',ratio,a,b}
+const $=id=>document.getElementById(id);
+const promptOf=c=>c.proto==='ssh'?`${c.user||'admin'}@${c.label}:~$ `:`${c.label}> `;
+const FAKE_OUTPUT=cmd=>[`执行: ${cmd}`,'----------------------------------------','Interface      Status    Protocol','Gig0/0         up        up','Gig0/1         up        up',`完成于 ${new Date().toLocaleTimeString()}`];
+function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function toggleSidebar(){$('app').classList.toggle('collapsed');}
+function toggleTheme(){document.body.toggleAttribute('data-ds-dark-theme');}
+
+/* 中间分隔条拖动 */
+let cw=460;(function(){const h=$('colHandle');let drag=false,x=0;
+ h.addEventListener('pointerdown',e=>{drag=true;h.setPointerCapture(e.pointerId);x=e.clientX;h.classList.add('drag');});
+ h.addEventListener('pointermove',e=>{if(!drag)return;cw=Math.max(300,Math.min(760,cw+(e.clientX-x)));x=e.clientX;$('app').style.setProperty('--cw',cw+'px');});
+ h.addEventListener('pointerup',e=>{drag=false;h.classList.remove('drag');});
+})();
+
+/* 协议/认证 */
+function setProto(p){proto=p;document.querySelectorAll('.ptab').forEach(x=>x.classList.toggle('on',x.dataset.p===p));$('fPort').placeholder=p==='ssh'?'22':'23';$('authRow').style.display=p==='ssh'?'block':'none';$('pwdRow').style.display=(p==='ssh'&&authMode==='password')?'block':'none';$('keyRow').style.display=(p==='ssh'&&authMode==='key')?'block':'none';$('fwUser').querySelector('label').innerHTML=p==='ssh'?'用户名 <span class="req">*</span>':'用户名 <span class="opt-tag">选填</span>';clearErrors();}
+function setAuth(m){authMode=m;$('authPwd').classList.toggle('on',m==='password');$('authKey').classList.toggle('on',m==='key');$('pwdRow').style.display=m==='password'?'block':'none';$('keyRow').style.display=m==='key'?'block':'none';clearErrors();}
+
+/* 连接/断开 */
+function connect(id){const c=CONNS.find(x=>x.id===id);if(c.status!=='off')return;c.status='connecting';renderConns();renderSess();setTimeout(()=>{c.status='on';renderConns();renderSess();openSession(c);},700);}
+function disconnect(cid){const c=CONNS.find(x=>x.id===cid);if(c)c.status='off';const i=SESSIONS.findIndex(s=>s.connId===cid);if(i>=0){const sid=SESSIONS[i].id;if(focusedSid===sid)focusedSid=null;tree=removeFromTree(tree,sid);SESSIONS.splice(i,1);}renderConns();renderSess();renderStructure();}
+function openSession(c){if(SESSIONS.some(s=>s.connId===c.id))return;const s={id:'s'+(++seq),connId:c.id,lines:[],input:'',hidden:false};SESSIONS.push(s);pushLine(s,`[已连接 ${c.host}:${c.port}]`,'sys');pushLine(s,c.proto==='ssh'?`Welcome to ${c.label} (SSH)`:`Connected to ${c.label}`,'sys');addToTree(s.id);focusedSid=s.id;renderStructure();renderBchips();}
+function toggleHide(cid){const s=SESSIONS.find(x=>x.connId===cid);if(!s)return;s.hidden=!s.hidden;if(s.hidden){tree=removeFromTree(tree,s.id);if(focusedSid===s.id)focusedSid=null;}else{addToTree(s.id);}renderSess();renderStructure();}
+
+/* ─── 递归分屏树（iTerm2/tmux 模型） ─── */
+function leafOf(sid){return {leaf:true,sid};}
+function firstLeafSid(n){if(!n)return null;return n.leaf?n.sid:(firstLeafSid(n.a)||firstLeafSid(n.b));}
+function depthOfLeaf(n,sid,d){if(!n)return -1;if(n.leaf)return n.sid===sid?d:-1;const a=depthOfLeaf(n.a,sid,d+1);return a>=0?a:depthOfLeaf(n.b,sid,d+1);}
+function splitLeaf(node,targetSid,newSid,orient){if(node.leaf){if(node.sid===targetSid)return {leaf:false,orient,ratio:0.5,a:leafOf(targetSid),b:leafOf(newSid)};return node;}const a=splitLeaf(node.a,targetSid,newSid,orient);if(a!==node.a)return Object.assign({},node,{a});const b=splitLeaf(node.b,targetSid,newSid,orient);if(b!==node.b)return Object.assign({},node,{b});return node;}
+function addToTree(sid){if(!tree){tree=leafOf(sid);return;}const target=focusedSid||firstLeafSid(tree);if(!target){tree=leafOf(sid);return;}const d=depthOfLeaf(tree,target,0);const orient=d%2===0?'row':'col';tree=splitLeaf(tree,target,sid,orient);}
+function removeFromTree(node,sid){if(!node)return null;if(node.leaf)return node.sid===sid?null:node;const a=removeFromTree(node.a,sid);const b=removeFromTree(node.b,sid);if(!a)return b;if(!b)return a;return Object.assign({},node,{a,b});}
+
+function renderStructure(){
+  const root=$('split');root.innerHTML='';
+  $('onlineCount').textContent=CONNS.filter(c=>c.status==='on').length;
+  $('allCount').textContent=CONNS.length;
+  $('viewSwitch').textContent=viewMax?'分屏':'聚焦';
+  const vis=SESSIONS.filter(s=>!s.hidden);
+  if(SESSIONS.length===0){root.innerHTML='<div class="pane empty">还没有已连接的会话 —— 在最右连接设备，或对话里让 AI 连</div>';renderBchips();return;}
+  if(vis.length===0){root.innerHTML='<div class="pane empty">所有终端已隐藏 —— 点最右「活跃会话」恢复（连接保持）</div>';renderBchips();return;}
+  let el;
+  if(viewMax&&focusedSid){el=renderNode(leafOf(focusedSid));}
+  else if(tree){el=renderNode(tree);}
+  else {root.innerHTML='<div class="pane empty">—</div>';renderBchips();return;}
+  el.style.flex='1 1 0';root.appendChild(el);
+  applyFocus();
+  SESSIONS.forEach(s=>{if(!s.hidden)updatePaneBody(s.id);});
+  renderBchips();
+}
+function renderNode(node){
+  if(node.leaf){
+    const s=SESSIONS.find(x=>x.id===node.sid);const c=CONNS.find(x=>x.id===s.connId);
+    const d=document.createElement('div');d.className='pane';d.dataset.sid=node.sid;
+    d.innerHTML=`<div class="paneBar"><span class="dot"></span><span class="nm">${c.label}</span><span class="tgt">${c.host}:${c.port}</span><button onclick="focusPane('${node.sid}')" title="聚焦">⛶</button><button onclick="toggleMax('${node.sid}')" title="最大化/还原">⤢</button><button onclick="disconnect('${c.id}')" title="断开">✕</button></div><div class="paneBody" tabindex="0" id="body-${node.sid}" onfocus="focusPane('${node.sid}')" onkeydown="onTermKey('${node.sid}',event)"></div>`;
+    return d;
+  }
+  const wrap=document.createElement('div');wrap.className='splitnode '+(node.orient==='row'?'row':'col');
+  const aEl=renderNode(node.a),bEl=renderNode(node.b);
+  const dv=document.createElement('div');dv.className='divider '+(node.orient==='row'?'v':'h');
+  attachDivider(dv,wrap,node);
+  wrap.appendChild(aEl);wrap.appendChild(dv);wrap.appendChild(bEl);
+  aEl.style.flexGrow=String(node.ratio*1000);aEl.style.flexBasis='0';
+  bEl.style.flexGrow=String((1-node.ratio)*1000);bEl.style.flexBasis='0';
+  return wrap;
+}
+function attachDivider(dv,wrap,node){
+  const vert=node.orient==='row';let drag=false,start=0,rect=null;
+  dv.addEventListener('pointerdown',e=>{drag=true;dv.setPointerCapture(e.pointerId);start=vert?e.clientX:e.clientY;rect=wrap.getBoundingClientRect();dv.classList.add('drag');e.preventDefault();e.stopPropagation();});
+  dv.addEventListener('pointermove',e=>{if(!drag)return;const cur=vert?e.clientX:e.clientY;const delta=cur-start;start=cur;const size=vert?rect.width:rect.height;if(size<=0)return;node.ratio=Math.max(0.05,Math.min(0.95,node.ratio+delta/size));const a=wrap.children[0],b=wrap.children[2];a.style.flexGrow=String(node.ratio*1000);b.style.flexGrow=String((1-node.ratio)*1000);});
+  dv.addEventListener('pointerup',()=>{drag=false;dv.classList.remove('drag');});
+  dv.addEventListener('pointercancel',()=>{drag=false;dv.classList.remove('drag');});
+}
+function applyFocus(){document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('focus',p.dataset.sid===focusedSid));}
+function focusPane(sid){focusedSid=sid;applyFocus();}
+function toggleMax(sid){if(viewMax&&focusedSid===sid){viewMax=false;}else{viewMax=true;focusedSid=sid;}renderStructure();}
+function toggleView(){viewMax=!viewMax;if(viewMax&&!focusedSid)focusedSid=firstLeafSid(tree);renderStructure();}
+
+/* 真终端：内联输入（无底部输入条） */
+function pushLine(s,text,cls){s.lines.push({text,cls});if(s.lines.length>400)s.lines.shift();}
+function updatePaneBody(sid){
+  const el=$('body-'+sid);if(!el)return;const s=SESSIONS.find(x=>x.id===sid);const c=CONNS.find(x=>x.id===s.connId);
+  const lines=s.lines.map(l=>`<div class="${l.cls||''}">${esc(l.text)}</div>`).join('');
+  el.innerHTML=lines+`<div class="inputline"><span class="p">${esc(promptOf(c))}</span>${esc(s.input||'')}<span class="cursor"> </span></div>`;
+  el.scrollTop=el.scrollHeight;
+}
+function onTermKey(sid,e){
+  const s=SESSIONS.find(x=>x.id===sid);if(!s)return;
+  if(e.key==='Enter'){e.preventDefault();const cmd=s.input;if(!cmd.trim()){s.input='';updatePaneBody(sid);return;}s.input='';sendCmd(sid,cmd);return;}
+  if(e.key==='Backspace'){e.preventDefault();s.input=(s.input||'').slice(0,-1);updatePaneBody(sid);return;}
+  if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();s.input=(s.input||'')+e.key;updatePaneBody(sid);return;}
+  if(['Tab','ArrowUp','ArrowDown','PageUp','PageDown'].includes(e.key))e.preventDefault();
+}
+function sendCmd(sid,cmd){if(!cmd.trim())return;const s=SESSIONS.find(x=>x.id===sid);const c=CONNS.find(x=>x.id===s.connId);pushLine(s,promptOf(c)+cmd,'cmd');updatePaneBody(sid);stream(s,c,FAKE_OUTPUT(cmd));}
+function stream(s,c,lines){let i=0;const t=setInterval(()=>{if(i>=lines.length){clearInterval(t);pushLine(s,promptOf(c),'sys');updatePaneBody(s.id);return;}pushLine(s,lines[i++]);updatePaneBody(s.id);},140);}
+
+/* 列表 */
+function renderConns(){$('connList').innerHTML=CONNS.length?CONNS.map(c=>`<div class="ritem" onclick="loadConn('${c.id}')" title="${c.host}:${c.port}${c.note?' · '+c.note:''}"><span class="pico ${c.proto}">${c.proto.toUpperCase()}</span><span class="nm">${c.label}</span><span class="st ${c.status}"></span><button class="x" onclick="event.stopPropagation();delConn('${c.id}')" title="删除">✕</button></div>`).join(''):'<div class="empty">暂无保存的连接</div>';}
+function renderSess(){$('sessList').innerHTML=SESSIONS.length?SESSIONS.map(s=>{const c=CONNS.find(x=>x.id===s.connId);return `<div class="sitem ${s.hidden?'hid':''}" onclick="toggleHide('${c.id}')" title="点我显示/隐藏（不断开）"><span class="led"></span><span class="nm2">${c.label}</span><button class="x" onclick="event.stopPropagation();disconnect('${c.id}')" title="断开">✕</button></div>`;}).join(''):'<div class="empty">暂无活跃会话</div>';}
+
+/* 广播 */
+function renderBchips(){const avail=SESSIONS.filter(s=>!s.hidden);$('bchips').innerHTML=`<span class="bchip on" data-id="*" onclick="chipAll()">全部</span>`+avail.map(s=>{const c=CONNS.find(x=>x.id===s.connId);return `<span class="bchip on" data-id="${s.id}" onclick="chipToggle(this)">${c.label}</span>`;}).join('');updateBcCount();}
+function chipToggle(el){el.classList.toggle('on');syncAll();updateBcCount();}
+function chipAll(){const ind=[...document.querySelectorAll('.bchip:not([data-id="*"])')];const allOn=ind.length>0&&ind.every(c=>c.classList.contains('on'));ind.forEach(c=>c.classList.toggle('on',!allOn));document.querySelector('.bchip[data-id="*"]').classList.toggle('on',!allOn);updateBcCount();}
+function syncAll(){const ind=[...document.querySelectorAll('.bchip:not([data-id="*"])')];document.querySelector('.bchip[data-id="*"]').classList.toggle('on',ind.length>0&&ind.every(c=>c.classList.contains('on')));}
+function selTargets(){return [...document.querySelectorAll('.bchip.on:not([data-id="*"])')].map(c=>c.dataset.id);}
+function updateBcCount(){const n=selTargets().length;$('bcSend').textContent=n>0?`发送（${n}）`:'发送';}
+function broadcast(){const cmd=$('bcInput').value.trim();if(!cmd)return;const tg=selTargets();if(!tg.length)return;$('bcInput').value='';tg.forEach(sid=>{if(SESSIONS.some(s=>s.id===sid))sendCmd(sid,cmd);});}
+
+/* 对话 → 终端联动 */
+function appendMsg(who,html,whoLabel){const d=document.createElement('div');d.className='mrow '+(who==='user'?'user':'');d.innerHTML=`<div class="av ${who==='user'?'usr':'ai'}">${who==='user'?'你':'🐳'}</div><div class="mbody"><div class="who">${whoLabel}</div><div class="mtext">${html}</div></div>`;$('aiMsgs').appendChild(d);d.parentElement.scrollTop=d.parentElement.scrollHeight;}
+function toolCard(title,body){return `<div class="toolcard"><div class="hd"><span class="dot"></span>${title}</div><div class="bd">${body}</div></div>`;}
+function sendChat(){const box=$('aiInput');const t=box.textContent.trim();if(!t)return;appendMsg('user',esc(t),'你');box.textContent='';box.classList.add('empty');setTimeout(()=>{appendMsg('ai','好的，正在连接设备并下发命令，右侧分屏终端实时显示：'+toolCard('tm_connect · web-01','ssh 10.0.1.5:22 · admin')+toolCard('tm_connect · db-02','telnet 10.0.1.8:23'),'AI');SESSIONS.filter(s=>!s.hidden).forEach(s=>sendCmd(s.id,'show version'));},500);}
+$('aiInput').addEventListener('input',e=>e.target.classList.toggle('empty',!e.target.textContent.trim()));
+
+/* 表单 */
+function clearErrors(){document.querySelectorAll('.fld.error').forEach(f=>f.classList.remove('error'));}
+function mark(id){$(id).classList.add('error');}
+function clearForm(){editing=null;['fLabel','fHost','fPort','fUser','fPass','fKey','fPassphrase','fNote'].forEach(id=>$(id).value='');setProto('ssh');setAuth('password');clearErrors();}
+function loadConn(id){const c=CONNS.find(x=>x.id===id);editing=id;setProto(c.proto);$('fLabel').value=c.label;$('fHost').value=c.host;$('fPort').value=c.port;$('fUser').value=c.user??'';$('fNote').value=c.note??'';clearErrors();}
+function quickConnect(){clearErrors();const ssh=proto==='ssh';let bad=false;if(!$('fLabel').value.trim()){mark('fwLabel');bad=true;}if(!$('fHost').value.trim()){mark('fwHost');bad=true;}if(ssh){if(!$('fUser').value.trim()){mark('fwUser');bad=true;}if(authMode==='password'&&!$('fPass').value){mark('fwPass');bad=true;}if(authMode==='key'&&!$('fKey').value.trim()){mark('fwKey');bad=true;}}if(bad)return;let c=CONNS.find(x=>x.label===$('fLabel').value.trim()&&x.host===$('fHost').value.trim());if(!c){c={id:'c'+Date.now(),label:$('fLabel').value.trim(),proto,host:$('fHost').value.trim(),port:+$('fPort').value||(ssh?22:23),user:ssh?$('fUser').value.trim():'',note:$('fNote').value.trim(),status:'off'};CONNS.push(c);renderConns();}connect(c.id);}
+function saveConn(){clearErrors();const ssh=proto==='ssh';let bad=false;if(!$('fLabel').value.trim()){mark('fwLabel');bad=true;}if(!$('fHost').value.trim()){mark('fwHost');bad=true;}if(ssh){if(!$('fUser').value.trim()){mark('fwUser');bad=true;}if(authMode==='password'&&!$('fPass').value){mark('fwPass');bad=true;}if(authMode==='key'&&!$('fKey').value.trim()){mark('fwKey');bad=true;}}if(bad)return;const data={label:$('fLabel').value.trim(),proto,host:$('fHost').value.trim(),port:+$('fPort').value||(ssh?22:23),user:ssh?$('fUser').value.trim():'',note:$('fNote').value.trim()};if(editing){const c=CONNS.find(x=>x.id===editing);data.status=c.status;Object.assign(c,data);}else{data.status='off';CONNS.push({id:'c'+Date.now(),...data});}renderConns();clearForm();}
+function delConn(id){disconnect(id);const i=CONNS.findIndex(x=>x.id===id);if(i>=0)CONNS.splice(i,1);renderConns();if(editing===id)clearForm();}
+
+appendMsg('ai','你好，我是终端助手。右侧是 iTerm2 风格分屏终端——点哪个窗格就在哪个里直接敲（像真终端一样，没有底部输入条）；中间分隔条可拖动；分屏是递归二叉分割，每条线可拖动调比例。','AI');
+setProto('ssh');renderConns();renderSess();renderStructure();
+</script>
+</body>
+</html>

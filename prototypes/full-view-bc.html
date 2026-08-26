@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全景视野（B 卡片式 + C 状态中枢 · 最终候选）— 日/夜双主题</title>
+<style>
+  /* ── 日间主题（默认：明亮卡片） ── */
+  :root, [data-theme="light"] {
+    --bg: #f4f6fa; --card: #ffffff; --border: #e3e8f0; --text: #24292f; --dim: #6e7a8a;
+    --accent: #4f6ef7; --accent-soft: #eef1fe; --ok: #1a9e5c; --warn: #c77700; --err: #d64545;
+    --term-bg: #1e2530; --term-text: #dbe4f0; --term-cmd: #8fb7ff; --term-sys: #7d8aa0;
+    --chat-user: #4f6ef718; --chat-user-border: #4f6ef744;
+    --explain-bg: #eef1fe; --explain-text: #3c53c7; --explain-border: #ccd5f8;
+  }
+  /* ── 夜间主题 ── */
+  [data-theme="dark"] {
+    --bg: #12141a; --card: #1a1d26; --border: #2e3342; --text: #d6dae5; --dim: #8a91a5;
+    --accent: #7d93ff; --accent-soft: #232941; --ok: #34d399; --warn: #fbbf24; --err: #f87171;
+    --term-bg: #0b0d12; --term-text: #c8d3e8; --term-cmd: #8fb7ff; --term-sys: #7d8aa0;
+    --chat-user: #7d93ff22; --chat-user-border: #7d93ff55;
+    --explain-bg: #1c2135; --explain-text: #aebcf5; --explain-border: #333c61;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.55 "Segoe UI", "Microsoft YaHei", sans-serif; height: 100vh; display: flex; flex-direction: column; transition: background .25s, color .25s; }
+  .explain { background: var(--explain-bg); color: var(--explain-text); padding: 8px 16px; font-size: 12.5px; border-bottom: 1px solid var(--explain-border); display: flex; align-items: center; gap: 12px; }
+  .explain .spacer { flex: 1; }
+  .theme-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 14px; padding: 3px 14px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .frame { flex: 1; display: grid; grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1.2fr); overflow: hidden; transition: grid-template-columns .3s ease; }
+  .frame.panel-hidden { grid-template-columns: 220px minmax(0, 1fr) 0px; }
+  .col-label { font-size: 10.5px; letter-spacing: 1px; color: var(--dim); text-transform: uppercase; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--card); display: flex; justify-content: space-between; }
+  .col-label em { font-style: normal; color: var(--accent); }
+
+  /* ── 左：模拟侧边栏 ── */
+  .sidebar { border-right: 1px solid var(--border); background: var(--card); display: flex; flex-direction: column; }
+  .side-item { padding: 8px 14px; color: var(--dim); font-size: 13px; border-left: 2px solid transparent; }
+  .side-item.active { color: var(--text); background: var(--accent-soft); border-left-color: var(--accent); }
+  .side-list { flex: 1; overflow: auto; padding: 6px 0; }
+  .side-foot { border-top: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .side-foot .fake { color: var(--dim); font-size: 12.5px; padding: 4px 6px; }
+  .our-entry { background: var(--chat-user); border: 1px solid var(--accent); color: var(--accent); border-radius: 10px; padding: 7px 10px; cursor: pointer; font-size: 12.5px; text-align: center; font-weight: 700; user-select: none; }
+  .our-entry:hover { filter: brightness(1.06); }
+
+  /* ── 中：模拟聊天 ── */
+  .chat { display: flex; flex-direction: column; background: var(--bg); border-right: 1px solid var(--border); }
+  .msgs { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 85%; padding: 9px 13px; border-radius: 12px; font-size: 13px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--chat-user); border: 1px solid var(--chat-user-border); }
+  .msg.ai { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
+  .msg .who { font-size: 11px; color: var(--dim); margin-bottom: 3px; }
+  .inputbar { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+  .inputbar input { flex: 1; background: var(--card); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); padding: 8px 12px; outline: none; font-size: 13px; }
+  .inputbar button { background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 8px 18px; font-weight: 700; cursor: pointer; }
+
+  /* ── 右：工作区（B 卡片 + C 状态条） ── */
+  .ws { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; position: relative; }
+  .ws .glow { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 34px #4f6ef714; }
+
+  /* C：状态总览条 */
+  .status-strip { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--card); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .status-strip .summary { font-size: 12px; color: var(--dim); margin-right: 6px; white-space: nowrap; font-weight: 600; }
+  .status-strip .summary b { color: var(--ok); }
+  .s-chip { display: flex; align-items: center; gap: 7px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 4px 12px; font-size: 12px; white-space: nowrap; font-weight: 600; }
+  .s-chip .led { width: 8px; height: 8px; border-radius: 50%; }
+  .led.on { background: var(--ok); box-shadow: 0 0 7px var(--ok); animation: pulse 2s infinite; }
+  .led.off { background: var(--dim); opacity: .45; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .s-chip button { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; padding: 0 2px; }
+  .s-chip button:hover { color: var(--accent); }
+
+  .tabs { display: flex; gap: 8px; padding: 10px 12px 0; }
+  .tab { padding: 7px 18px; cursor: pointer; color: var(--dim); border-radius: 20px; user-select: none; font-weight: 600; font-size: 13px; background: var(--card); border: 1px solid var(--border); }
+  .tab.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .tab .badge { background: var(--accent); color: #fff; border-radius: 10px; font-size: 11px; padding: 0 7px; margin-left: 4px; }
+  .page { display: none; flex: 1; overflow: hidden; flex-direction: column; gap: 10px; padding: 10px 12px; }
+  .page.active { display: flex; }
+
+  /* B：终端卡片 */
+  .grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; overflow: auto; }
+  .term { background: var(--card); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; min-height: 185px; overflow: hidden; box-shadow: 0 2px 10px #1a234008; }
+  .term-bar { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .term-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .term-bar .name { font-weight: 700; }
+  .term-bar .target { color: var(--dim); font-size: 12px; }
+  .term-bar button { margin-left: auto; }
+  .term-body { flex: 1; overflow-y: auto; padding: 8px 12px; background: var(--term-bg); color: var(--term-text); font: 12px/1.55 Consolas, "Courier New", monospace; white-space: pre-wrap; word-break: break-all; }
+  .term-body .cmd { color: var(--term-cmd); }
+  .term-body .sys { color: var(--term-sys); }
+  .term-input { display: flex; align-items: center; border-top: 1px solid var(--border); padding: 0 10px; }
+  .term-input span { color: var(--accent); font-family: Consolas, monospace; font-weight: 700; }
+  .term-input input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font: 12.5px Consolas, monospace; padding: 8px 9px; }
+
+  /* 广播卡片 */
+  .broadcast { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
+  .broadcast label { color: var(--accent); font-size: 13px; font-weight: 700; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 4px 12px; border: 1.5px solid var(--border); border-radius: 14px; cursor: pointer; color: var(--dim); user-select: none; font-weight: 600; }
+  .chip.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .broadcast input { flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); padding: 7px 12px; font: 12.5px Consolas, monospace; outline: none; }
+  .broadcast input:focus { border-color: var(--accent); }
+
+  /* B：连接卡片 */
+  .conn-list { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-content: start; }
+  .conn { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-shadow: 0 2px 10px #1a234008; display: flex; flex-direction: column; gap: 8px; }
+  .conn .top { display: flex; align-items: center; gap: 9px; }
+  .conn .proto { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 8px; font-family: Consolas, monospace; }
+  .proto.ssh { background: var(--accent-soft); color: var(--accent); }
+  .proto.telnet { background: #fff3e0; color: var(--warn); }
+  [data-theme="dark"] .proto.telnet { background: #fbbf2422; }
+  .conn .label { font-weight: 700; font-size: 15px; }
+  .conn .addr { color: var(--dim); font-family: Consolas, monospace; font-size: 12.5px; }
+  .conn .actions { display: flex; gap: 8px; margin-top: 2px; }
+  .status { font-size: 12px; padding: 3px 10px; border-radius: 12px; font-weight: 700; margin-left: auto; }
+  .status.off { color: var(--dim); background: var(--bg); }
+  .status.on { color: var(--ok); background: #1a9e5c18; }
+
+  button { background: var(--card); color: var(--text); border: 1.5px solid var(--border); border-radius: 10px; padding: 6px 15px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.08); color: #fff; }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+
+  /* 表单（必填/选填标注） */
+  .conn-form { background: var(--card); border: 2px solid var(--accent); border-radius: 14px; padding: 16px; display: none; flex-direction: column; gap: 10px; }
+  .conn-form.open { display: flex; }
+  .conn-form h3 { font-size: 14px; }
+  .conn-form .legend { font-size: 12px; color: var(--dim); margin-bottom: 2px; }
+  .req { color: var(--err); font-weight: 700; }
+  .opt-tag { font-size: 10.5px; color: var(--dim); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; margin-left: 4px; vertical-align: 1px; }
+  .conn-form .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; font-weight: 600; color: var(--dim); }
+  .field input, .field select { background: var(--bg); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field.error input { border-color: var(--err); background: #d6454510; }
+  .field .hint { font-size: 11px; color: var(--err); display: none; }
+  .field.error .hint { display: block; }
+  .auth-switch { display: flex; gap: 8px; }
+  .auth-switch span { font-size: 12.5px; padding: 5px 14px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; color: var(--dim); font-weight: 600; user-select: none; }
+  .auth-switch span.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+</style>
+</head>
+<body>
+<div class="explain">
+  <span>📐 全景视野 · <b>B 卡片式 + C 状态中枢</b>（最终候选）：左侧边栏入口可开/关面板；「连接」页签表单区分 <b style="color:#d64545">*必填</b> 与 <b>选填</b>，保存时校验。右上可切日/夜主题。</span>
+  <span class="spacer"></span>
+  <button class="theme-btn" onclick="toggleTheme()">☀️ 日间模式</button>
+</div>
+<div class="frame" id="frame">
+  <div class="sidebar">
+    <div class="col-label"><span>左侧边栏</span><em>DSH 原有</em></div>
+    <div class="side-list">
+      <div class="side-item active">💬 终端插件联调</div>
+      <div class="side-item">💬 昨天的任务</div>
+      <div class="side-item">💬 代码评审</div>
+    </div>
+    <div class="side-foot">
+      <div class="fake">⚙️ 设置（DSH 原有）</div>
+      <div class="our-entry" onclick="togglePanel()">🖥️ 终端管理 ← 点我开/关</div>
+    </div>
+  </div>
+  <div class="chat">
+    <div class="col-label"><span>聊天区</span><em>DSH 原有</em></div>
+    <div class="msgs">
+      <div class="msg user"><div class="who">你</div>连上 web-01 和 db-02，都跑一下 show version，把结果汇总给我。</div>
+      <div class="msg ai"><div class="who">AI</div>好的。正在通过终端管理插件连接两台设备……
+（右边工作区顶部状态条可以实时看到每台设备的在线状态）</div>
+      <div class="msg ai"><div class="who">AI</div>两台都已完成：
+· web-01 → 版本 17.3.4，运行 214 天
+· db-02  → 版本 15.1(2)，运行 37 天
+无异常。</div>
+    </div>
+    <div class="inputbar"><input placeholder="跟 AI 说话…（模拟）" /><button>发送</button></div>
+  </div>
+  <div class="ws">
+    <div class="glow"></div>
+    <div class="col-label"><span>终端工作区（本插件）</span><em>宽度可拖动</em></div>
+    <div class="status-strip" id="statusStrip"></div>
+    <div class="tabs">
+      <div class="tab active" data-page="terms">终端 <span class="badge" id="termCount">0</span></div>
+      <div class="tab" data-page="conns">连接</div>
+    </div>
+    <div class="page active" id="page-terms">
+      <div class="grid" id="termGrid"></div>
+      <div class="broadcast">
+        <label>📢 广播</label>
+        <div class="chips" id="chips"></div>
+        <input id="bcInput" placeholder="输入命令，发给选中的全部会话…" />
+        <button class="primary" onclick="broadcast()">发送</button>
+      </div>
+    </div>
+    <div class="page" id="page-conns">
+      <div class="conn-list" id="connList"></div>
+      <div class="conn-form" id="connForm">
+        <h3 id="formTitle">新建连接</h3>
+        <div class="legend"><span class="req">*</span> 为必填；标注「选填」的可留空</div>
+        <div class="row">
+          <div class="field" id="fwLabel"><label>名称 <span class="req">*</span></label><input id="fLabel" placeholder="如 web-01" /><span class="hint">请填写名称</span></div>
+          <div class="field"><label>协议 <span class="req">*</span></label>
+            <select id="fProto" onchange="onProtoChange()"><option value="ssh">SSH</option><option value="telnet">Telnet</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" id="fwHost"><label>IP 地址 <span class="req">*</span></label><input id="fHost" placeholder="192.168.1.10" /><span class="hint">请填写 IP 地址</span></div>
+          <div class="field"><label>端口 <span class="req">*</span></label><input id="fPort" placeholder="SSH 默认 22 / Telnet 默认 23" /><span class="hint"></span></div>
+        </div>
+        <div class="row" id="sshAuthBlock">
+          <div class="field" id="fwUser"><label>用户名 <span class="req">*</span>（SSH）</label><input id="fUser" placeholder="admin" /><span class="hint">SSH 登录需要用户名</span></div>
+          <div class="field"><label>认证方式 <span class="req">*</span></label>
+            <div class="auth-switch"><span class="on" id="authPwd" onclick="setAuth('password')">密码</span><span id="authKey" onclick="setAuth('key')">密钥</span></div>
+          </div>
+        </div>
+        <div class="row" id="pwdRow">
+          <div class="field" id="fwPass"><label>密码 <span class="req">*</span>（SSH）</label><input id="fPass" placeholder="登录密码" type="password" /><span class="hint">密码与密钥至少填一项</span></div>
+        </div>
+        <div class="row" id="keyRow" style="display:none;">
+          <div class="field" style="flex:2;" id="fwKey"><label>私钥 <span class="req">*</span>（SSH 密钥认证）</label><input id="fKey" placeholder="粘贴私钥内容或路径" /><span class="hint">请填写私钥</span></div>
+          <div class="field"><label>口令 <span class="opt-tag">选填</span></label><input id="fPassphrase" placeholder="私钥若有口令则填" type="password" /></div>
+        </div>
+        <div class="row" id="telnetAuthBlock" style="display:none;">
+          <div class="field"><label>用户名 <span class="opt-tag">选填</span>（Telnet）</label><input id="fTUser" placeholder="设备需要登录时填写" /></div>
+          <div class="field"><label>密码 <span class="opt-tag">选填</span>（Telnet）</label><input id="fTPass" placeholder="设备需要登录时填写" type="password" /></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>备注 <span class="opt-tag">选填</span></label><input id="fNote" placeholder="用途、位置等备忘信息" /></div>
+        </div>
+        <div class="row" style="justify-content: flex-end; gap: 10px;">
+          <button onclick="closeForm()">取消</button>
+          <button class="primary" onclick="saveConn()">保存连接</button>
+        </div>
+      </div>
+      <div><button class="primary" onclick="openForm()">＋ 新建连接</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  root.dataset.theme = next;
+  document.querySelector('.theme-btn').textContent = next === 'dark' ? '☀️ 日间模式' : '🌙 夜间模式';
+}
+function togglePanel() { $('frame').classList.toggle('panel-hidden'); }
+
+const CONNS = [
+  { id: 'c1', label: 'web-01', proto: 'ssh', host: '10.0.1.5', port: 22, user: 'admin', note: '前台测试服务器', status: 'off' },
+  { id: 'c2', label: 'db-02', proto: 'telnet', host: '10.0.1.8', port: 23, user: '', note: '', status: 'off' },
+];
+const SESSIONS = [];
+let editing = null, seq = 0, authMode = 'password';
+
+const $ = id => document.getElementById(id);
+const FAKE_OUTPUT = cmd => [
+  `执行: ${cmd}`,
+  '----------------------------------------',
+  'Interface      Status    Protocol',
+  'Gig0/0         up        up',
+  'Gig0/1         up        up',
+  `完成于 ${new Date().toLocaleTimeString()}`,
+];
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $('page-' + t.dataset.page).classList.add('active');
+});
+
+/* ── 状态条（C） ── */
+function renderStrip() {
+  const on = CONNS.filter(c => c.status === 'on').length;
+  $('statusStrip').innerHTML =
+    `<span class="summary">在线 <b>${on}</b> / ${CONNS.length}</span>` +
+    CONNS.map(c => `
+      <span class="s-chip">
+        <span class="led ${c.status === 'on' ? 'on' : 'off'}"></span>
+        ${c.label}
+        ${c.status === 'on' ? `<button onclick="toggleConn('${c.id}')" title="断开">✕</button>` : `<button onclick="toggleConn('${c.id}')" title="连接">▶</button>`}
+      </span>`).join('');
+}
+
+/* ── 连接卡片（B） ── */
+function renderConns() {
+  $('connList').innerHTML = CONNS.map(c => `
+    <div class="conn">
+      <div class="top">
+        <span class="proto ${c.proto}">${c.proto.toUpperCase()}</span>
+        <span class="label">${c.label}</span>
+        <span class="status ${c.status}">${c.status === 'on' ? '● 已连接' : '未连接'}</span>
+      </div>
+      <div class="addr">${c.host}:${c.port}${c.user ? ' · ' + c.user : ''}${c.note ? ' · ' + c.note : ''}</div>
+      <div class="actions">
+        <button class="primary" onclick="toggleConn('${c.id}')">${c.status === 'on' ? '断开' : '连接'}</button>
+        <button onclick="editConn('${c.id}')">编辑</button>
+        <button class="danger" onclick="delConn('${c.id}')">删除</button>
+      </div>
+    </div>`).join('');
+}
+function toggleConn(id) {
+  const c = CONNS.find(x => x.id === id);
+  if (c.status === 'on') { disconnect(id); return; }
+  c.status = 'on'; renderConns(); renderStrip();
+  if (!SESSIONS.some(s => s.connId === id)) {
+    const s = { id: 's' + (++seq), connId: id, lines: [] };
+    SESSIONS.push(s);
+    pushLine(s, `[已连接 ${c.host}:${c.port}]`, 'sys');
+    pushLine(s, c.proto === 'ssh' ? `Welcome to ${c.label} (SSH)` : `Connected to ${c.label}`, 'sys');
+    pushLine(s, promptOf(c), 'sys');
+  }
+  renderTerms();
+  document.querySelector('.tab[data-page="terms"]').click();
+}
+function disconnect(connId) {
+  const c = CONNS.find(x => x.id === connId);
+  if (c) c.status = 'off';
+  const i = SESSIONS.findIndex(s => s.connId === connId);
+  if (i >= 0) SESSIONS.splice(i, 1);
+  renderConns(); renderStrip(); renderTerms();
+}
+function delConn(id) {
+  disconnect(id);
+  const i = CONNS.findIndex(x => x.id === id);
+  if (i >= 0) CONNS.splice(i, 1);
+  renderConns(); renderStrip();
+}
+
+/* ── 表单：协议切换 + 必填校验 ── */
+function openForm() { editing = null; $('formTitle').textContent = '新建连接'; clearForm(); $('connForm').classList.add('open'); }
+function closeForm() { $('connForm').classList.remove('open'); }
+function clearForm() {
+  ['fLabel','fHost','fPort','fUser','fPass','fKey','fPassphrase','fTUser','fTPass','fNote'].forEach(id => $(id).value = '');
+  $('fProto').value = 'ssh'; authMode = 'password';
+  onProtoChange(); clearErrors();
+}
+function clearErrors() { document.querySelectorAll('.field.error').forEach(f => f.classList.remove('error')); }
+function onProtoChange() {
+  const ssh = $('fProto').value === 'ssh';
+  $('sshAuthBlock').style.display = ssh ? 'flex' : 'none';
+  $('pwdRow').style.display = ssh && authMode === 'password' ? 'flex' : 'none';
+  $('keyRow').style.display = ssh && authMode === 'key' ? 'flex' : 'none';
+  $('telnetAuthBlock').style.display = ssh ? 'none' : 'flex';
+  $('fPort').placeholder = ssh ? '默认 22' : '默认 23';
+  clearErrors();
+}
+function setAuth(mode) {
+  authMode = mode;
+  $('authPwd').classList.toggle('on', mode === 'password');
+  $('authKey').classList.toggle('on', mode === 'key');
+  $('pwdRow').style.display = mode === 'password' ? 'flex' : 'none';
+  $('keyRow').style.display = mode === 'key' ? 'flex' : 'none';
+  clearErrors();
+}
+function markError(id) { $(id).classList.add('error'); }
+function saveConn() {
+  clearErrors();
+  const ssh = $('fProto').value === 'ssh';
+  let bad = false;
+  if (!$('fLabel').value.trim()) { markError('fwLabel'); bad = true; }
+  if (!$('fHost').value.trim()) { markError('fwHost'); bad = true; }
+  if (ssh) {
+    if (!$('fUser').value.trim()) { markError('fwUser'); bad = true; }
+    if (authMode === 'password' && !$('fPass').value) { markError('fwPass'); bad = true; }
+    if (authMode === 'key' && !$('fKey').value.trim()) { markError('fwKey'); bad = true; }
+  }
+  if (bad) return;
+  const data = {
+    label: $('fLabel').value.trim(),
+    proto: $('fProto').value,
+    host: $('fHost').value.trim(),
+    port: +$('fPort').value || (ssh ? 22 : 23),
+    user: ssh ? $('fUser').value.trim() : $('fTUser').value.trim(),
+    note: $('fNote').value.trim(),
+    status: 'off',
+  };
+  if (editing) Object.assign(CONNS.find(x => x.id === editing), data);
+  else CONNS.push({ id: 'c' + Date.now(), ...data });
+  closeForm(); renderConns(); renderStrip();
+}
+function editConn(id) {
+  const c = CONNS.find(x => x.id === id);
+  editing = id; $('formTitle').textContent = `编辑连接：${c.label}`;
+  clearForm();
+  $('fLabel').value = c.label; $('fProto').value = c.proto; $('fHost').value = c.host;
+  $('fPort').value = c.port; $('fNote').value = c.note ?? '';
+  onProtoChange();
+  if (c.proto === 'ssh') { $('fUser').value = c.user ?? ''; }
+  else { $('fTUser').value = c.user ?? ''; }
+  $('connForm').classList.add('open');
+}
+
+/* ── 终端 ── */
+const promptOf = c => `${c.label}${c.proto === 'ssh' ? '$' : '>'} `;
+function pushLine(s, text, cls) { s.lines.push({ text, cls }); if (s.lines.length > 400) s.lines.shift(); }
+function esc(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderTerms() {
+  $('termCount').textContent = SESSIONS.length;
+  $('termGrid').innerHTML = SESSIONS.length === 0
+    ? '<div style="color:var(--dim);padding:30px;text-align:center;">还没有已连接的会话 🌱<br>到「连接」页签连一台设备，或点上方状态条的 ▶</div>'
+    : SESSIONS.map(s => {
+        const c = CONNS.find(x => x.id === s.connId);
+        return `<div class="term">
+          <div class="term-bar"><span class="dot"></span><span class="name">${c.label}</span><span class="target">${c.host}:${c.port}</span><button onclick="disconnect('${c.id}')">断开</button></div>
+          <div class="term-body" id="body-${s.id}">${s.lines.map(l => `<div class="${l.cls || ''}">${esc(l.text)}</div>`).join('')}</div>
+          <div class="term-input"><span>${c.proto === 'ssh' ? '$' : '>'}</span><input placeholder="输入命令…" onkeydown="if(event.key==='Enter'){sendCmd('${s.id}',this.value);this.value=''}"/></div>
+        </div>`;
+      }).join('');
+  SESSIONS.forEach(s => { const el = $('body-' + s.id); if (el) el.scrollTop = el.scrollHeight; });
+  $('chips').innerHTML = `<span class="chip on" data-id="*">全部</span>` + SESSIONS.map(s => `<span class="chip on" data-id="${s.id}">${CONNS.find(x => x.id === s.connId).label}</span>`).join('');
+}
+function sendCmd(sid, cmd) {
+  if (!cmd.trim()) return;
+  const s = SESSIONS.find(x => x.id === sid);
+  const c = CONNS.find(x => x.id === s.connId);
+  pushLine(s, promptOf(c) + cmd, 'cmd');
+  let i = 0; const lines = FAKE_OUTPUT(cmd);
+  const t = setInterval(() => {
+    if (i >= lines.length) { clearInterval(t); pushLine(s, promptOf(c), 'sys'); renderTerms(); return; }
+    pushLine(s, lines[i++]); renderTerms();
+  }, 160);
+}
+function broadcast() {
+  const cmd = $('bcInput').value.trim(); if (!cmd) return;
+  $('bcInput').value = '';
+  SESSIONS.forEach(s => sendCmd(s.id, cmd));
+}
+renderConns(); renderStrip(); renderTerms();
+</script>
+</body>
+</html>

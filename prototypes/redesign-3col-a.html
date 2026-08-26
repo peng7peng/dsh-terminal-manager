@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>重新设计 3col-A — 贴近 AgentTerm 分布</title>
+<style>
+  /* Tokyo Night 深色（对齐 AgentTerm 参考） */
+  :root {
+    --bg:#1a1b26; --panel:#1f2335; --panel2:#24283b; --border:#292e42;
+    --term-bg:#0d0d14; --text:#c0caf5; --dim:#565f89; --dim2:#3b4261;
+    --accent:#7aa2f7; --green:#9ece6a; --cyan:#7dcfff; --purple:#bb9af7;
+    --yellow:#e0af68; --red:#f7768e; --ok:#9ece6a; --warn:#e0af68; --err:#f7768e;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font:13px/1.5 "Consolas","Microsoft YaHei",monospace; height:100vh; overflow:hidden; }
+  .app { display:flex; height:100vh; }
+
+  /* 0) DSH 侧边栏（不动它，仅占位） */
+  .dsheside { flex:0 0 168px; background:#16161e; border-right:1px solid var(--border); display:flex; flex-direction:column; }
+  .dsheside .hd { padding:10px 12px; font-size:10px; color:var(--dim); letter-spacing:1px; border-bottom:1px solid var(--border); background:#16161e; }
+  .dsheside .it { padding:8px 14px; color:var(--dim); font-size:12px; border-left:2px solid transparent; }
+  .dsheside .it.active { color:var(--text); background:#1f2335; border-left-color:var(--green); }
+  .dsheside .dummy { flex:1; }
+  .dsheside .note { padding:10px; color:var(--dim2); font-size:10.5px; line-height:1.5; }
+  .dsheside .plugin-entry { margin:10px; padding:8px; border:1px solid var(--accent); color:var(--accent); border-radius:8px; text-align:center; font-size:12px; font-weight:700; }
+
+  /* 插件区：三块并排 */
+  .plug { flex:1; display:flex; min-width:0; }
+
+  /* ── 左：连接管理 ── */
+  .connblock { flex:0 0 306px; background:#16161e; border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+  .cb-hd { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  .cb-hd .t { font-weight:700; font-size:13px; }
+  .cb-hd .sp { flex:1; }
+  .ltabs { display:flex; gap:2px; padding:6px 12px; border-bottom:1px solid var(--border); }
+  .ltab { font-size:11px; color:var(--dim); cursor:pointer; padding:3px 10px; border-radius:6px; font-weight:600; user-select:none; }
+  .ltab.on { color:var(--green); background:#24283b; }
+  .cb-scroll { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
+  .sec-label { font-size:9.5px; color:var(--dim); letter-spacing:1px; font-weight:700; margin:6px 2px 2px; }
+  .conn { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 11px; display:flex; flex-direction:column; gap:6px; }
+  .conn .r1 { display:flex; align-items:center; gap:7px; }
+  .proto { font-size:9px; font-weight:800; padding:2px 7px; border-radius:5px; }
+  .proto.ssh { background:#7aa2f723; color:var(--accent); }
+  .proto.telnet { background:#e0af6823; color:var(--yellow); }
+  .conn .nm { font-weight:700; font-size:12px; }
+  .conn .status { font-size:10px; padding:2px 8px; border-radius:999px; font-weight:700; margin-left:auto; }
+  .status.off { color:var(--dim); background:#24283b; }
+  .status.connecting { color:var(--warn); background:#e0af6818; }
+  .status.on { color:var(--ok); background:#9ece6a18; }
+  .conn .addr { color:var(--dim); font-size:11px; }
+  .conn .acts { display:flex; gap:6px; }
+  .btn { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:3px 10px; cursor:pointer; font:11px Consolas,monospace; font-weight:600; }
+  .btn:hover { border-color:var(--accent); color:var(--accent); }
+  .btn.ok { background:#9ece6a; border-color:#9ece6a; color:#16161e; }
+  .btn.ok:hover { filter:brightness(1.08); color:#16161e; }
+  .btn.danger:hover { border-color:var(--err); color:var(--err); }
+
+  /* 活跃会话（右上：显隐/断开） */
+  .sess { display:flex; align-items:center; gap:7px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 9px; font-size:11.5px; cursor:pointer; user-select:none; }
+  .sess.hid { opacity:.5; border-style:dashed; }
+  .sess .led { width:7px; height:7px; border-radius:50%; }
+  .led.on { background:var(--ok); box-shadow:0 0 4px var(--ok); }
+  .led.connecting { background:var(--warn); }
+  .sess .nm2 { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sess .x { background:none; border:none; color:var(--dim); cursor:pointer; font-size:11px; padding:0 1px; }
+  .sess .x:hover { color:var(--err); }
+
+  /* ── 中：终端显示 ── */
+  .termblock { flex:1; display:flex; flex-direction:column; background:var(--bg); min-width:0; border-right:1px solid var(--border); }
+  .tb-hd { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .tb-hd .online { font-size:11.5px; color:var(--dim); white-space:nowrap; }
+  .tb-hd .online b { color:var(--ok); }
+  .tb-hd .sp { flex:1; }
+  .switch { font-size:11px; color:var(--dim); cursor:pointer; padding:3px 9px; border:1px solid var(--border); border-radius:6px; }
+  .switch.on { color:var(--cyan); border-color:var(--cyan); }
+  .gridwrap { flex:1; overflow:auto; padding:10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:8px; align-content:start; }
+  .grid.max .term { display:none; }
+  .grid.max .term.focus { display:flex; }
+  .term { background:var(--term-bg); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-height:150px; overflow:hidden; }
+  .term-bar { display:flex; align-items:center; gap:7px; padding:5px 9px; background:var(--panel2); border-bottom:1px solid var(--border); font-size:11.5px; }
+  .term-bar .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); }
+  .term-bar .nm3 { font-weight:700; font-family:Consolas,monospace; }
+  .term-bar .tgt { color:var(--dim); font-family:Consolas,monospace; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .term-bar button { margin-left:auto; background:none; border:none; color:var(--dim); cursor:pointer; font-size:13px; padding:0 2px; }
+  .term-bar button:hover { color:var(--cyan); }
+  .term-body { flex:1; overflow-y:auto; padding:6px 9px; color:var(--text); font:12px/1.5 Consolas,monospace; white-space:pre-wrap; word-break:break-all; }
+  .term-body .cmd { color:var(--green); }
+  .term-body .sys { color:var(--dim); }
+  .term-input { display:flex; align-items:center; border-top:1px solid var(--border); padding:0 9px; background:var(--panel2); }
+  .term-input span { color:var(--green); font-weight:700; }
+  .term-input input { flex:1; background:transparent; border:none; outline:none; color:var(--text); font:12px Consolas,monospace; padding:6px 8px; }
+  .empty { color:var(--dim); padding:40px; text-align:center; }
+
+  /* 中块底部：广播条 */
+  .bcast { display:flex; align-items:center; gap:7px; padding:7px 12px; background:var(--panel); border-top:1px solid var(--border); }
+  .bcast .lb { font-size:11.5px; color:var(--green); font-weight:700; white-space:nowrap; }
+  .bchips { display:flex; gap:3px; flex-wrap:wrap; }
+  .bchip { font-size:10.5px; padding:2px 8px; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--dim); user-select:none; white-space:nowrap; font-weight:600; }
+  .bchip.on { border-color:var(--accent); color:var(--accent); background:#7aa2f718; }
+  .bcast input { flex:1; min-width:70px; background:var(--term-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:4px 8px; font:11.5px Consolas,monospace; outline:none; }
+  .bcast input:focus { border-color:var(--accent); }
+
+  /* ── 右：AI 聊天 ── */
+  .aiblock { flex:0 0 360px; background:var(--bg); display:flex; flex-direction:column; min-height:0; }
+  .ai-hd { display:flex; align-items:center; gap:8px; padding:9px 12px; background:var(--panel); border-bottom:1px solid var(--border); }
+  .ai-hd .nm { font-weight:700; color:var(--purple); }
+  .ai-hd .run { font-size:9.5px; color:var(--ok); }
+  .ai-hd .sp { flex:1; }
+  .ai-bridge { display:flex; align-items:center; padding:4px 12px; font-size:9.5px; color:var(--dim); border-bottom:1px solid var(--border); }
+  .ai-bridge .tools { margin-left:auto; color:var(--ok); }
+  .msgs { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:90%; padding:8px 10px; border-radius:10px; font-size:12px; white-space:pre-wrap; }
+  .msg.user { align-self:flex-end; background:#7aa2f722; border:1px solid #7aa2f744; }
+  .msg.ai { align-self:flex-start; background:var(--panel); border:1px solid var(--border); }
+  .msg .who { font-size:10px; color:var(--dim); margin-bottom:2px; }
+  .msg .mono { color:var(--green); }
+  .ai-in { display:flex; flex-direction:column; gap:4px; padding:10px 14px 12px; border-top:1px solid var(--border); }
+  .ai-in .box { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; color:var(--dim); font-size:12px; min-height:56px; }
+  .ai-in .meta { display:flex; justify-content:space-between; font-size:9px; color:var(--dim2); }
+  .ai-status { display:flex; align-items:center; padding:4px 12px; background:#16161e; border-top:1px solid var(--border); font-size:10px; color:var(--dim); }
+  .ai-status .sp { flex:1; }
+
+  /* 表单抽屉 */
+  .mask { position:fixed; inset:0; background:#0a0b1299; opacity:0; pointer-events:none; transition:opacity .2s; z-index:9; }
+  .mask.open { opacity:1; pointer-events:auto; }
+  .form { position:fixed; top:0; left:0; height:100vh; width:min(340px,90vw); background:var(--panel); border-right:1px solid var(--border); padding:16px; display:flex; flex-direction:column; gap:11px; transform:translateX(-100%); transition:transform .22s ease; z-index:10; overflow-y:auto; }
+  .form.open { transform:translateX(0); }
+  .form h3 { font-size:13px; }
+  .legend { font-size:10.5px; color:var(--dim); }
+  .req { color:var(--err); font-weight:700; }
+  .opt-tag { font-size:10px; color:var(--dim); border:1px solid var(--border); border-radius:6px; padding:0 5px; margin-left:4px; }
+  .fld { display:flex; flex-direction:column; gap:3px; }
+  .fld label { font-size:11px; font-weight:600; color:var(--dim); }
+  .fld input,.fld select { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:6px 9px; font:12px Consolas,monospace; outline:none; width:100%; }
+  .fld input:focus,.fld select:focus { border-color:var(--accent); }
+  .fld.error input { border-color:var(--err); background:#f7768e12; }
+  .fld .hint { font-size:10px; color:var(--err); display:none; }
+  .fld.error .hint { display:block; }
+  .auth-switch { display:flex; gap:5px; }
+  .auth-switch span { font-size:11.5px; padding:3px 11px; border:1px solid var(--border); border-radius:6px; cursor:pointer; color:var(--dim); font-weight:600; user-select:none; }
+  .auth-switch span.on { border-color:var(--accent); color:var(--accent); background:#7aa2f718; }
+  .form-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:auto; padding-top:8px; border-top:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 0) DSH 侧边栏（占位，不动） -->
+  <div class="dsheside">
+    <div class="hd">DSH · 原有</div>
+    <div class="it active">💬 终端插件联调</div>
+    <div class="it">💬 昨天的任务</div>
+    <div class="it">💬 代码评审</div>
+    <div class="dummy"></div>
+    <div class="plugin-entry">🖥️ 终端管理</div>
+    <div class="note">本插件面板位于 DSH 侧边栏右侧，占「连接管理 / 终端显示 / AI 聊天」三块。</div>
+  </div>
+
+  <!-- 插件三块 -->
+  <div class="plug">
+    <!-- 左：连接管理 -->
+    <div class="connblock">
+      <div class="cb-hd">
+        <span class="t">📡 连接管理</span>
+        <span class="sp"></span>
+        <button class="btn ok" onclick="openForm()">＋ 新建</button>
+      </div>
+      <div class="ltabs">
+        <span class="ltab on" data-f="all" onclick="setFilter('all')">全部</span>
+        <span class="ltab" data-f="ssh" onclick="setFilter('ssh')">SSH</span>
+        <span class="ltab" data-f="telnet" onclick="setFilter('telnet')">Telnet</span>
+      </div>
+      <div class="cb-scroll">
+        <div class="sec-label">已保存连接</div>
+        <div id="connList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div class="sec-label">活跃会话</div>
+        <div id="sessList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+    </div>
+
+    <!-- 中：终端显示 -->
+    <div class="termblock">
+      <div class="tb-hd">
+        <span class="online">在线 <b id="onlineCount">0</b> / <span id="allCount">0</span></span>
+        <span class="switch" id="viewSwitch" onclick="toggleView()">视图：网格</span>
+        <span class="sp"></span>
+      </div>
+      <div class="gridwrap">
+        <div class="grid" id="termGrid"></div>
+      </div>
+      <!-- 广播条 -->
+      <div class="bcast">
+        <span class="lb">📢 广播</span>
+        <div class="bchips" id="bchips"></div>
+        <input id="bcInput" placeholder="输入命令，发给选中会话…" />
+        <button class="btn ok" id="bcSend" onclick="broadcast()">发送</button>
+      </div>
+    </div>
+
+    <!-- 右：AI 聊天 -->
+    <div class="aiblock">
+      <div class="ai-hd">
+        <span class="nm">opencode</span>
+        <span class="run">● running</span>
+        <span class="sp"></span>
+        <span style="color:var(--dim);font-size:11px;">📄 📁 ▶ 🖼 ⚙</span>
+      </div>
+      <div class="ai-bridge">
+        <span>term-manager-bridge/v2</span>
+        <span class="tools">tools ready</span>
+      </div>
+      <div class="msgs" id="aiMsgs"></div>
+      <div class="ai-in">
+        <div class="box" contenteditable="true" id="aiInput" style="outline:none;">连上 web-01 和 db-02，都跑一下 show version…</div>
+        <div class="meta">
+          <span>Build · dsv4-flash</span>
+          <span>ctrl+p commands</span>
+        </div>
+        <button class="btn ok" onclick="sendAi()">发送</button>
+      </div>
+      <div class="ai-status">
+        <span>D:\AT_workspace\920G-Server</span>
+        <span class="sp"></span>
+        <span>6 MCP /status</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 表单抽屉-->
+<div class="mask" id="mask" onclick="closeForm()"></div>
+<div class="form" id="connForm">
+  <h3 id="formTitle">新建连接</h3>
+  <div class="legend"><span class="req">*</span> 必填；「选填」可留空（密码/私钥按认证方式二选一）</div>
+  <div style="display:flex;gap:8px;">
+    <div class="fld" id="fwLabel" style="flex:1"><label>名称 <span class="req">*</span></label><input id="fLabel" placeholder="如 web-01" /><span class="hint">请填写名称</span></div>
+    <div class="fld" style="flex:0 0 88px"><label>协议 <span class="req">*</span></label><select id="fProto" onchange="onProtoChange()"><option value="ssh">SSH</option><option value="telnet">Telnet</option></select></div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <div class="fld" id="fwHost" style="flex:1"><label>IP 地址 <span class="req">*</span></label><input id="fHost" placeholder="192.168.1.10" /><span class="hint">请填写 IP</span></div>
+    <div class="fld" style="flex:0 0 92px"><label>端口 <span class="req">*</span></label><input id="fPort" placeholder="22" /><span class="hint"></span></div>
+  </div>
+  <div id="sshBlock">
+    <div style="display:flex;gap:8px;">
+      <div class="fld" id="fwUser" style="flex:1"><label>用户名 <span class="req">*</span>（SSH）</label><input id="fUser" placeholder="admin" /><span class="hint">SSH 需用户名</span></div>
+      <div class="fld" style="flex:0 0 118px"><label>认证方式 <span class="req">*</span></label><div class="auth-switch"><span class="on" id="authPwd" onclick="setAuth('password')">密码</span><span id="authKey" onclick="setAuth('key')">密钥</span></div></div>
+    </div>
+    <div id="pwdRow"><div class="fld" id="fwPass"><label>密码 <span class="req">*</span></label><input id="fPass" type="password" placeholder="登录密码" /><span class="hint">选密码认证时必填</span></div></div>
+    <div id="keyRow" style="display:none;">
+      <div style="display:flex;gap:8px;">
+        <div class="fld" id="fwKey" style="flex:2"><label>私钥 <span class="req">*</span></label><input id="fKey" placeholder="私钥内容或路径" /><span class="hint">选密钥认证时必填</span></div>
+        <div class="fld" style="flex:1"><label>口令 <span class="opt-tag">选填</span></label><input id="fPassphrase" type="password" placeholder="口令" /></div>
+      </div>
+    </div>
+  </div>
+  <div id="telnetBlock" style="display:none;">
+    <div style="display:flex;gap:8px;">
+      <div class="fld" style="flex:1"><label>用户名 <span class="opt-tag">选填</span>（Telnet）</label><input id="fTUser" placeholder="需要登录时填" /></div>
+      <div class="fld" style="flex:1"><label>密码 <span class="opt-tag">选填</span>（Telnet）</label><input id="fTPass" type="password" placeholder="需要登录时填" /></div>
+    </div>
+  </div>
+  <div class="fld"><label>备注 <span class="opt-tag">选填</span></label><input id="fNote" placeholder="用途、位置等备忘" /></div>
+  <div class="form-foot">
+    <button class="btn" onclick="closeForm()">取消</button>
+    <button class="btn ok" onclick="saveConn()">保存连接</button>
+  </div>
+</div>
+
+<script>
+const CONNS=[
+  {id:'c1',label:'web-01',proto:'ssh',host:'10.0.1.5',port:22,user:'admin',note:'前端测试服务器',status:'off'},
+  {id:'c2',label:'db-02',proto:'telnet',host:'10.0.1.8',port:23,user:'',note:'',status:'off'},
+  {id:'c3',label:'cache-03',proto:'ssh',host:'10.0.1.12',port:22,user:'root',note:'缓存节点',status:'off'},
+  {id:'c4',label:'sw-04',proto:'ssh',host:'10.0.1.9',port:22,user:'admin',note:'汇聚交换机',status:'off'},
+  {id:'c5',label:'esl-lab7',proto:'telnet',host:'10.0.1.20',port:23,user:'',note:'ESL 环境',status:'off'},
+];
+const SESSIONS=[]; // {id,connId,lines,hidden}
+let editing=null,seq=0,authMode='password',maxSid=null,filter='all',viewMax=false;
+const $=id=>document.getElementById(id);
+const promptOf=c=>`${c.label}${c.proto==='ssh'?'$':'>'} `;
+const FAKE_OUTPUT=cmd=>[`执行: ${cmd}`,'----------------------------------------','Interface      Status    Protocol','Gig0/0         up        up','Gig0/1         up        up',`完成于 ${new Date().toLocaleTimeString()}`];
+function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function setFilter(f){filter=f;document.querySelectorAll('.ltab').forEach(x=>x.classList.toggle('on',x.dataset.f===f));renderConns();}
+function connect(id){const c=CONNS.find(x=>x.id===id);if(c.status!=='off')return;c.status='connecting';renderConns();renderSess();setTimeout(()=>{c.status='on';renderConns();renderSess();openSession(c);},700);}
+function disconnect(cid){const c=CONNS.find(x=>x.id===cid);if(c)c.status='off';const i=SESSIONS.findIndex(s=>s.connId===cid);if(i>=0){if(SESSIONS[i].id===maxSid)maxSid=null;SESSIONS.splice(i,1);}renderConns();renderSess();renderTerms();}
+function openSession(c){if(SESSIONS.some(s=>s.connId===c.id))return;const s={id:'s'+(++seq),connId:c.id,lines:[],hidden:false};SESSIONS.push(s);pushLine(s,`[已连接 ${c.host}:${c.port}]`,'sys');pushLine(s,c.proto==='ssh'?`Welcome to ${c.label} (SSH)`:`Connected to ${c.label}`,'sys');pushLine(s,promptOf(c),'sys');renderTerms();}
+
+function renderConns(){
+  const list=CONNS.filter(c=>filter==='all'||c.proto===filter);
+  $('connList').innerHTML=list.length?list.map(c=>`
+    <div class="conn">
+      <div class="r1"><span class="proto ${c.proto}">${c.proto.toUpperCase()}</span><span class="nm">${c.label}</span><span class="status ${c.status}">${c.status==='on'?'● 已连接':c.status==='connecting'?'◐ 连接中…':'未连接'}</span></div>
+      <div class="addr">${c.host}:${c.port}${c.user?' · '+c.user:''}${c.note?' · '+c.note:''}</div>
+      <div class="acts">
+        <button class="btn ok" onclick="connect('${c.id}')">${c.status==='on'?'已连接':c.status==='connecting'?'连接中…':'连接'}</button>
+        <button class="btn" onclick="editConn('${c.id}')">编辑</button>
+        <button class="btn danger" onclick="delConn('${c.id}')">删除</button>
+      </div>
+    </div>`).join(''):'<div class="empty" style="padding:16px;">无符合条件的连接</div>';
+}
+function renderSess(){
+  $('sessList').innerHTML=SESSIONS.length?SESSIONS.map(s=>{
+    const c=CONNS.find(x=>x.id===s.connId);
+    return `<div class="sess ${s.hidden?'hid':''}" onclick="toggleHide('${c.id}')" title="点我显示/隐藏（不断开）">
+      <span class="led on"></span><span class="nm2">${c.label}</span>
+      <button class="x" onclick="event.stopPropagation();disconnect('${c.id}')" title="断开">✕</button>
+    </div>`;
+  }).join(''):'<div class="empty" style="padding:10px;font-size:11px;">暂无活跃会话</div>';
+}
+function toggleHide(cid){const s=SESSIONS.find(x=>x.connId===cid);if(!s)return;s.hidden=!s.hidden;if(s.hidden&&maxSid===s.id)maxSid=null;renderSess();renderTerms();}
+
+function pushLine(s,text,cls){s.lines.push({text,cls});if(s.lines.length>400)s.lines.shift();}
+function renderTerms(){
+  $('onlineCount').textContent=CONNS.filter(c=>c.status==='on').length;
+  $('allCount').textContent=CONNS.length;
+  const vis=SESSIONS.filter(s=>!s.hidden);
+  $('termGrid').innerHTML=SESSIONS.length===0
+    ?'<div class="empty">还没有已连接的会话 🌱<br>在左侧「连接管理」连一台设备</div>'
+    :vis.length===0
+    ?'<div class="empty">所有终端已隐藏 —— 点左侧「活跃会话」恢复<br>（连接保持）</div>'
+    :vis.map(s=>{const c=CONNS.find(x=>x.id===s.connId);return `<div class="term" data-sid="${s.id}">
+      <div class="term-bar"><span class="dot"></span><span class="nm3">${c.label}</span><span class="tgt">${c.host}:${c.port}</span><button onclick="toggleMax('${s.id}')" title="最大化/还原">⛶</button></div>
+      <div class="term-body" id="body-${s.id}">${s.lines.map(l=>`<div class="${l.cls||''}">${esc(l.text)}</div>`).join('')}</div>
+      <div class="term-input"><span>${c.proto==='ssh'?'$':'>'}</span><input placeholder="输入命令…" onkeydown="if(event.key==='Enter'){sendCmd('${s.id}',this.value);this.value=''}"/></div>
+    </div>`;}).join('');
+  const grid=$('termGrid');grid.classList.toggle('max',viewMax);grid.querySelectorAll('.term').forEach(t=>t.classList.toggle('focus',t.dataset.sid===maxSid));
+  SESSIONS.forEach(s=>{const el=$('body-'+s.id);if(el)el.scrollTop=el.scrollHeight;});
+  renderBchips();
+}
+function toggleMax(sid){maxSid=maxSid===sid?null:sid;renderTerms();}
+function toggleView(){viewMax=!viewMax;renderTerms();}
+function sendCmd(sid,cmd){if(!cmd.trim())return;const s=SESSIONS.find(x=>x.id===sid);const c=CONNS.find(x=>x.id===s.connId);pushLine(s,promptOf(c)+cmd,'cmd');stream(s,c,FAKE_OUTPUT(cmd));}
+function stream(s,c,lines){let i=0;const t=setInterval(()=>{if(i>=lines.length){clearInterval(t);pushLine(s,promptOf(c),'sys');renderTerms();return;}pushLine(s,lines[i++]);renderTerms();},160);}
+
+function renderBchips(){const avail=SESSIONS.filter(s=>!s.hidden);$('bchips').innerHTML=`<span class="bchip on" data-id="*" onclick="chipAll()">全部</span>`+avail.map(s=>{const c=CONNS.find(x=>x.id===s.connId);return `<span class="bchip on" data-id="${s.id}" onclick="chipToggle(this)">${c.label}</span>`;}).join('');updateBcCount();}
+function chipToggle(el){el.classList.toggle('on');syncAll();updateBcCount();}
+function chipAll(){const ind=[...document.querySelectorAll('.bchip:not([data-id="*"])')];const allOn=ind.length>0&&ind.every(c=>c.classList.contains('on'));ind.forEach(c=>c.classList.toggle('on',!allOn));document.querySelector('.bchip[data-id="*"]').classList.toggle('on',!allOn);updateBcCount();}
+function syncAll(){const ind=[...document.querySelectorAll('.bchip:not([data-id="*"])')];document.querySelector('.bchip[data-id="*"]').classList.toggle('on',ind.length>0&&ind.every(c=>c.classList.contains('on')));}
+function selTargets(){return [...document.querySelectorAll('.bchip.on:not([data-id="*"])')].map(c=>c.dataset.id);}
+function updateBcCount(){const n=selTargets().length;$('bcSend').textContent=n>0?`发送（${n}）`:'发送';}
+function broadcast(){const cmd=$('bcInput').value.trim();if(!cmd)return;const tg=selTargets();if(!tg.length)return;$('bcInput').value='';tg.forEach(sid=>{if(SESSIONS.some(s=>s.id===sid))sendCmd(sid,cmd);});}
+
+/* AI mock */
+function appendMsg(who,html){const d=document.createElement('div');d.className='msg '+(who==='user'?'user':'ai');d.innerHTML=`<div class="who">${who==='user'?'你':'AI'}</div>${html}`;$('aiMsgs').appendChild(d);$('aiMsgs').scrollTop=$('aiMsgs').scrollHeight;}
+function sendAi(){const t=$('aiInput').textContent.trim();if(!t)return;appendMsg('user',esc(t));$('aiInput').textContent='';setTimeout(()=>{appendMsg('ai','收到。正在通过终端管理连接设备……<div class="mono">tm_connect</div>两台都已完成：<div class="mono">web-01 → 版本 17.3.4<br>db-02 → 版本 15.1(2)</div>无异常。');},500);}
+
+/* 表单 */
+function openForm(){editing=null;$('formTitle').textContent='新建连接';clearForm();$('mask').classList.add('open');$('connForm').classList.add('open');}
+function closeForm(){$('mask').classList.remove('open');$('connForm').classList.remove('open');}
+function clearForm(){['fLabel','fHost','fPort','fUser','fPass','fKey','fPassphrase','fTUser','fTPass','fNote'].forEach(id=>$(id).value='');$('fProto').value='ssh';authMode='password';onProtoChange();clearErrors();}
+function clearErrors(){document.querySelectorAll('.fld.error').forEach(f=>f.classList.remove('error'));}
+function onProtoChange(){const ssh=$('fProto').value==='ssh';$('sshBlock').style.display=ssh?'block':'none';$('pwdRow').style.display=ssh&&authMode==='password'?'block':'none';$('keyRow').style.display=ssh&&authMode==='key'?'block':'none';$('telnetBlock').style.display=ssh?'none':'block';$('fPort').placeholder=ssh?'22':'23';clearErrors();}
+function setAuth(m){authMode=m;$('authPwd').classList.toggle('on',m==='password');$('authKey').classList.toggle('on',m==='key');$('pwdRow').style.display=m==='password'?'block':'none';$('keyRow').style.display=m==='key'?'block':'none';clearErrors();}
+function markError(id){$(id).classList.add('error');}
+function saveConn(){clearErrors();const ssh=$('fProto').value==='ssh';let bad=false;
+  if(!$('fLabel').value.trim()){markError('fwLabel');bad=true;}
+  if(!$('fHost').value.trim()){markError('fwHost');bad=true;}
+  if(ssh){if(!$('fUser').value.trim()){markError('fwUser');bad=true;}if(authMode==='password'&&!$('fPass').value){markError('fwPass');bad=true;}if(authMode==='key'&&!$('fKey').value.trim()){markError('fwKey');bad=true;}}
+  if(bad)return;
+  const data={label:$('fLabel').value.trim(),proto:$('fProto').value,host:$('fHost').value.trim(),port:+$('fPort').value||(ssh?22:23),user:ssh?$('fUser').value.trim():$('fTUser').value.trim(),note:$('fNote').value.trim(),status:'off'};
+  if(editing)Object.assign(CONNS.find(x=>x.id===editing),data);else CONNS.push({id:'c'+Date.now(),...data});
+  closeForm();renderConns();
+}
+function editConn(id){const c=CONNS.find(x=>x.id===id);editing=id;$('formTitle').textContent='编辑连接：'+c.label;clearForm();$('fLabel').value=c.label;$('fProto').value=c.proto;$('fHost').value=c.host;$('fPort').value=c.port;$('fNote').value=c.note??'';onProtoChange();if(c.proto==='ssh'){$('fUser').value=c.user??'';}else{$('fTUser').value=c.user??'';}$('mask').classList.add('open');$('connForm').classList.add('open');}
+function delConn(id){disconnect(id);const i=CONNS.findIndex(x=>x.id===id);if(i>=0)CONNS.splice(i,1);renderConns();}
+
+appendMsg('ai','你好，我是终端助手。我可以连设备、发命令、读结果，并把过程实时给你看。');
+renderConns();renderSess();renderTerms();
+</script>
+</body>
+</html>

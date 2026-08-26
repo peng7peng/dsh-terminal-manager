@@ -55,27 +55,24 @@ function findFrame(): HTMLElement | null {
 }
 
 /**
- * 工作区激活时强制 frame 网格成 `sidebar chatWidth 1fr`（聊天固定宽、终端填满右侧）。
- * 返回终端区（第三列）的位置和宽度，供覆盖层精确定位。
+ * 工作区激活时强制 frame 网格成 `sidebar chatWidth 0px`——把详情列压成 0 宽
+ *（避免 ui-conversation 的 DetailsPanel 冒出来），聊天固定宽、终端覆盖层占右侧空白。
+ * 返回终端区左边界（= sidebar + chat），供覆盖层定位。
  * 用 inline style + MutationObserver 防 DSH 重渲染冲掉。
  */
-export function useFrameLayout(active: boolean, chat: number): { left: number; width: number } {
-  const [rect, setRect] = useState<{ left: number; width: number }>({ left: 0, width: 0 })
+export function useFrameLayout(active: boolean, chat: number): number {
+  const [left, setLeft] = useState(0)
   useLayoutEffect(() => {
-    if (!active) { setRect({ left: 0, width: 0 }); return }
+    if (!active) { setLeft(0); return }
     const frame = findFrame()
     if (frame === null) return
     let cancelled = false
     const apply = (): void => {
       if (cancelled) return
       const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
-      const target = `${sidebar}px ${chat}px 1fr`
+      const target = `${sidebar}px ${chat}px 0px`
       if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
-      const details = frame.children[2] as HTMLElement | undefined
-      if (details !== undefined) {
-        const r = details.getBoundingClientRect()
-        setRect(prev => (prev.left === r.left && prev.width === r.width ? prev : { left: r.left, width: r.width }))
-      }
+      setLeft(prev => (prev === sidebar + chat ? prev : sidebar + chat))
     }
     apply()
     const mo = new MutationObserver(apply)
@@ -87,5 +84,5 @@ export function useFrameLayout(active: boolean, chat: number): { left: number; w
       window.removeEventListener('resize', apply)
     }
   }, [active, chat])
-  return rect
+  return left
 }

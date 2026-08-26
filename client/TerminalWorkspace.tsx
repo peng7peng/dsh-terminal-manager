@@ -14,16 +14,16 @@ import { TermView } from './TermView.tsx'
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
   const chat = useChatWidth()
-  const frameRect = useFrameLayout(visible, chat)
+  const termLeft = useFrameLayout(visible, chat)
 
-  // 拖动条：调聊天宽（拖右=聊天变宽/终端变窄）
+  // 拖动条：拖左→聊天变窄/终端变宽；拖右→聊天变宽/终端变窄
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     const startX = e.clientX
     const startChat = chat
     const handle = e.currentTarget
     handle.setPointerCapture(e.pointerId)
-    const move = (ev: PointerEvent): void => setChatWidth(startChat + (startX - ev.clientX))
+    const move = (ev: PointerEvent): void => setChatWidth(startChat + (ev.clientX - startX))
     const up = (): void => {
       handle.releasePointerCapture(e.pointerId)
       document.removeEventListener('pointermove', move)
@@ -105,7 +105,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const allCount = sessions.length
 
   return (
-    <div className="tm-overlay" style={{ left: `${frameRect.left}px`, width: `${frameRect.width}px` }}>
+    <div className="tm-overlay" style={{ left: `${termLeft}px`, right: '0px' }}>
       <div className="tm-draghandle" onPointerDown={onDragStart} title="拖动调整聊天/终端宽度" />
       <div className="tm-main">
         <div className="tm-head">

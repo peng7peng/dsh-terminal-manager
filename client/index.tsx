@@ -11,11 +11,11 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import xtermCss from 'tm:xterm-css'
 import { WORKSPACE_CSS } from './styles.ts'
-import { toggleWorkspace, useWorkspaceVisible } from './store.ts'
+import { setLayoutPanel, toggleWorkspace, useWorkspaceVisible, type LayoutPanel } from './store.ts'
 import { TerminalWorkspace } from './TerminalWorkspace.tsx'
 
-/** 客户端 Cordis DI：插槽注册表。 */
-export const inject = ['slots']
+/** 客户端 Cordis DI：插槽注册表 + 布局面板（开/关详情栏）。 */
+export const inject = ['slots', 'layout']
 
 /** 侧边栏入口按钮。 */
 function SidebarButton(props: { wide: boolean }): React.JSX.Element {
@@ -51,6 +51,7 @@ function ensureStyles(): void {
 /** 挂载浏览器半。 */
 export function apply(ctx: ClientContext): void {
   ensureStyles()
+  setLayoutPanel((ctx as unknown as { layout?: LayoutPanel }).layout)
 
   ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register(
     { name: 'sidebar.footer.action', id: 'term-manager-entry' },
@@ -61,4 +62,6 @@ export function apply(ctx: ClientContext): void {
     { name: 'shell.overlay', id: 'term-manager-workspace' },
     TerminalWorkspace,
   ))
+
+  ctx.effect(() => () => setLayoutPanel(undefined))
 }

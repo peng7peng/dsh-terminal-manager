@@ -4,7 +4,7 @@
  * @module dsh-terminal-manager/client/store
  */
 
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 let visible = false
 const listeners = new Set<() => void>()
@@ -28,4 +28,32 @@ function getSnapshot(): boolean { return visible }
 
 export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
+}
+
+/**
+ * 测 DSH 侧边栏宽度（.app 的 --sbw 变量），覆盖层据此左偏移、不盖侧边栏。
+ * 侧边栏收起（.app.collapsed）时 --sbw 变 56px，自动跟随。
+ */
+export function useSidebarWidth(): number {
+  const [width, setWidth] = useState(() => readSbw())
+  useEffect(() => {
+    const measure = (): void => setWidth(readSbw())
+    measure()
+    const app = document.querySelector('.app')
+    const mo = new MutationObserver(measure)
+    if (app !== null) mo.observe(app, { attributes: true, attributeFilter: ['class', 'style'] })
+    window.addEventListener('resize', measure)
+    return () => { mo.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
+  return width
+}
+
+function readSbw(): number {
+  if (typeof document === 'undefined') return 264
+  const app = document.querySelector('.app')
+  if (app === null) return 264
+  const raw = getComputedStyle(app).getPropertyValue('--sbw').trim()
+  if (raw === '') return 264
+  const num = parseFloat(raw)
+  return Number.isFinite(num) ? num : 264
 }

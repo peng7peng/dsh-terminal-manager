@@ -7,12 +7,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 import { TermWs } from './ws.ts'
-import { setWorkspaceVisible, useWorkspaceVisible } from './store.ts'
+import { setWorkspaceVisible, useSidebarWidth, useWorkspaceVisible } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
 
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
+  const sidebarWidth = useSidebarWidth()
   const wsRef = useRef<TermWs | undefined>(undefined)
   const [sessions, setSessions] = useState<SessionSnap[]>([])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -86,7 +87,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const allCount = sessions.length
 
   return (
-    <div className="tm-overlay">
+    <div className="tm-overlay" style={{ left: `${sidebarWidth}px` }}>
       <div className="tm-main">
         <div className="tm-head">
           <span className="t">🖥️ 终端</span>

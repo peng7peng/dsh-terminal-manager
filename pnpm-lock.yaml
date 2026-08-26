@@ -15,6 +15,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: link:../deepseek-harness/vendor/cordis
         version: link:../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: link:../deepseek-harness/packages/core/agent
+        version: link:../deepseek-harness/packages/core/agent
       '@deepseek-ai/dsh-client-runtime':
         specifier: link:../deepseek-harness/packages/client/runtime
         version: link:../deepseek-harness/packages/client/runtime
@@ -24,6 +27,18 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: link:../deepseek-harness/packages/client/ui-slots
         version: link:../deepseek-harness/packages/client/ui-slots
+      '@deepseek-ai/dsh-llm':
+        specifier: link:../deepseek-harness/packages/llm/llm
+        version: link:../deepseek-harness/packages/llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: link:../deepseek-harness/packages/core/session
+        version: link:../deepseek-harness/packages/core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: link:../deepseek-harness/packages/core/system-prompt
+        version: link:../deepseek-harness/packages/core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: link:../deepseek-harness/packages/core/tools
+        version: link:../deepseek-harness/packages/core/tools
       '@types/node':
         specifier: ^26.3.0
         version: 26.3.0

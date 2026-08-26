@@ -1,7 +1,7 @@
 {
   "name": "dsh-terminal-manager",
   "version": "0.0.1",
-  "description": "DSH 终端管理插件：SSH/Telnet 多会话终端、Agent 工具面、可嵌入工作区 UI（当前：M0 垂直切片）",
+  "description": "DSH 终端管理插件：SSH/Telnet 多会话终端、Agent 工具面、可嵌入工作区 UI",
   "type": "module",
   "main": "lib/index.js",
   "files": [
@@ -35,9 +35,14 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-agent": "link:../deepseek-harness/packages/core/agent",
     "@deepseek-ai/dsh-client-runtime": "link:../deepseek-harness/packages/client/runtime",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../deepseek-harness/packages/client/ui-sidebar",
     "@deepseek-ai/dsh-client-ui-slots": "link:../deepseek-harness/packages/client/ui-slots",
+    "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-system-prompt": "link:../deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../deepseek-harness/packages/core/tools",
     "@types/node": "^26.3.0",
     "@types/react": "^18.3.31",
     "@types/ssh2": "^1.15.5",

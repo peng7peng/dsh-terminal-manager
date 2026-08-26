@@ -85,6 +85,7 @@ function validate(cfg: ConnectionConfig): void {
 export class ConnectionStore {
   private readonly connections = new Map<string, ConnectionConfig>()
   private loaded = false
+  private loadPromise: Promise<void> | undefined
 
   constructor(private readonly filePath: string) {}
 
@@ -111,6 +112,12 @@ export class ConnectionStore {
 
   list(): ConnectionConfig[] {
     return [...this.connections.values()]
+  }
+
+  /** 懒加载：确保已读盘（幂等，首次调用触发）。 */
+  async ensureLoaded(): Promise<void> {
+    this.loadPromise ??= this.load()
+    await this.loadPromise
   }
 
   get(id: string): ConnectionConfig | undefined {

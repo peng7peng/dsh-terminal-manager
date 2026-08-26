@@ -101,6 +101,8 @@ export interface SendOptions {
   guard?: GuardOptions
   /** 命令后是否追加回车，默认 true */
   submit?: boolean
+  /** 取消信号（AI 工具层透传 exec.signal） */
+  signal?: AbortSignal
 }
 
 /** 会话池。 */
@@ -131,6 +133,7 @@ export class SessionManager {
   /** 用已保存的连接建立会话；同一连接重复调用返回既有会话。 */
   async connectByConnId(connId: string): Promise<SessionSnapshot> {
     if (this.store === undefined) throw new SessionError('SESSION_NOT_FOUND', '未配置连接存储')
+    await this.store.ensureLoaded()
     const conn = this.store.get(connId)
     if (conn === undefined) throw new SessionError('SESSION_NOT_FOUND', `连接不存在: ${connId}`)
     for (const record of this.sessions.values()) {
@@ -201,6 +204,14 @@ export class SessionManager {
     record.transport?.write(data)
   }
 
+  /** AI 路径"发完即回"：过守卫，追加回车写入，不等待执行完成。 */
+  async sendImmediate(sessionId: string, command: string, options: { guard?: GuardOptions; signal?: AbortSignal } = {}): Promise<void> {
+    const record = this.requireOpen(sessionId)
+    if (record.busy) throw new SessionError('SESSION_BUSY', '该会话正在执行另一条发送')
+    this.assertAllowed(record, command, options)
+    record.transport?.write(command + '\r')
+  }
+
   resize(sessionId: string, cols: number, rows: number): void {
     const record = this.requireOpen(sessionId)
     record.transport?.resize?.(cols, rows)
@@ -222,12 +233,8 @@ export class SessionManager {
   async sendAndWait(sessionId: string, command: string, options: SendOptions = {}): Promise<SendResult> {
     const record = this.requireOpen(sessionId)
     if (record.busy) throw new SessionError('SESSION_BUSY', '该会话正在执行另一条发送')
-    if (options.guard !== undefined) {
-      const decision = checkCommand(command, options.guard)
-      if (decision.verdict === 'block') {
-        throw new SessionError('COMMAND_BLOCKED', `命令被安全策略拦截：${decision.rule?.why ?? '未知原因'}`)
-      }
-    }
+    this.assertAllowed(record, command, options)
+    if (options.signal?.aborted) throw new SessionError('DISCONNECTED', '发送已被取消')
     record.busy = true
     try {
       const waitConfig = this.resolveWaitConfig(record, options.wait)
@@ -256,6 +263,10 @@ export class SessionManager {
           if (reason !== undefined) finish(reason)
         })
         const timer = setInterval(() => {
+          if (options.signal?.aborted) {
+            fail(new SessionError('DISCONNECTED', '发送已被取消'))
+            return
+          }
           if (record.status !== 'open') {
             fail(new SessionError('DISCONNECTED', '等待期间会话已断开'))
             return
@@ -302,6 +313,25 @@ export class SessionManager {
   /** 会话对应的连接配置（完成判定覆盖参数的来源）。 */
   private connectionOf(record: SessionRecord) {
     return record.connId !== undefined ? this.store?.get(record.connId) : undefined
+  }
+
+  /** 合并守卫选项：连接级白名单 + 调用方补充规则。 */
+  private mergeGuard(record: SessionRecord, guard: GuardOptions): GuardOptions {
+    const conn = this.connectionOf(record)
+    const whitelist = [...(conn?.guardWhitelist ?? []), ...(guard.whitelist ?? [])]
+    return {
+      ...(whitelist.length > 0 ? { whitelist } : {}),
+      ...(guard.extraRules !== undefined ? { extraRules: guard.extraRules } : {}),
+    }
+  }
+
+  /** 命令守卫检查（仅当 options.guard 传入时启用，即 AI 路径）。命中抛 COMMAND_BLOCKED。 */
+  private assertAllowed(record: SessionRecord, command: string, options: { guard?: GuardOptions }): void {
+    if (options.guard === undefined) return
+    const decision = checkCommand(command, this.mergeGuard(record, options.guard))
+    if (decision.verdict === 'block') {
+      throw new SessionError('COMMAND_BLOCKED', `命令被安全策略拦截：${decision.rule?.why ?? '未知原因'}`)
+    }
   }
 
   private resolveWaitConfig(record: SessionRecord, overrides?: WaitPolicyConfig): WaitPolicyConfig {

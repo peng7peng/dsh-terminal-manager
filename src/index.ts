@@ -1,23 +1,40 @@
 /**
- * dsh-terminal-manager host 半。
+ * dsh-terminal-manager host 半入口 —— 装配所有后端模块。
  *
- * M0 垂直切片：仅记录加载日志，验证「外部包 host 半被 DSH 装载」这条链路。
- * 后续里程碑职责见 plan.md：
- *   M2 ConnectionStore / SessionManager / 传输层
- *   M3 tm_* 工具（ctx.tools）+ termManager remotes（ctx.typert.remotes）
- *   M4 /term-io WebSocket 数据面（ctx.webServer.registerUpgrade）
+ * 职责：创建连接存储 + 会话管理器，注册 AI 工具（B6）。
+ * M3 后续：注册指令通道（B7a remotes.ts）；M4：注册数据流通道（B7b ws-io.ts）。
+ * 会话归本插件统一持有（公共会话池），人与 AI 共用。
  * @module dsh-terminal-manager
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { ConnectionStore } from './connection-store.ts'
+import { SessionManager } from './session-manager.ts'
+import { registerTerminalTools } from './tools.ts'
 
 /** Cordis 插件名。 */
 export const name = 'terminal-manager'
 
-/** M0 无服务依赖；后续阶段按需声明（如 tools、webServer、connection）。 */
-export const inject: string[] = []
+/** 需要的服务：工具注册表 + 系统提示片段。 */
+export const inject = ['tools', 'systemPrompt']
+
+/** 连接清单落盘目录（环境变量可覆盖，默认 $DSH_HOME 或 ~/.dsh）。 */
+export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): string {
+  const base = env.DSH_TERMINAL_MANAGER_DATA
+    ?? join(env.DSH_HOME ?? join(homedir(), '.dsh'), 'terminal-manager')
+  return base
+}
 
 /** 挂载插件。 */
 export function apply(ctx: Context): void {
-  ctx.logger.info('[terminal-manager] host 半已加载（M0 垂直切片）')
+  const store = new ConnectionStore(join(resolveDataDir(), 'connections.json'))
+  const sessions = new SessionManager(store)
+
+  registerTerminalTools(ctx, sessions)
+
+  ctx.effect(() => () => {
+    void sessions.closeAll()
+  }, 'terminal-manager: 卸载时关闭全部会话')
 }

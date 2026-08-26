@@ -77,6 +77,8 @@
 
   /* B：终端卡片 */
   .grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; overflow: auto; }
+  .grid.maximized .term { display: none; }
+  .grid.maximized .term.focus { display: flex; }
   .term { background: var(--card); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; min-height: 185px; overflow: hidden; box-shadow: 0 2px 10px #1a234008; }
   .term-bar { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
   .term-bar .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
@@ -186,10 +188,10 @@
         <label>📢 广播</label>
         <div class="chips" id="chips"></div>
         <input id="bcInput" placeholder="输入命令，发给选中的全部会话…" />
-        <button class="primary" onclick="broadcast()">发送</button>
+        <button class="primary" id="bcSend" onclick="broadcast()">发送</button>
       </div>
     </div>
-    <div class="page" id="page-conns">
+    <div class="page" id="page-conns" onclick="connsPageClick(event)">
       <div class="conn-list" id="connList"></div>
       <div class="conn-form" id="connForm">
         <h3 id="formTitle">新建连接</h3>
@@ -246,6 +248,8 @@ function togglePanel() { $('frame').classList.toggle('panel-hidden'); }
 const CONNS = [
   { id: 'c1', label: 'web-01', proto: 'ssh', host: '10.0.1.5', port: 22, user: 'admin', note: '前台测试服务器', status: 'off' },
   { id: 'c2', label: 'db-02', proto: 'telnet', host: '10.0.1.8', port: 23, user: '', note: '', status: 'off' },
+  { id: 'c3', label: 'cache-03', proto: 'ssh', host: '10.0.1.12', port: 22, user: 'root', note: '缓存节点', status: 'off' },
+  { id: 'c4', label: 'sw-04', proto: 'ssh', host: '10.0.1.9', port: 22, user: 'admin', note: '汇聚交换机', status: 'off' },
 ];
 const SESSIONS = [];
 let editing = null, seq = 0, authMode = 'password';
@@ -314,7 +318,10 @@ function disconnect(connId) {
   const c = CONNS.find(x => x.id === connId);
   if (c) c.status = 'off';
   const i = SESSIONS.findIndex(s => s.connId === connId);
-  if (i >= 0) SESSIONS.splice(i, 1);
+  if (i >= 0) {
+    if (SESSIONS[i].id === maxSid) maxSid = null;
+    SESSIONS.splice(i, 1);
+  }
   renderConns(); renderStrip(); renderTerms();
 }
 function delConn(id) {
@@ -398,14 +405,44 @@ function renderTerms() {
     ? '<div style="color:var(--dim);padding:30px;text-align:center;">还没有已连接的会话 🌱<br>到「连接」页签连一台设备，或点上方状态条的 ▶</div>'
     : SESSIONS.map(s => {
         const c = CONNS.find(x => x.id === s.connId);
-        return `<div class="term">
-          <div class="term-bar"><span class="dot"></span><span class="name">${c.label}</span><span class="target">${c.host}:${c.port}</span><button onclick="disconnect('${c.id}')">断开</button></div>
+        return `<div class="term" data-sid="${s.id}">
+          <div class="term-bar"><span class="dot"></span><span class="name">${c.label}</span><span class="target">${c.host}:${c.port}</span><button onclick="toggleMax('${s.id}')" title="最大化 / 还原">⛶</button><button onclick="disconnect('${c.id}')">断开</button></div>
           <div class="term-body" id="body-${s.id}">${s.lines.map(l => `<div class="${l.cls || ''}">${esc(l.text)}</div>`).join('')}</div>
           <div class="term-input"><span>${c.proto === 'ssh' ? '$' : '>'}</span><input placeholder="输入命令…" onkeydown="if(event.key==='Enter'){sendCmd('${s.id}',this.value);this.value=''}"/></div>
         </div>`;
       }).join('');
+  const grid = $('termGrid');
+  grid.classList.toggle('maximized', maxSid !== null);
+  grid.querySelectorAll('.term').forEach(t => t.classList.toggle('focus', t.dataset.sid === maxSid));
   SESSIONS.forEach(s => { const el = $('body-' + s.id); if (el) el.scrollTop = el.scrollHeight; });
-  $('chips').innerHTML = `<span class="chip on" data-id="*">全部</span>` + SESSIONS.map(s => `<span class="chip on" data-id="${s.id}">${CONNS.find(x => x.id === s.connId).label}</span>`).join('');
+  renderChips();
+}
+/* ── 广播目标选择 ── */
+function renderChips() {
+  $('chips').innerHTML = `<span class="chip on" data-id="*" onclick="chipAll()">全部</span>` + SESSIONS.map(s => {
+    const c = CONNS.find(x => x.id === s.connId);
+    return `<span class="chip on" data-id="${s.id}" onclick="chipToggle(this)">${c.label}</span>`;
+  }).join('');
+  updateBcCount();
+}
+function chipToggle(el) { el.classList.toggle('on'); syncAllChip(); updateBcCount(); }
+function chipAll() {
+  const individuals = [...document.querySelectorAll('.chip:not([data-id="*"])')];
+  const allOn = individuals.length > 0 && individuals.every(c => c.classList.contains('on'));
+  individuals.forEach(c => c.classList.toggle('on', !allOn));
+  document.querySelector('.chip[data-id="*"]').classList.toggle('on', !allOn);
+  updateBcCount();
+}
+function syncAllChip() {
+  const individuals = [...document.querySelectorAll('.chip:not([data-id="*"])')];
+  document.querySelector('.chip[data-id="*"]').classList.toggle('on', individuals.length > 0 && individuals.every(c => c.classList.contains('on')));
+}
+function selectedTargets() {
+  return [...document.querySelectorAll('.chip.on:not([data-id="*"])')].map(c => c.dataset.id);
+}
+function updateBcCount() {
+  const n = selectedTargets().length;
+  $('bcSend').textContent = n > 0 ? `发送（${n}）` : '发送';
 }
 function sendCmd(sid, cmd) {
   if (!cmd.trim()) return;
@@ -420,8 +457,24 @@ function sendCmd(sid, cmd) {
 }
 function broadcast() {
   const cmd = $('bcInput').value.trim(); if (!cmd) return;
+  const targets = selectedTargets();
+  if (targets.length === 0) return;
   $('bcInput').value = '';
-  SESSIONS.forEach(s => sendCmd(s.id, cmd));
+  targets.forEach(sid => { if (SESSIONS.some(s => s.id === sid)) sendCmd(sid, cmd); });
+}
+/* ── 单格最大化（终端多于 3 个时的聚焦手段） ── */
+let maxSid = null;
+function toggleMax(sid) {
+  maxSid = maxSid === sid ? null : sid;
+  const grid = $('termGrid');
+  grid.classList.toggle('maximized', maxSid !== null);
+  grid.querySelectorAll('.term').forEach(t => t.classList.toggle('focus', t.dataset.sid === maxSid));
+}
+/* ── 点击表单外空白处 = 取消 ── */
+function connsPageClick(e) {
+  if (!$('connForm').classList.contains('open')) return;
+  if (e.target.closest('#connForm') || e.target.closest('button')) return;
+  closeForm();
 }
 renderConns(); renderStrip(); renderTerms();
 </script>

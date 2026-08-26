@@ -60,7 +60,11 @@ export default defineConfig([
     clean: false,
     jsx: 'automatic',
     jsxImportSource: 'react',
-    external: CLIENT_BASELINE_EXTERNALS,
+    deps: {
+      // 基线模块走 require（宿主模块表提供），其余（xterm、ssh2 等）一律打包内联
+      neverBundle: (specifier: string) => CLIENT_BASELINE_EXTERNALS.includes(specifier),
+      alwaysBundle: (specifier: string) => !CLIENT_BASELINE_EXTERNALS.includes(specifier),
+    },
     plugins: [inlineCssPlugin],
     outputOptions: {
       entryFileNames: 'client.js',

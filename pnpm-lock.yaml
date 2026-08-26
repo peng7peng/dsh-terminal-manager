@@ -11,6 +11,9 @@ importers:
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: link:../deepseek-harness/vendor/cordis
@@ -51,6 +54,9 @@ importers:
       '@types/ssh2':
         specifier: ^1.15.5
         version: 1.15.5
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -200,6 +206,9 @@ packages:
 
   '@types/ssh2@1.15.5':
     resolution: {integrity: sha512-N1ASjp/nXH3ovBHddRJpli4ozpk6UdDYIX4RJWFa9L1YKnzdhTlVmiGHm4DZnj/jLbqZpes4aeR30EFGQtvhQQ==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitest/expect@4.1.11':
     resolution: {integrity: sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==}
@@ -780,6 +789,18 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   yuku-ast@0.8.7:
     resolution: {integrity: sha512-h6+4bDfyootiMB9vckk5uKo5r5j0GHrkr17FQTDNfEsFT3DWlN9uu1HJwQwc64pgmLCI945fWM3lbTIqxjT3GQ==}
 
@@ -873,6 +894,10 @@ snapshots:
   '@types/ssh2@1.15.5':
     dependencies:
       '@types/node': 18.11.18
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 26.3.0
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -1281,6 +1306,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  ws@8.21.3: {}
 
   yuku-ast@0.8.7:
     dependencies:

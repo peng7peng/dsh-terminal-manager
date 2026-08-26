@@ -14,6 +14,7 @@ import { ConnectionStore } from './connection-store.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
+import { registerWsIo } from './ws-io.ts'
 
 /** Cordis 插件名。 */
 export const name = 'terminal-manager'
@@ -39,6 +40,12 @@ export function apply(ctx: Context): void {
   ctx.inject(['connection'], () => {
     const dispose = registerRemotes(ctx, { sessions, store })
     ctx.effect(dispose, 'terminal-manager: remotes')
+  })
+
+  // 数据流通道：webServer 就绪后挂载 /term-io
+  ctx.inject(['webServer'], () => {
+    const dispose = registerWsIo(ctx, sessions)
+    ctx.effect(dispose, 'terminal-manager: ws-io')
   })
 
   ctx.effect(() => () => {

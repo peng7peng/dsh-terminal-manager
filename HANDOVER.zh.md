@@ -21,25 +21,24 @@
 | M0 垂直切片 | ✅ | 双半包打包通了：host 半加载、浏览器半出现在页面。验证方式见 §6 |
 | M1 方案 + 选型 | ✅ | 方案文档定稿（v4）；界面选型 = `prototypes/full-view-bc.html`（B 卡片式 + C 状态条混搭），结论在 `prototypes/SELECTION.zh.md` |
 | M2 连接核心 | ✅ | B1/B2/B3/B4/B5/B8 全部落地，64 项测试全绿（`pnpm test`） |
-| **M3 AI 工具面** | ⏭️ **下一步** | 见 §3 |
-| M4 真界面 | 未开始 | 前端 6 模块，基准 = full-view-bc + SELECTION + 用户新做的几个 redesign 原型 |
+| M3 AI 工具面 | ✅ | B6 六个 tm_* 工具 + B7a 指令通道 dispatch/registerRemotes；77 项测试全绿；真实 profile 加载验证通过 |
+| **M4 真界面** | ⏭️ **下一步** | 前端 6 模块 + B7b 数据流通道（ws-io.ts）；基准 = full-view-bc + SELECTION + 用户新做的 redesign 原型 |
 | M5 收尾验收 | 未开始 | 边界打磨 + 14 场景验收 + eval 考题 |
 
-## 3. 下一步：M3 具体做什么
+## 3. 下一步：M4 具体做什么
 
-1. **B6 AI 工具层** `src/tools.ts`：六个 `tm_*` 工具注册进 `ctx.tools`（defineTool 规范见 `../deepseek-harness/docs/cookbook/adding-a-tool.md`；参照实现 `../deepseek-harness/packages/terminal/tool-terminal/src/index.ts`）：
-   - `tm_connect`（connId 或临时目标）/ `tm_list` / `tm_send`（wait 参数 + **guard 必传**）/ `tm_send_all` / `tm_read` / `tm_disconnect`
-   - 返回格式见 `docs/solution.zh.md` 3.1 的六工具表；错误用 §3.6 错误码格式
-   - 加 `ctx.systemPrompt.section` 使用指引（参照 tool-terminal 的 `tool:pty` 段）
-   - `presentCall`/`presentResult` 用 `card: 'terminal'` 卡片
-2. **B7a 指令通道** `src/remotes.ts`：前端控制面。**挂载方式二选一，M3 第一天先做小实验定案**：
-   - a) `ctx.connection.rpc.handle('/term-manager', handler)`（参考 `../deepseek-harness/packages/client/connection/src/rpc-host.ts`）
-   - b) typert remotes 注册，前端得 `ctx.remote.termManager.*`（参考 `packages/extensions/ui-cordis` + `packages/api/gateway`）
-   - 定案后更新 `docs/solution.zh.md` 3.2 挂载方式节的注释
-3. 测试：工具层经测试上下文注册调用（参照 `../deepseek-harness/packages/terminal/tool-terminal/tests/`）；断言 schema、返回、`exec.signal` 取消、错误形态、守卫拦截。
-4. 验收：在真实 `dsh` 会话里让 AI 调 `tm_connect/tm_send` 对 M2 的进程内测试服务器跑通。
+1. **B7b 数据流通道** `src/ws-io.ts`：`ctx.webServer.registerUpgrade({ path: '/term-io', handler })` 注册 WebSocket 路由（参考 `packages/client/connection/src/index.ts`）。帧协议见方案 3.5：上行 `attach`/`input`/`resize`/`detach`，下行 `output`/`status`。信任栅栏复用 `isTrustedApiRequest` 模式。30s 心跳探活。先做这个（后端，不依赖 UI 设计）。
+2. **前端 6 模块** `client/`：把 M0 的最小片替换为真实实现。视觉基准 = `prototypes/full-view-bc.html` + `prototypes/SELECTION.zh.md`；用户还做了 `prototypes/redesign-*.html` 系列原型，M4 开工前全部过一遍定稿。
+   - F1 `client/index.tsx` + `TerminalPanel.tsx`：入口挂载（`ctx.slots.inject('sidebar.footer.action', ...)`）+ 双页签外壳 + 面板开关
+   - F2 `ConnectionsTab.tsx`：连接卡片 + 表单（必填/选填校验，照 bc 原型）
+   - F3 `TerminalsTab.tsx`：状态条 + 终端网格 + 广播栏
+   - F4 `TermView.tsx`：xterm.js + addon-fit + 最大化
+   - F5 `ws.ts`：WS 客户端，单连接多路复用、断线重连
+   - F6 状态同步：status 帧推送 + 打开时 RPC 拉全量快照
+3. 客户端 bundle 依赖：`@xterm/xterm` + `@xterm/addon-fit` 走 npm，加进 `dsh.client` 的 external 或 inline（M0 已验证客户端 bundle 装配可行）。
+4. 验收：真实启动 + 浏览器截图，对照 full-view-bc 三幕（连接页配置、终端页双会话、广播回显）。
 
-**B7b 数据流通道（`src/ws-io.ts`）属于 M4**（跟界面一起做），M3 不动。
+**B6/B7a 已完成**（M3）：工具层 + 指令通道 dispatch 直测 + 真实 profile 加载验证通过。挂载方式定案 = `ctx.connection.rpc.handle('/term-manager', handler, {authority:'trusted-host'})`。
 
 ## 4. 关键共识（别推翻，推翻先问用户）
 

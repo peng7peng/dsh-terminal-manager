@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**64 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**77 项全绿是基线**，改挂必须修绿再提交）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
   - 健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
   - **3080 被用户自己的 DSH 占用，别动**；验证一律 3180

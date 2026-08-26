@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionStore } from './connection-store.ts'
+import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
 
@@ -33,6 +34,12 @@ export function apply(ctx: Context): void {
   const sessions = new SessionManager(store)
 
   registerTerminalTools(ctx, sessions)
+
+  // 指令通道：client-connection 就绪后挂载（web profile 内必就绪）
+  ctx.inject(['connection'], () => {
+    const dispose = registerRemotes(ctx, { sessions, store })
+    ctx.effect(dispose, 'terminal-manager: remotes')
+  })
 
   ctx.effect(() => () => {
     void sessions.closeAll()

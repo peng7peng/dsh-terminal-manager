@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "tsdown",
-    "prepare": "tsdown"
+    "prepare": "tsdown",
+    "test": "vitest run"
   },
   "dsh": {
     "bundle": {

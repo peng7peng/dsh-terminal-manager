@@ -5,8 +5,13 @@
  */
 
 export const WORKSPACE_CSS = `
-.tm-overlay { position:fixed; top:0; right:0; bottom:0; width:var(--tm-width,45%); z-index:50; display:flex; background:var(--dsw-alias-bg-base, #fff); color:var(--dsw-alias-label-primary, #000); font:14px/1.5 var(--dsw-font-family, system-ui, sans-serif); box-shadow:-2px 0 12px rgba(0,0,0,.12); }
+.tm-overlay { position:fixed; top:0; bottom:0; z-index:50; display:flex; background:var(--dsw-alias-bg-base, #fff); color:var(--dsw-alias-label-primary, #000); font:14px/1.5 var(--dsw-font-family, system-ui, sans-serif); box-shadow:-2px 0 12px rgba(0,0,0,.12); }
 .tm-overlay[hidden] { display:none; }
+
+/* 可拖动分隔条（聊天 ↔ 终端） */
+.tm-draghandle { position:absolute; top:0; bottom:0; left:-3px; width:6px; cursor:col-resize; z-index:51; }
+.tm-draghandle::after { content:''; position:absolute; inset:0 2px; border-radius:3px; opacity:0; transition:opacity .15s; background:var(--dsw-alias-state-business-primary, #4170e6); }
+.tm-draghandle:hover::after, .tm-draghandle:active::after { opacity:1; }
 
 /* 两栏：终端区 | 连接面板 */
 .tm-main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; border-right:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }

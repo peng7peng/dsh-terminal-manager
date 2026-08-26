@@ -7,18 +7,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 import { TermWs } from './ws.ts'
-import { setLayoutOverride, setWorkspaceVisible, useWorkspaceVisible } from './store.ts'
+import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useWorkspaceVisible } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
 
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
+  const chat = useChatWidth()
+  const frameRect = useFrameLayout(visible, chat)
 
-  // 工作区可见时注入布局覆盖（聊天收窄、终端占第三列），不可见时移除
-  useEffect(() => {
-    setLayoutOverride(visible)
-    return () => setLayoutOverride(false)
-  }, [visible])
+  // 拖动条：调聊天宽（拖右=聊天变宽/终端变窄）
+  const onDragStart = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startChat = chat
+    const handle = e.currentTarget
+    handle.setPointerCapture(e.pointerId)
+    const move = (ev: PointerEvent): void => setChatWidth(startChat + (startX - ev.clientX))
+    const up = (): void => {
+      handle.releasePointerCapture(e.pointerId)
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+  }
   const wsRef = useRef<TermWs | undefined>(undefined)
   const [sessions, setSessions] = useState<SessionSnap[]>([])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -92,7 +105,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const allCount = sessions.length
 
   return (
-    <div className="tm-overlay">
+    <div className="tm-overlay" style={{ left: `${frameRect.left}px`, width: `${frameRect.width}px` }}>
+      <div className="tm-draghandle" onPointerDown={onDragStart} title="拖动调整聊天/终端宽度" />
       <div className="tm-main">
         <div className="tm-head">
           <span className="t">🖥️ 终端</span>

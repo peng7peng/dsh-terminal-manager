@@ -4,7 +4,7 @@
  * @module dsh-terminal-manager/client/store
  */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
 let visible = false
 const listeners = new Set<() => void>()
@@ -30,22 +30,62 @@ export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-/** 工作区打开时注入的布局覆盖：把 .app 网格第三列强制成终端宽，聊天（第二列 1fr）自动收窄。 */
-const LAYOUT_OVERRIDE_ID = 'tm-layout-override'
-const LAYOUT_OVERRIDE_CSS = `.app { grid-template-columns: var(--sbw,264px) minmax(0,1fr) var(--tm-width,45%) !important; }`
+/** 聊天列宽度（px），可拖动调整（v4：默认 460，范围 300–760）。 */
+const MIN_CHAT = 300, MAX_CHAT = 760, DEFAULT_CHAT = 460
+let chatWidth = DEFAULT_CHAT
+const chatListeners = new Set<() => void>()
+export function setChatWidth(w: number): void {
+  const clamped = Math.max(MIN_CHAT, Math.min(MAX_CHAT, w))
+  if (chatWidth === clamped) return
+  chatWidth = clamped
+  chatListeners.forEach(l => l())
+}
+export function useChatWidth(): number {
+  return useSyncExternalStore(
+    (cb) => { chatListeners.add(cb); return () => { chatListeners.delete(cb) } },
+    () => chatWidth,
+  )
+}
 
-/** 注入/移除布局覆盖。打开时调 true，关闭时调 false。 */
-export function setLayoutOverride(on: boolean): void {
-  if (typeof document === 'undefined') return
-  const existing = document.getElementById(LAYOUT_OVERRIDE_ID)
-  if (on) {
-    if (existing === null) {
-      const tag = document.createElement('style')
-      tag.id = LAYOUT_OVERRIDE_ID
-      tag.textContent = LAYOUT_OVERRIDE_CSS
-      document.head.appendChild(tag)
+/** 找 DSH 真实 frame（overlayLayer 的父元素）。 */
+function findFrame(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  const overlay = document.querySelector('[data-shell-overlay]')
+  return (overlay?.parentElement as HTMLElement) ?? null
+}
+
+/**
+ * 工作区激活时强制 frame 网格成 `sidebar chatWidth 1fr`（聊天固定宽、终端填满右侧）。
+ * 返回终端区（第三列）的位置和宽度，供覆盖层精确定位。
+ * 用 inline style + MutationObserver 防 DSH 重渲染冲掉。
+ */
+export function useFrameLayout(active: boolean, chat: number): { left: number; width: number } {
+  const [rect, setRect] = useState<{ left: number; width: number }>({ left: 0, width: 0 })
+  useLayoutEffect(() => {
+    if (!active) { setRect({ left: 0, width: 0 }); return }
+    const frame = findFrame()
+    if (frame === null) return
+    let cancelled = false
+    const apply = (): void => {
+      if (cancelled) return
+      const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
+      const target = `${sidebar}px ${chat}px 1fr`
+      if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
+      const details = frame.children[2] as HTMLElement | undefined
+      if (details !== undefined) {
+        const r = details.getBoundingClientRect()
+        setRect(prev => (prev.left === r.left && prev.width === r.width ? prev : { left: r.left, width: r.width }))
+      }
     }
-  } else if (existing !== null) {
-    existing.remove()
-  }
+    apply()
+    const mo = new MutationObserver(apply)
+    mo.observe(frame, { attributes: true, attributeFilter: ['style', 'class'], childList: true })
+    window.addEventListener('resize', apply)
+    return () => {
+      cancelled = true
+      mo.disconnect()
+      window.removeEventListener('resize', apply)
+    }
+  }, [active, chat])
+  return rect
 }

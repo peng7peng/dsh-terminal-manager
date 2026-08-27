@@ -28,41 +28,33 @@ const ECHO = 1
 const SUPPRESS_GO_AHEAD = 3
 
 /** 从数据流中剥离 IAC 协商序列，返回纯文本；同时处理协商（拒绝所有选项 + 促成字符模式）。 */
-function stripIac(input: string, socket: net.Socket): string {
-  const bytes = Buffer.from(input, 'utf8')
-  let out = ''
+function stripIac(input: Buffer, socket: net.Socket): string {
+  let out = Buffer.alloc(0)
   let i = 0
-  while (i < bytes.length) {
-    const b = bytes[i]
-    if (b !== IAC) { out += String.fromCharCode(b); i++; continue }
-    // IAC 序列开始
-    if (i + 1 >= bytes.length) break
-    const cmd = bytes[i + 1]
-    if (cmd === IAC) { // IAC IAC = 转义 0xFF
-      out += String.fromCharCode(IAC); i += 2; continue
-    }
+  while (i < input.length) {
+    const b = input[i]
+    if (b !== IAC) { out = Buffer.concat([out, input.subarray(i, i + 1)]); i++; continue }
+    if (i + 1 >= input.length) break
+    const cmd = input[i + 1]
+    if (cmd === IAC) { out = Buffer.concat([out, Buffer.from([IAC])]); i += 2; continue }
     if (cmd === DO || cmd === DONT) {
-      const opt = bytes[i + 2] ?? 0
-      // 拒绝所有 DO/DONT：回 WONT
+      const opt = input[i + 2] ?? 0
       socket.write(Buffer.from([IAC, WONT, opt]))
       i += 3; continue
     }
     if (cmd === WILL || cmd === WONT) {
-      const opt = bytes[i + 2] ?? 0
-      // 对 WILL 回 DONT（拒绝远端开启选项）
+      const opt = input[i + 2] ?? 0
       socket.write(Buffer.from([IAC, DONT, opt]))
       i += 3; continue
     }
     if (cmd === SB) {
-      // 子协商：跳到 IAC SE
       let j = i + 2
-      while (j < bytes.length && !(bytes[j] === IAC && bytes[j + 1] === SE)) j++
+      while (j < input.length && !(input[j] === IAC && input[j + 1] === SE)) j++
       i = j + 2; continue
     }
-    // 未知命令，跳 2 字节
     i += 2
   }
-  return out
+  return out.toString('utf8')
 }
 
 /** 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。 */
@@ -99,13 +91,12 @@ export function connectTelnet(
         closed = true
         callbacks.onClose(reason)
       }
-      socket.on('data', (chunk) => {
-        const str = chunk.toString('utf8')
+      socket.on('data', (chunk: Buffer) => {
         if (useIac) {
-          const clean = stripIac(str, socket)
+          const clean = stripIac(chunk, socket)
           if (clean.length > 0) callbacks.onData(clean)
         } else {
-          callbacks.onData(str)
+          callbacks.onData(chunk.toString('utf8'))
         }
       })
       socket.on('error', (error) => {

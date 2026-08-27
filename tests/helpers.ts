@@ -42,10 +42,14 @@ export function createDeviceLab() {
   const cleanups: Array<() => Promise<void>> = []
 
   return {
-    /** TCP echo 设备：原样回显收到的字节。 */
-    startEchoServer(): Promise<{ port: number }> {
+    /** TCP echo 设备：原样回显收到的字节。可选 iac=true 在连接时发 IAC WILL ECHO + DO TERMINAL_TYPE。 */
+    startEchoServer(opts?: { iac?: boolean }): Promise<{ port: number }> {
       return new Promise((resolve) => {
         const server: NetServer = createServer((socket) => {
+          if (opts?.iac === true) {
+            socket.write(Buffer.from([0xff, 0xfb, 0x01, 0xff, 0xfd, 0x18]))
+          }
+          socket.on('error', () => {})
           socket.pipe(socket)
         })
         cleanups.push(() => new Promise<void>((done) => {

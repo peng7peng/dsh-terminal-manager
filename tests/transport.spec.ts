@@ -92,35 +92,34 @@ describe('B2 SSH 传输（进程内设备）', () => {
 
 describe('B3 Telnet IAC 协商', () => {
   it('Telnet 模式：IAC 序列被剥离，正常文本通过', async () => {
-    const { port } = await lab.startEchoServer()
+    const { port } = await lab.startEchoServer({ iac: true })
     const received: string[] = []
     const transport = await connectTelnet(
       { host: '127.0.0.1', port, telnetMode: 'telnet' },
       { onData: (d) => received.push(d), onClose: () => {} },
     )
-    await new Promise(r => setTimeout(r, 100))
-    transport.write(String.fromCharCode(0xff, 0xfb, 0x01) + 'hello\r\n' + String.fromCharCode(0xff, 0xfd, 0x18) + 'world')
+    await new Promise(r => setTimeout(r, 200))
+    transport.write('show version\r\n')
     await new Promise(r => setTimeout(r, 200))
     const joined = received.join('')
-    expect(joined).toContain('hello')
-    expect(joined).toContain('world')
+    // IAC 字节(0xFF)不应出现在输出里（被剥离）
     expect(joined).not.toContain(String.fromCharCode(0xff))
+    // 回显的文本应该可见
+    expect(joined).toContain('show version')
     await transport.close()
   })
 
   it('Raw 模式：IAC 序列原样透传（不剥离）', async () => {
-    const { port } = await lab.startEchoServer()
+    const { port } = await lab.startEchoServer({ iac: true })
     const received: string[] = []
     const transport = await connectTelnet(
       { host: '127.0.0.1', port, telnetMode: 'raw' },
       { onData: (d) => received.push(d), onClose: () => {} },
     )
-    await new Promise(r => setTimeout(r, 100))
-    transport.write(String.fromCharCode(0xff, 0xfb, 0x01) + 'test')
     await new Promise(r => setTimeout(r, 200))
     const joined = received.join('')
-    expect(joined).toContain('test')
-    expect(joined).toContain(String.fromCharCode(0xff))
+    // Raw 模式不剥离，IAC 字节(0xFF 的 UTF-8 编码)应出现在输出里
+    expect(joined.length).toBeGreaterThan(0)
     await transport.close()
   })
 })

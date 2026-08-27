@@ -73,7 +73,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const ws = wsRef.current
 
   async function connect(connId: string): Promise<void> {
-    try { await rpc('sessions.connect', { connId }) } catch (err) { alert((err as RpcError).message) }
+    try {
+      const snap = await rpc<SessionSnap>('sessions.connect', { connId })
+      setSessions(prev => prev.some(s => s.sessionId === snap.sessionId) ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap])
+    } catch (err) { alert((err as RpcError).message) }
   }
   async function disconnect(sessionId: string): Promise<void> {
     try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }

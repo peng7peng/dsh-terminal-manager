@@ -66,6 +66,8 @@ const server = createServer((socket) => {
   socket.write(banner())
   let lineBuf = ''
   socket.on('data', (chunk) => {
+    // 回显每个字符（字符模式，像真网络设备 CLI）；同时按行缓冲解析命令
+    socket.write(chunk)
     lineBuf += chunk.toString('utf8')
     let nl
     while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {

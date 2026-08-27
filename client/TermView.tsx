@@ -27,7 +27,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const term = new Terminal({ fontSize: 12, cursorBlink: true, scrollback: 5000 })
+    const term = new Terminal({ fontSize: 13, cursorBlink: true, scrollback: 5000 })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)

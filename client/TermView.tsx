@@ -91,10 +91,16 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       }
       return true
     })
-    // 右键粘贴（PuTTY 式）
+    // 右键：有选区→复制；无选区→粘贴（PuTTY 模型，避免同时复制+粘贴）
     const onContext = (e: MouseEvent): void => {
       e.preventDefault()
-      pasteFromClipboard()
+      const sel = term.getSelection()
+      if (sel !== undefined && sel.length > 0) {
+        copyToClipboard(sel)
+        term.clearSelection()
+      } else {
+        pasteFromClipboard()
+      }
     }
     container.addEventListener('contextmenu', onContext)
 

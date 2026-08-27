@@ -66,9 +66,16 @@ const server = createServer((socket) => {
   socket.write(banner())
   let lineBuf = ''
   socket.on('data', (chunk) => {
-    // 回显每个字符（字符模式）；\r 转 \r\n 让命令独占一行（否则回复会覆盖命令行）
-    socket.write(chunk.toString('utf8').replace(/\r(?!\n)/g, '\r\n'))
-    lineBuf += chunk.toString('utf8')
+    const str = chunk.toString('utf8')
+    // 退格：从行缓冲删末字符 + 发擦除序列（\b \b = 退格+空格+退格，擦掉屏幕上的字）
+    if (str === '\x7f' || str === '\x08') {
+      lineBuf = lineBuf.slice(0, -1)
+      socket.write('\b \b')
+      return
+    }
+    // 回显（\r→\r\n 让命令独占一行）；同时按行缓冲解析命令
+    socket.write(str.replace(/\r(?!\n)/g, '\r\n'))
+    lineBuf += str
     let nl
     while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {
       const line = lineBuf.slice(0, nl)

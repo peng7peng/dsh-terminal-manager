@@ -80,8 +80,15 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         stream.write(banner())
         let lineBuf = ''
         stream.on('data', (data) => {
-          stream.write(data.toString('utf8').replace(/\r(?!\n)/g, '\r\n')) // 回显，\r→\r\n 防覆盖
-          lineBuf += data.toString('utf8')
+          const str = data.toString('utf8')
+          // 退格处理
+          if (str === '\x7f' || str === '\x08') {
+            lineBuf = lineBuf.slice(0, -1)
+            stream.write('\b \b')
+            return
+          }
+          stream.write(str.replace(/\r(?!\n)/g, '\r\n')) // 回显
+          lineBuf += str
           let nl
           while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {
             const line = lineBuf.slice(0, nl)

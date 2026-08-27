@@ -122,5 +122,27 @@ await test('E4 删除连接', async () => {
 // 清理所有会话
 for (const c of cleanups) { try { await c() } catch {} }
 
+// ─── SSH 场景（模拟 SSH 设备端口 2222，密码 admin/test-pass）───
+const SSH_DEV = { protocol: 'ssh', host: '127.0.0.1', port: 2222, username: 'admin', password: 'test-pass', label: 'ssh-A' }
+
+await test('E-SSH 密码连接', async () => {
+  const r = await rpc('sessions.connect', SSH_DEV)
+  assert(r.ok, 'SSH 连接成功')
+  if (r.ok) { assert(r.value.status === 'open', 'status=open'); cleanups.push(() => disconnect(r.value.sessionId)) }
+})
+
+await test('E-SSH 密码错误 → AUTH_FAILED', async () => {
+  const r = await rpc('sessions.connect', { ...SSH_DEV, password: 'wrong-pw' })
+  assert(!r.ok && r.error.message.includes('AUTH_FAILED'), '返回 AUTH_FAILED')
+})
+
+await test('E-SSH 地址不通 → HOST_UNREACHABLE', async () => {
+  const r = await rpc('sessions.connect', { protocol: 'ssh', host: '127.0.0.1', port: 9998, username: 'a', password: 'b' })
+  assert(!r.ok && (r.error.message.includes('HOST_UNREACHABLE') || r.error.message.includes('CONN_TIMEOUT')), '返回 HOST_UNREACHABLE/CONN_TIMEOUT')
+})
+
+// 清理 SSH 会话
+for (const c of cleanups) { try { await c() } catch {} }
+
 console.log(`\n${'═'.repeat(50)}\n结果：${pass} 通过 / ${fail} 失败`)
 process.exit(fail > 0 ? 1 : 0)

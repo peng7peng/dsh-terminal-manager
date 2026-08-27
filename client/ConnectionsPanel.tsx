@@ -194,6 +194,7 @@ export function ConnectionsPanel({ sessions, onConnect, onDisconnect }: Props): 
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="tm-btn primary" onClick={save}>保存</button>
           <button className="tm-btn" onClick={quickConnect}>连接</button>
+          {editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}
         </div>
 
         <div className="tm-secLabel">最近连接</div>
@@ -202,11 +203,11 @@ export function ConnectionsPanel({ sessions, onConnect, onDisconnect }: Props): 
             const sess = sessionOfConn(c.id)
             const status = sess?.status ?? 'off'
             return (
-              <div key={c.id} className="tm-ritem" onClick={() => loadConn(c)} title={`${c.host}:${c.port}${c.note ? ' · ' + c.note : ''}`}>
+              <div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} title="点我连接">
                 <span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span>
                 <span className="nm">{c.label}</span>
                 <span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} />
-                <button onClick={e => { e.stopPropagation(); onConnect({ connId: c.id }) }} title="连接">▶</button>
+                <button onClick={e => { e.stopPropagation(); loadConn(c) }} title="编辑">✎</button>
                 <button onClick={e => { e.stopPropagation(); void delConn(c.id) }} title="删除">✕</button>
               </div>
             )

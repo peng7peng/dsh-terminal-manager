@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout terminal-manager
+        uses: actions/checkout@v4
+
+      # link: 依赖指向 ../deepseek-harness，先把这个（public）源仓库放在相邻目录
+      - name: "Checkout deepseek-harness (link: deps source)"
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          path: ../deepseek-harness
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: "Install deepseek-harness deps (resolve link: sources)"
+        working-directory: ../deepseek-harness
+        run: pnpm install
+
+      - name: Install terminal-manager deps
+        run: pnpm install
+
+      - name: Build (tsdown host + browser halves)
+        run: pnpm build
+
+      - name: Unit tests with coverage
+        run: pnpm vitest run --coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/

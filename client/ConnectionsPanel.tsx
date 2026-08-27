@@ -26,9 +26,20 @@ export interface SessionSnap {
   status: 'connecting' | 'open' | 'closed'
 }
 
+/** 连接目标：按 connId（已保存，去重+支持密钥）或临时（不入库）。 */
+export interface ConnectTarget {
+  connId?: string
+  protocol?: 'ssh' | 'telnet'
+  host?: string
+  port?: number
+  username?: string
+  password?: string
+  label?: string
+}
+
 interface Props {
   sessions: SessionSnap[]
-  onConnect: (connId: string) => void
+  onConnect: (target: ConnectTarget) => void
   onDisconnect: (sessionId: string) => void
 }
 
@@ -103,17 +114,18 @@ export function ConnectionsPanel({ sessions, onConnect, onDisconnect }: Props): 
 
   async function quickConnect(): Promise<void> {
     if (!validate()) return
-    // 先保存（若未入库）再连接
-    if (editing === null) {
-      const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-      const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, auth: proto === 'ssh' ? (authMode === 'password' ? { kind: 'password' as const, password: form.pass } : { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined }) : undefined }
-      try {
-        const created = await rpc<ConnectionCfg>('connections.create', base)
-        await refresh()
-        onConnect(created.id)
-      } catch (err) { alert((err as RpcError).message) }
+    if (editing !== null) {
+      // 已保存连接：按 connId 连（去重 + 支持密钥认证）
+      onConnect({ connId: editing })
     } else {
-      onConnect(editing)
+      // 新表单：临时连接（不入库）
+      onConnect({
+        protocol: proto,
+        host: form.host.trim(),
+        port: Number(form.port) || (proto === 'ssh' ? 22 : 23),
+        ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}),
+        label: form.label.trim(),
+      })
     }
   }
 
@@ -194,6 +206,7 @@ export function ConnectionsPanel({ sessions, onConnect, onDisconnect }: Props): 
                 <span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span>
                 <span className="nm">{c.label}</span>
                 <span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} />
+                <button onClick={e => { e.stopPropagation(); onConnect({ connId: c.id }) }} title="连接">▶</button>
                 <button onClick={e => { e.stopPropagation(); void delConn(c.id) }} title="删除">✕</button>
               </div>
             )

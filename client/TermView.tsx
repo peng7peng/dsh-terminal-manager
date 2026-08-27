@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { rpc } from './rpc.ts'
+import { markUnread } from './store.ts'
 import type { TermWs } from './ws.ts'
 
 interface TermViewProps {
@@ -39,7 +40,14 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     try { fit.fit() } catch { /* 尺寸尚未就绪 */ }
 
     // 附着：输出写入终端；键盘输入发往后端
-    const unsub = ws.onOutput(sessionId, data => { try { term.write(data) } catch { /* 已销毁 */ } })
+    let isFocused = false
+    container.addEventListener('focus', () => { isFocused = true })
+    container.addEventListener('blur', () => { isFocused = false })
+    container.addEventListener('click', () => { isFocused = true })
+    const unsub = ws.onOutput(sessionId, data => {
+      try { term.write(data) } catch { /* 已销毁 */ }
+      if (!isFocused) markUnread(sessionId)
+    })
     term.onData(data => ws.input(sessionId, data))
 
     // ─── 复制粘贴（全快捷键覆盖 + PuTTY 式选中即复制 + 右键粘贴）───

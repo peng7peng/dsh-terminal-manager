@@ -7,7 +7,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 import { TermWs } from './ws.ts'
-import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useWorkspaceVisible } from './store.ts'
+import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
+import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
 
@@ -15,6 +16,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
   const chat = useChatWidth()
   const termLeft = useFrameLayout(visible, chat)
+  const unreadSet = useUnread()
 
   // 拖动条：拖左→聊天变窄/终端变宽；拖右→聊天变宽/终端变窄
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -141,7 +143,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
         </div>
       </div>
-      <ConnectionsPanel sessions={sessions} onConnect={connect} onDisconnect={disconnect} />
+      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} onConnect={connect} onDisconnect={disconnect} onMarkRead={markRead} />
     </div>
   )
 }

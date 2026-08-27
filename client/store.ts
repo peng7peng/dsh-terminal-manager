@@ -120,3 +120,26 @@ export function useFrameLayout(active: boolean, chat: number): number {
 
   return left
 }
+
+// ─── 未读标记（终端有新输出时会话条目显示蓝色圆点）───
+const unreadSet = new Set<string>()
+const unreadListeners = new Set<() => void>()
+
+export function markUnread(sessionId: string): void {
+  if (unreadSet.has(sessionId)) return
+  unreadSet.add(sessionId)
+  unreadListeners.forEach(l => l())
+}
+
+export function markRead(sessionId: string): void {
+  if (!unreadSet.has(sessionId)) return
+  unreadSet.delete(sessionId)
+  unreadListeners.forEach(l => l())
+}
+
+export function useUnread(): Set<string> {
+  return useSyncExternalStore(
+    (cb) => { unreadListeners.add(cb); return () => { unreadListeners.delete(cb) } },
+    () => unreadSet,
+  )
+}

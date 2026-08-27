@@ -37,8 +37,12 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const wsRef = useRef<TermWs | undefined>(undefined)
   const [sessions, setSessions] = useState<SessionSnap[]>([])
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const [broadcastChips, setBroadcastChips] = useState<Set<string>>(new Set())
   const [bcCmd, setBcCmd] = useState('')
+
+  function toggleHidden(sid: string): void { setHidden(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n }) }
+  function reorder(newOrder: string[]): void { setSessionOrder(newOrder) }
 
   // 初始化 WS（仅一次）
   if (wsRef.current === undefined && visible) {
@@ -143,7 +147,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
         </div>
       </div>
-      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} onConnect={connect} onDisconnect={disconnect} onMarkRead={markRead} />
+      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>
   )
 }

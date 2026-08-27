@@ -96,8 +96,9 @@ export const WORKSPACE_CSS = `
 .tm-ritem .st.off { background:var(--dsw-alias-label-caption, #aaa); opacity:.5; }
 .tm-ritem .st.connecting { background:var(--dsw-alias-state-warn-primary, #f59e0b); }
 .tm-ritem .st.on { background:var(--dsw-alias-state-success-primary, #22c55e); box-shadow:0 0 4px var(--dsw-alias-state-success-primary, #22c55e); }
-.tm-ritem .tm-hover-btn { display: none; }
-.tm-ritem:hover .tm-hover-btn { display: inline-block; }
-.tm-ritem.pinned { border-left: 2px solid var(--dsw-alias-state-warn-primary, #f59e0b); }
+.tm-ritem.pinned { border-left:2px solid var(--dsw-alias-state-warn-primary, #f59e0b); }
+.tm-ritem.dimmed { opacity:.5; border-style:dashed; }
+.tm-drag { flex:none; cursor:grab; color:var(--dsw-alias-label-caption, #aaa); font-size:14px; padding-right:2px; }
+.tm-ritem.dragging { opacity:.3; }
 .tm-empty { color:var(--dsw-alias-label-caption, #aaa); padding:10px; text-align:center; font-size:12px; }
 `

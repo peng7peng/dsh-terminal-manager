@@ -151,8 +151,15 @@ export class SessionManager {
     }, connId)
   }
 
-  /** 建立会话（临时连接不入库）。 */
+  /** 建立会话（临时连接不入库）。同 protocol+host:port 的 open 会话直接复用（去重）。 */
   async connect(target: ConnectTarget, connId?: string): Promise<SessionSnapshot> {
+    // 去重：同协议+同地址的 open 会话直接返回
+    const targetKey = `${target.protocol}:${target.host}:${target.port}`
+    for (const record of this.sessions.values()) {
+      if (record.status === 'open' && `${record.protocol}:${record.target}` === targetKey) {
+        return this.snapshot(record)
+      }
+    }
     const sessionId = randomUUID()
     const record: SessionRecord = {
       sessionId,

@@ -191,7 +191,7 @@ describe('SessionManager 广播', () => {
     const { rec, factory } = fakeFactory()
     const sm = new SessionManager(store, factory)
     const a = await sm.connectByConnId(connId) // 假传输槽位 0
-    const b = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 9, label: 'dev-b' }) // 槽位 1
+    const b = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 10, label: 'dev-b' }) // 槽位 1（不同端口=不同设备，避免去重）
     // 让 b 忙碌：先发一条挂起的（稍后喂数据收尾）
     const pendingB = sm.sendAndWait(b.sessionId, 'long', { wait: { quietMs: 100 } })
     const entries = sm.broadcast('show clock', [a.sessionId, b.sessionId, 'nonexistent'], { wait: { quietMs: 100 } })
@@ -210,7 +210,7 @@ describe('SessionManager 广播', () => {
     const { rec, factory } = fakeFactory()
     const sm = new SessionManager(store, factory)
     await sm.connectByConnId(connId)
-    await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 9, label: 'dev-c' })
+    await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 11, label: 'dev-c' })
     const entriesPromise = sm.broadcast('echo 1', undefined, { wait: { quietMs: 100 } })
     setTimeout(() => {
       rec.sessions[0].callbacks.onData('x\n')

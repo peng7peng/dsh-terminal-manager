@@ -80,7 +80,7 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         stream.write(banner())
         let lineBuf = ''
         stream.on('data', (data) => {
-          stream.write(data) // 回显
+          stream.write(data.toString('utf8').replace(/\r(?!\n)/g, '\r\n')) // 回显，\r→\r\n 防覆盖
           lineBuf += data.toString('utf8')
           let nl
           while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {

@@ -44,8 +44,11 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     ws.onStatus(frame => {
       setSessions(prev => {
         const snap = frame as unknown as SessionSnap
+        // 只接受 open 状态；connecting 跳过（避免连接失败时幽灵条目）；closed 移除
+        if (snap.status !== 'open') {
+          return prev.filter(s => s.sessionId !== snap.sessionId)
+        }
         const i = prev.findIndex(s => s.sessionId === snap.sessionId)
-        if (snap.status === 'closed') return i >= 0 ? prev.filter(s => s.sessionId !== snap.sessionId) : prev
         return i >= 0 ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap]
       })
     })

@@ -128,12 +128,15 @@ const SSH_DEV = { protocol: 'ssh', host: '127.0.0.1', port: 2222, username: 'adm
 await test('E-SSH 密码连接', async () => {
   const r = await rpc('sessions.connect', SSH_DEV)
   assert(r.ok, 'SSH 连接成功')
-  if (r.ok) { assert(r.value.status === 'open', 'status=open'); cleanups.push(() => disconnect(r.value.sessionId)) }
+  if (r.ok) { assert(r.value.status === 'open', 'status=open') }
+  // 这里不断开——下一个测试要用同设备测错误密码，先断开避免 dedup
+  await disconnect(r.value.sessionId)
 })
 
 await test('E-SSH 密码错误 → AUTH_FAILED', async () => {
   const r = await rpc('sessions.connect', { ...SSH_DEV, password: 'wrong-pw' })
   assert(!r.ok && r.error.message.includes('AUTH_FAILED'), '返回 AUTH_FAILED')
+  // 错误密码连接失败不会创建会话，无需清理
 })
 
 await test('E-SSH 地址不通 → HOST_UNREACHABLE', async () => {

@@ -113,6 +113,16 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
     kind: 'prefix' as const,
     path: '/term-manager',
     handler: async (req, res) => {
+      // CORS 预检：浏览器 POST application/json 前会先 OPTIONS，必须放行
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'POST, OPTIONS',
+          'access-control-allow-headers': 'content-type',
+        })
+        res.end()
+        return
+      }
       if (req.method !== 'POST') {
         res.writeHead(405, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: 'method not allowed' }))
@@ -135,10 +145,10 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
       const endpoint = method || urlMethod
       try {
         const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
-        res.writeHead(200, { 'content-type': 'application/json' })
+        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
         res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
       } catch (error) {
-        res.writeHead(200, { 'content-type': 'application/json' })
+        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
         res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
       }
     },

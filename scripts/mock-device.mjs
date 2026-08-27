@@ -17,6 +17,7 @@
 import { createServer } from 'node:net'
 
 const PORT = Number(process.argv[2] ?? 2323)
+const USE_IAC = process.argv.includes('--iac')
 const LABEL = `Mock Router :${PORT}`
 
 const HELP = `可用命令：
@@ -56,6 +57,10 @@ function respond(cmd) {
 }
 
 const server = createServer((socket) => {
+  // IAC 模式：连接时发 IAC WILL ECHO + DO TERMINAL_TYPE（模拟真网络设备的协商请求）
+  if (USE_IAC) {
+    socket.write(Buffer.from([0xff, 0xfb, 0x01, 0xff, 0xfd, 0x18])) // IAC WILL ECHO, IAC DO TERMINAL_TYPE
+  }
   socket.write(banner())
   let lineBuf = ''
   socket.on('data', (chunk) => {

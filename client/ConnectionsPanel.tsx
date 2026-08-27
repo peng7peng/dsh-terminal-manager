@@ -87,7 +87,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
     const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { handshakeTimeoutSec: handshakeTimeout } : {}) }
-    try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
+    try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else { const created = await rpc<ConnectionCfg>('connections.create', base); setFavorites(prev => { const n = new Set(prev); n.add(created.id); return n }) } await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
     if (!validate()) return

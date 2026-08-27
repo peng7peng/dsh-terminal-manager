@@ -140,6 +140,16 @@ terminal-manager/
 
 ## 后续（MVP 之后）
 
+### 已知待办
+- **未读标记不工作**：会话点击切换显示/隐藏后，隐藏会话有新输出时蓝点没出现。根因：点击切换 onClick 同时调了 `onToggleHidden` 和 `onMarkRead`，但 `isHidden` prop 依赖 React 重渲染，TermView 的 useEffect 不会因为 isHidden 变化而重新订阅。需要修复。
+- **选中即复制**：xterm mouseup 触发 onData 导致同时粘贴，根因待查。
+
+### 功能扩展（第二批，已确认要做）
+- 收藏功能（分组/搜索）
+- Telnet 模式切换 + 自动登录
+- SSH 握手超时 + 会话信息弹窗
+
+### 功能扩展（第三批，待排期）
 - 串口（第一个扩展项，`SerialTransport` 接口已留）
 - 递归分屏（v4 的 tmux 式可拖动分屏树，现在是简单网格）
 - eval 自动化（24 条接 CI）
@@ -147,4 +157,3 @@ terminal-manager/
 - 凭据加密（接 DSH `ctx.credentials`）
 - SSH 主机密钥 TOFU
 - OSC 52（远程 vim/tmux 经 SSH 操控本地剪贴板）
-- 选中即复制（根因待查：xterm mouseup 触发 onData）

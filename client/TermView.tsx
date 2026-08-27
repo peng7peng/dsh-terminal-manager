@@ -61,10 +61,14 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       }
     }
     // 选中即复制：左键松手时把选区写进剪贴板（PuTTY 式，右键不触发=留给粘贴）
+    let lastCopyTime = 0
     const onMouseUp = (e: MouseEvent): void => {
       if (e.button !== 0) return  // 只响应左键
       const sel = term.getSelection()
-      if (sel !== undefined && sel.length > 0) copyToClipboard(sel)
+      if (sel !== undefined && sel.length > 0) {
+        copyToClipboard(sel)
+        lastCopyTime = Date.now()
+      }
     }
     container.addEventListener('mouseup', onMouseUp)
     // 快捷键拦截
@@ -94,9 +98,10 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       }
       return true
     })
-    // 右键粘贴（PuTTY 式）
+    // 右键粘贴（PuTTY 式）；但如果刚复制过（<200ms），跳过——防选中即复制后 contextmenu 连续触发粘贴
     const onContext = (e: MouseEvent): void => {
       e.preventDefault()
+      if (Date.now() - lastCopyTime < 200) return
       pasteFromClipboard()
     }
     container.addEventListener('contextmenu', onContext)

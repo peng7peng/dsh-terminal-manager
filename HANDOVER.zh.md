@@ -21,24 +21,28 @@
 | M0 垂直切片 | ✅ | 双半包打包通了：host 半加载、浏览器半出现在页面。验证方式见 §6 |
 | M1 方案 + 选型 | ✅ | 方案文档定稿（v4）；界面选型 = `prototypes/full-view-bc.html`（B 卡片式 + C 状态条混搭），结论在 `prototypes/SELECTION.zh.md` |
 | M2 连接核心 | ✅ | B1/B2/B3/B4/B5/B8 全部落地，64 项测试全绿（`pnpm test`） |
-| M3 AI 工具面 | ✅ | B6 六个 tm_* 工具 + B7a 指令通道 dispatch/registerRemotes；77 项测试全绿；真实 profile 加载验证通过 |
-| **M4 真界面** | ⏭️ **下一步** | 前端 6 模块 + B7b 数据流通道（ws-io.ts）；基准 = full-view-bc + SELECTION + 用户新做的 redesign 原型 |
-| M5 收尾验收 | 未开始 | 边界打磨 + 14 场景验收 + eval 考题 |
+| M3 AI 工具面 | ✅ | B6 六个 tm_* 工具 + B7a 指令通道；AI 调用端到端验证通过（连设备+发命令+拿回结果）|
+| M4 真界面 | ✅ | 前端 6 模块 + B7b 数据流通道；v4 式聊天/终端并排可拖动；本地模拟设备 + AI 调用全链路验证 |
+| M5 收尾 | ✅ | 24 条 eval 种子 + README/已知限制 + 健壮性审查（WS 重连/掉线/ctx.effect 陷阱）|
 
-## 3. 下一步：M4 具体做什么
+## 后续（MVP 之后）
 
-1. **B7b 数据流通道** `src/ws-io.ts`：`ctx.webServer.registerUpgrade({ path: '/term-io', handler })` 注册 WebSocket 路由（参考 `packages/client/connection/src/index.ts`）。帧协议见方案 3.5：上行 `attach`/`input`/`resize`/`detach`，下行 `output`/`status`。信任栅栏复用 `isTrustedApiRequest` 模式。30s 心跳探活。先做这个（后端，不依赖 UI 设计）。
-2. **前端 6 模块** `client/`：把 M0 的最小片替换为真实实现。视觉基准 = `prototypes/full-view-bc.html` + `prototypes/SELECTION.zh.md`；用户还做了 `prototypes/redesign-*.html` 系列原型，M4 开工前全部过一遍定稿。
-   - F1 `client/index.tsx` + `TerminalPanel.tsx`：入口挂载（`ctx.slots.inject('sidebar.footer.action', ...)`）+ 双页签外壳 + 面板开关
-   - F2 `ConnectionsTab.tsx`：连接卡片 + 表单（必填/选填校验，照 bc 原型）
-   - F3 `TerminalsTab.tsx`：状态条 + 终端网格 + 广播栏
-   - F4 `TermView.tsx`：xterm.js + addon-fit + 最大化
-   - F5 `ws.ts`：WS 客户端，单连接多路复用、断线重连
-   - F6 状态同步：status 帧推送 + 打开时 RPC 拉全量快照
-3. 客户端 bundle 依赖：`@xterm/xterm` + `@xterm/addon-fit` 走 npm，加进 `dsh.client` 的 external 或 inline（M0 已验证客户端 bundle 装配可行）。
-4. 验收：真实启动 + 浏览器截图，对照 full-view-bc 三幕（连接页配置、终端页双会话、广播回显）。
+- **串口**：第一个扩展项，`SerialTransport` 实现已留接口（传输层 `src/transport/types.ts`）。
+- **递归分屏**：v4 的 tmux/iTerm2 式可拖动分屏树（现在是简单网格），`client/TerminalWorkspace.tsx`。
+- **eval 自动化**：把 `evals/scenarios.md` 的 24 条接 CI（`claude -p` + 断言），防回归。
+- **真机联调**：连真实网络设备/ESL 验证 Telnet 协商、SSH 跳板机（接缝见方案 3.8）。
+- **凭据加密**：接 DSH 的 `ctx.credentials` 服务，替掉明文 JSON。
+- **SSH 主机密钥 TOFU**：首次信任 + 指纹核对。
 
-**B6/B7a 已完成**（M3）：工具层 + 指令通道 dispatch 直测 + 真实 profile 加载验证通过。挂载方式定案 = `ctx.connection.rpc.handle('/term-manager', handler, {authority:'trusted-host'})`。
+## 3. 项目已完成（M0–M5 全绿）
+
+MVP 交付：人 + AI 共用 SSH/Telnet 终端，端到端验证通过（本地模拟设备 + AI 调 `tm_*` 拿回结果）。后续扩展项见上面「后续（MVP 之后）」。
+
+**关键实现落点**（改代码前先看这里）：
+- host 半入口 `src/index.ts`：装配 ConnectionStore + SessionManager + 工具 + `/term-manager` 路由 + `/term-io` WS。
+- 指令通道 `src/remotes.ts`：**直连 `webServer.register` 前缀路由**（绕开 `connection.rpc.handle` 的 ctx 作用域问题 + `intercept('/api')` 与 api-gateway 冲突）；OPTIONS 预检必处理。
+- 数据流通道 `src/ws-io.ts`：`ctx.effect(() => webServer.registerUpgrade(...))`（注意 ctx.effect 语义——见 CLAUDE.md 第 6 条）。
+- 客户端 `client/`：xterm + WS + 插槽；布局用 `useFrameLayout` 强制 DSH frame 网格成 `sidebar 聊天宽 0px`（聊天收窄、终端占右侧、可拖动分隔条）。
 
 ## 4. 关键共识（别推翻，推翻先问用户）
 

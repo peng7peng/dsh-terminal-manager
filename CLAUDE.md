@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**77 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**82+ 项全绿是基线**，改挂必须修绿再提交）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
   - 健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
   - **3080 被用户自己的 DSH 占用，别动**；验证一律 3180
@@ -36,6 +36,9 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 3. **写 ssh2 测试服务器必须处理 `session.on('pty', accept)`**，否则客户端 `shell()` 报 "Unable to request a pseudo-terminal"。
 4. **DSH 没有 `ctx.router`/`ctx.ws`**——路由用 `ctx.webServer.register/registerUpgrade`（参考 `packages/client/connection/src/index.ts`）。
 5. **多会话测试里每个 connect 要独立回调槽位**——共用一个回调变量会被后连的会话覆盖，导致先连的会话收不到数据（测试挂 20 秒超时）。
+6. **`ctx.effect(fn)` 的 fn 是 setup、返回值是清理函数**——别把清理函数本身当 fn 传（那会立即执行清理、删掉刚注册的路由，请求 405）。正解：`ctx.effect(() => webServer.register(route))`（register 是 setup，返回的 disposer 才是 cleanup）。
+7. **xterm.css / 第三方 CSS 用虚拟模块内联**（`tm:xterm-css` 插件），别用 `?raw`/`?inline`（tsdown 默认不认，会留成 external require → "missed the module table"）。
+8. **浏览器 POST `application/json` 会先发 OPTIONS 预检**——自建路由必须处理 OPTIONS（返回 204+CORS 头），否则预检 405 卡住。
 
 ## 钩子（Hooks）
 

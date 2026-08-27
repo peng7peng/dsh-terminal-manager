@@ -39,6 +39,25 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     const unsub = ws.onOutput(sessionId, data => { try { term.write(data) } catch { /* 已销毁 */ } })
     term.onData(data => ws.input(sessionId, data))
 
+    // 复制：Ctrl+C / Ctrl+Shift+C / Cmd+C 把选区写进剪贴板
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown' && (event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+        const sel = term.getSelection()
+        if (sel !== '' && sel !== undefined) {
+          navigator.clipboard?.writeText(sel).catch(() => {})
+          return false
+        }
+      }
+      return true
+    })
+
+    // 粘贴：右键粘贴剪贴板内容（PuTTY 式）
+    const onContext = (e: MouseEvent): void => {
+      e.preventDefault()
+      navigator.clipboard?.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
+    }
+    container.addEventListener('contextmenu', onContext)
+
     // 回填历史缓冲
     async function loadHistory(): Promise<void> {
       try {
@@ -61,6 +80,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     return () => {
       unsub()
       ro.disconnect()
+      container.removeEventListener('contextmenu', onContext)
       term.dispose()
       termRef.current = undefined
     }

@@ -39,22 +39,62 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     const unsub = ws.onOutput(sessionId, data => { try { term.write(data) } catch { /* 已销毁 */ } })
     term.onData(data => ws.input(sessionId, data))
 
-    // 复制：Ctrl+C / Ctrl+Shift+C / Cmd+C 把选区写进剪贴板
+    // ─── 复制粘贴（全快捷键覆盖 + PuTTY 式选中即复制 + 右键粘贴）───
+    const isMac = navigator.platform.toLowerCase().includes('mac')
+    const copyToClipboard = (text: string): void => {
+      if (navigator.clipboard?.writeText !== undefined) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
+      } else { fallbackCopy(text) }
+    }
+    const fallbackCopy = (text: string): void => {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.cssText = 'position:fixed;opacity:0;left:-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch { /* ignore */ }
+      document.body.removeChild(ta)
+    }
+    const pasteFromClipboard = (): void => {
+      if (navigator.clipboard?.readText !== undefined) {
+        navigator.clipboard.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
+      }
+    }
+    // 选中即复制：松手时把选区写进剪贴板（PuTTY 式）
+    const onMouseUp = (): void => {
+      const sel = term.getSelection()
+      if (sel !== undefined && sel.length > 0) copyToClipboard(sel)
+    }
+    container.addEventListener('mouseup', onMouseUp)
+    // 快捷键拦截
     term.attachCustomKeyEventHandler((event) => {
-      if (event.type === 'keydown' && (event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+      if (event.type !== 'keydown') return true
+      const key = event.key.toLowerCase()
+      const ctrl = event.ctrlKey
+      const meta = event.metaKey
+      const shift = event.shiftKey
+      // 复制：Cmd+C(Mac) / Ctrl+Shift+C(Win/Linux) / Ctrl+C(有选区→复制，无选区→SIGINT)
+      if ((meta && key === 'c') || (ctrl && shift && key === 'c')) {
         const sel = term.getSelection()
-        if (sel !== '' && sel !== undefined) {
-          navigator.clipboard?.writeText(sel).catch(() => {})
-          return false
-        }
+        if (sel !== undefined && sel.length > 0) copyToClipboard(sel)
+        return false
+      }
+      if (ctrl && !shift && !meta && key === 'c') {
+        const sel = term.getSelection()
+        if (sel !== undefined && sel.length > 0) { copyToClipboard(sel); return false }
+        return true // 无选区→SIGINT 传设备
+      }
+      // 粘贴：Cmd+V(Mac) / Ctrl+Shift+V(Win/Linux) / Ctrl+V
+      if ((meta && key === 'v') || (ctrl && shift && key === 'v') || (ctrl && !shift && !meta && key === 'v')) {
+        pasteFromClipboard()
+        return false
       }
       return true
     })
-
-    // 粘贴：右键粘贴剪贴板内容（PuTTY 式）
+    // 右键粘贴（PuTTY 式）
     const onContext = (e: MouseEvent): void => {
       e.preventDefault()
-      navigator.clipboard?.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
+      pasteFromClipboard()
     }
     container.addEventListener('contextmenu', onContext)
 

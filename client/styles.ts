@@ -28,13 +28,13 @@ export const WORKSPACE_CSS = `
 
 /* 终端网格（M4a 简单网格；M4b 改递归分屏） */
 .tm-grid { flex:1; min-height:0; overflow:auto; padding:6px; display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:6px; background:#000; }
-.tm-pane { display:flex; flex-direction:column; min-height:180px; background:var(--term-bg, #0b0e14); border:1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.16)); border-radius:6px; overflow:hidden; }
-.tm-paneBar { flex:none; display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--term-bar, #13161c); color:#d8dee9; font-size:11.5px; }
+.tm-pane { display:flex; flex-direction:column; min-height:180px; border:1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.16)); border-radius:6px; overflow:hidden; }
+.tm-paneBar { flex:none; display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--dsw-alias-bg-layer-2, #161b22); border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); font-size:11.5px; color:var(--dsw-alias-label-secondary, #8a91a5); }
 .tm-paneBar .dot { width:7px; height:7px; border-radius:50%; background:var(--dsw-static-green-500, #22c55e); }
-.tm-paneBar .nm { font-weight:600; font-family:var(--dsw-font-code, monospace); }
-.tm-paneBar .tgt { color:#5c6370; font-family:var(--dsw-font-code, monospace); font-size:10px; }
-.tm-paneBar button { margin-left:auto; background:none; border:none; color:#5c6370; cursor:pointer; font-size:12px; }
-.tm-paneBar button:hover { color:#d8dee9; }
+.tm-paneBar .nm { font-weight:600; font-family:var(--dsw-font-code, monospace); color:var(--dsw-alias-label-primary, #fff); }
+.tm-paneBar .tgt { color:var(--dsw-alias-label-tertiary, #67718a); font-family:var(--dsw-font-code, monospace); font-size:10px; }
+.tm-paneBar button { margin-left:auto; background:none; border:none; color:var(--dsw-alias-label-caption, #768390); cursor:pointer; font-size:12px; }
+.tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-paneBody { flex:1; min-height:0; overflow:hidden; }
 
 /* 广播栏 */

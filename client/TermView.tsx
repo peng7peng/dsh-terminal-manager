@@ -27,7 +27,10 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const term = new Terminal({ fontSize: 13, cursorBlink: true, scrollback: 5000 })
+    // 根据 DSH 主题选终端配色
+    const DARK_THEME = { background: '#0b0e14', foreground: '#d8dee9', cursor: '#e6c07b', cursorAccent: '#0b0e14', selectionBackground: '#58a6ff44' }
+    const LIGHT_THEME = { background: '#ffffff', foreground: '#24292f', cursor: '#4170e6', cursorAccent: '#ffffff', selectionBackground: '#4170e633' }
+    const term = new Terminal({ fontSize: 13, cursorBlink: true, scrollback: 5000, theme: document.body.hasAttribute('data-ds-dark-theme') ? DARK_THEME : LIGHT_THEME })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
@@ -120,12 +123,19 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       if (Number.isFinite(cols) && Number.isFinite(rows)) ws.resize(sessionId, cols, rows)
     })
     ro.observe(container)
-    // 初始尺寸通知一次
     ws.resize(sessionId, term.cols, term.rows)
+
+    // 主题切换：DSH 切明暗时更新 xterm 配色
+    const updateTheme = (): void => {
+      term.options.theme = document.body.hasAttribute('data-ds-dark-theme') ? DARK_THEME : LIGHT_THEME
+    }
+    const themeMo = new MutationObserver(updateTheme)
+    themeMo.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
 
     return () => {
       unsub()
       ro.disconnect()
+      themeMo.disconnect()
       container.removeEventListener('contextmenu', onContext)
       term.dispose()
       termRef.current = undefined

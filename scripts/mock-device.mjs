@@ -30,36 +30,29 @@ const HELP = `可用命令：
 `
 
 function banner() {
-  return `\r\n${'-'.repeat(40)}\r\n${LABEL}\r\nSoftware: MockOS 1.0 (local sim)\r\nUp: ${new Date().toLocaleString()}\r\n${'-'.repeat(40)}\r\n\r\nType 'help' for commands.\r\n\r\nrouter> `
+  return `\r\n\x1b[36m${'='.repeat(40)}\r\n${LABEL}\r\nSoftware: MockOS 1.0 (local sim)\r\nUp: ${new Date().toLocaleString()}\r\n${'='.repeat(40)}\x1b[0m\r\n\r\nType 'help' for commands.\r\n\r\n\x1b[32mrouter>\x1b[0m `
 }
 
 function respond(cmd) {
   const c = cmd.trim()
-  if (c === '') return 'router> '
-  if (c === 'help' || c === '?') return HELP + '\r\nrouter> '
+  if (c === '') return '\x1b[32mrouter>\x1b[0m '
+  if (c === 'help' || c === '?') return HELP + '\r\n\x1b[32mrouter>\x1b[0m '
   if (c === 'show version') {
-    return `MockOS Version 1.0.4
-Compiled ${new Date().toISOString().slice(0, 10)}
- uptime 3 days, 2 hours
-router> `
+    return `MockOS Version 1.0.4\nCompiled ${new Date().toISOString().slice(0, 10)}\n uptime 3 days, 2 hours\n\x1b[32mrouter>\x1b[0m `
   }
   if (c === 'show interface' || c === 'show ip interface brief') {
-    return `Interface              IP-Address      OK? Method Status
-GigabitEthernet0/0     10.0.0.1        YES NVRAM  up
-GigabitEthernet0/1     10.0.1.1        YES NVRAM  up
-Loopback0              1.1.1.1         YES NVRAM  up
-router> `
+    return `Interface      Status    Protocol\nGig0/0         up        up\nGig0/1         up        up\nLoopback0      up        up\n\x1b[32mrouter>\x1b[0m `
   }
   if (c.startsWith('ping ')) {
     const host = c.slice(5)
     const lines = [`Type escape sequence to abort.`]
     for (let i = 0; i < 4; i++) lines.push(`!!!!! from ${host}: seq=${i} ttl=64 time=1.${i}ms`)
     lines.push(`Success rate is 100% (4/4)`)
-    return lines.join('\r\n') + '\r\nrouter> '
+    return lines.join('\r\n') + '\r\n\x1b[32mrouter>\x1b[0m '
   }
-  if (c.startsWith('echo ')) return c.slice(5) + '\r\nrouter> '
-  if (c === 'exit' || c === 'quit') return '\r\n[connection closed]\r\n'
-  return `% Unknown command: "${c}"\r\nrouter> `
+  if (c.startsWith('echo ')) return c.slice(5) + '\r\n\x1b[32mrouter>\x1b[0m '
+  if (c === 'exit' || c === 'quit') return '\r\n\x1b[31m[connection closed]\x1b[0m\r\n'
+  return `\x1b[31m% Unknown command: "${c}"\x1b[0m\r\n\x1b[32mrouter>\x1b[0m `
 }
 
 const server = createServer((socket) => {
@@ -67,10 +60,10 @@ const server = createServer((socket) => {
   let lineBuf = ''
   socket.on('data', (chunk) => {
     const str = chunk.toString('utf8')
-    // 退格：从行缓冲删末字符 + 发擦除序列（\b \b = 退格+空格+退格，擦掉屏幕上的字）
+    // 退格：从行缓冲删末字符 + \b\x1b[K（退格+擦到行尾，一步干净不留空格）
     if (str === '\x7f' || str === '\x08') {
       lineBuf = lineBuf.slice(0, -1)
-      socket.write('\b \b')
+      socket.write('\b\x1b[K')
       return
     }
     // 回显（\r→\r\n 让命令独占一行）；同时按行缓冲解析命令

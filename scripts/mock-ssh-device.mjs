@@ -37,29 +37,29 @@ const HELP = `可用命令：
 `
 
 function banner() {
-  return `\r\n${'='.repeat(40)}\r\n${LABEL}\r\nSoftware: MockSSHOS 2.0\r\nUp: ${new Date().toLocaleString()}\r\n${'='.repeat(40)}\r\n\r\nType 'help' for commands.\r\n\r\nssh> `
+  return `\r\n\x1b[36m${'='.repeat(40)}\r\n${LABEL}\r\nSoftware: MockSSHOS 2.0\r\nUp: ${new Date().toLocaleString()}\r\n${'='.repeat(40)}\x1b[0m\r\n\r\nType 'help' for commands.\r\n\r\n\x1b[32mssh>\x1b[0m `
 }
 
 function respond(cmd) {
   const c = cmd.trim()
-  if (c === '') return 'ssh> '
-  if (c === 'help' || c === '?') return HELP + '\r\nssh> '
+  if (c === '') return '\x1b[32mssh>\x1b[0m '
+  if (c === 'help' || c === '?') return HELP + '\r\n\x1b[32mssh>\x1b[0m '
   if (c === 'show version') {
-    return `MockSSHOS Version 2.0.1\r\nCompiled ${new Date().toISOString().slice(0, 10)}\r\n uptime 5 days\r\nssh> `
+    return `MockSSHOS Version 2.0.1\r\nCompiled ${new Date().toISOString().slice(0, 10)}\r\n uptime 5 days\r\n\x1b[32mssh>\x1b[0m `
   }
   if (c === 'show interface') {
-    return `Interface              Status\r\nEth0                   up\r\nEth1                   up\r\nssh> `
+    return `Interface              Status\r\nEth0                   up\r\nEth1                   up\r\n\x1b[32mssh>\x1b[0m `
   }
   if (c.startsWith('ping ')) {
     const host = c.slice(5)
     const lines = ['Type escape sequence to abort.']
     for (let i = 0; i < 4; i++) lines.push(`!!!!! from ${host}: seq=${i} ttl=64 time=1.${i}ms`)
     lines.push('Success rate is 100% (4/4)')
-    return lines.join('\r\n') + '\r\nssh> '
+    return lines.join('\r\n') + '\r\n\x1b[32mssh>\x1b[0m '
   }
-  if (c.startsWith('echo ')) return c.slice(5) + '\r\nssh> '
-  if (c === 'exit' || c === 'quit') return '\r\n[connection closed]\r\n'
-  return `% Unknown command: "${c}"\r\nssh> `
+  if (c.startsWith('echo ')) return c.slice(5) + '\r\n\x1b[32mssh>\x1b[0m '
+  if (c === 'exit' || c === 'quit') return '\r\n\x1b[31m[connection closed]\x1b[0m\r\n'
+  return `\x1b[31m% Unknown command: "${c}"\x1b[0m\r\n\x1b[32mssh>\x1b[0m `
 }
 
 const server = new Server({ hostKeys: [hostKey] }, (client) => {
@@ -81,10 +81,10 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         let lineBuf = ''
         stream.on('data', (data) => {
           const str = data.toString('utf8')
-          // 退格处理
+          // 退格处理：\b\x1b[K（退格+擦到行尾，一步干净）
           if (str === '\x7f' || str === '\x08') {
             lineBuf = lineBuf.slice(0, -1)
-            stream.write('\b \b')
+            stream.write('\b\x1b[K')
             return
           }
           stream.write(str.replace(/\r(?!\n)/g, '\r\n')) // 回显

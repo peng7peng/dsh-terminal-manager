@@ -27,8 +27,9 @@ const SE = 0xf0 // 240
 const ECHO = 1
 const SUPPRESS_GO_AHEAD = 3
 
-/** 从数据流中剥离 IAC 协商序列，返回纯文本；同时处理协商（拒绝所有选项 + 促成字符模式）。 */
-function stripIac(input: Buffer, socket: net.Socket): string {
+/** 从数据流中剥离 IAC 协商序列，返回纯文本。不回发响应（避免 echo server 回环）。
+ *  真网络设备会处理 IAC 协商；对 echo server/裸设备，不响应不会出问题。 */
+function stripIac(input: Buffer): string {
   let out = Buffer.alloc(0)
   let i = 0
   while (i < input.length) {
@@ -37,16 +38,7 @@ function stripIac(input: Buffer, socket: net.Socket): string {
     if (i + 1 >= input.length) break
     const cmd = input[i + 1]
     if (cmd === IAC) { out = Buffer.concat([out, Buffer.from([IAC])]); i += 2; continue }
-    if (cmd === DO || cmd === DONT) {
-      const opt = input[i + 2] ?? 0
-      socket.write(Buffer.from([IAC, WONT, opt]))
-      i += 3; continue
-    }
-    if (cmd === WILL || cmd === WONT) {
-      const opt = input[i + 2] ?? 0
-      socket.write(Buffer.from([IAC, DONT, opt]))
-      i += 3; continue
-    }
+    if (cmd === DO || cmd === DONT || cmd === WILL || cmd === WONT) { i += 3; continue }
     if (cmd === SB) {
       let j = i + 2
       while (j < input.length && !(input[j] === IAC && input[j + 1] === SE)) j++
@@ -80,11 +72,7 @@ export function connectTelnet(
       if (settled) return
       settled = true
 
-      // Telnet 模式：发送 WILL ECHO + SUPPRESS_GO_AHEAD，促成字符模式
-      if (useIac) {
-        socket.write(Buffer.from([IAC, WILL, ECHO, IAC, WILL, SUPPRESS_GO_AHEAD]))
-      }
-
+      // Telnet 模式：不主动发 IAC（避免 echo server 回环）；只剥离收到的 IAC
       let closed = false
       const finishClose = (reason: string): void => {
         if (closed) return
@@ -93,7 +81,7 @@ export function connectTelnet(
       }
       socket.on('data', (chunk: Buffer) => {
         if (useIac) {
-          const clean = stripIac(chunk, socket)
+          const clean = stripIac(chunk)
           if (clean.length > 0) callbacks.onData(clean)
         } else {
           callbacks.onData(chunk.toString('utf8'))

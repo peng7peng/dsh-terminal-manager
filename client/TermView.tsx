@@ -60,17 +60,10 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
         navigator.clipboard.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
       }
     }
-    // 选中即复制：左键松手时把选区写进剪贴板（PuTTY 式，右键不触发=留给粘贴）
-    let lastCopyTime = 0
-    const onMouseUp = (e: MouseEvent): void => {
-      if (e.button !== 0) return  // 只响应左键
-      const sel = term.getSelection()
-      if (sel !== undefined && sel.length > 0) {
-        copyToClipboard(sel)
-        lastCopyTime = Date.now()
-      }
-    }
-    container.addEventListener('mouseup', onMouseUp)
+    // 选中即复制：暂时禁用——xterm 内部在 mouseup 时触发了 onData 导致同时粘贴，
+    // 根因待查；先用 Ctrl+C / Ctrl+Shift+C / Cmd+C 复制（已验证正常）
+    // const onMouseUp = ...
+    // container.addEventListener('mouseup', onMouseUp)
     // 快捷键拦截
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
@@ -98,10 +91,9 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       }
       return true
     })
-    // 右键粘贴（PuTTY 式）；但如果刚复制过（<200ms），跳过——防选中即复制后 contextmenu 连续触发粘贴
+    // 右键粘贴（PuTTY 式）
     const onContext = (e: MouseEvent): void => {
       e.preventDefault()
-      if (Date.now() - lastCopyTime < 200) return
       pasteFromClipboard()
     }
     container.addEventListener('contextmenu', onContext)

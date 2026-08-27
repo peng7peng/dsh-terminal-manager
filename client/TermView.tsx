@@ -42,9 +42,9 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     // ─── 复制粘贴（全快捷键覆盖 + PuTTY 式选中即复制 + 右键粘贴）───
     const isMac = navigator.platform.toLowerCase().includes('mac')
     const copyToClipboard = (text: string): void => {
-      if (navigator.clipboard?.writeText !== undefined) {
-        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
-      } else { fallbackCopy(text) }
+      // 用 fallbackCopy（隐藏 textarea + execCommand）而非 navigator.clipboard.writeText——
+      // 后者在某些浏览器（Edge）写剪贴板时会自动粘进当前焦点元素（xterm 隐藏 textarea → onData → 粘贴到设备）
+      fallbackCopy(text)
     }
     const fallbackCopy = (text: string): void => {
       const ta = document.createElement('textarea')

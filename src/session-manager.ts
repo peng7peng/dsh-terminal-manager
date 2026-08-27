@@ -61,6 +61,10 @@ export interface ConnectTarget {
   privateKey?: string
   passphrase?: string
   label?: string
+  /** Telnet 模式：'telnet'（协议协商）| 'raw'（裸 TCP，默认） */
+  telnetMode?: 'telnet' | 'raw'
+  /** SSH 握手超时毫秒（默认 15000） */
+  connectTimeoutMs?: number
 }
 
 /** 传输层工厂（可注入假实现用于测试）。 */
@@ -148,6 +152,8 @@ export class SessionManager {
       label: conn.label,
       ...(auth?.kind === 'password' ? { password: auth.password } : {}),
       ...(auth?.kind === 'key' ? { privateKey: auth.privateKey, passphrase: auth.passphrase } : {}),
+      ...(conn.telnetMode !== undefined ? { telnetMode: conn.telnetMode } : {}),
+      ...(conn.handshakeTimeoutSec !== undefined ? { connectTimeoutMs: conn.handshakeTimeoutSec * 1000 } : {}),
     }, connId)
   }
 

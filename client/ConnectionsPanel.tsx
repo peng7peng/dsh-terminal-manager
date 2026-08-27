@@ -48,6 +48,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [showAdv, setShowAdv] = useState(false)
   const [newline, setNewline] = useState<'lf' | 'cr' | 'crlf'>('lf')
   const [localEcho, setLocalEcho] = useState(false)
+  const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('raw')
+  const [handshakeTimeout, setHandshakeTimeout] = useState<number>(15)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [renameId, setRenameId] = useState<string | null>(null)
   const [renameVal, setRenameVal] = useState('')
@@ -72,8 +74,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   useEffect(() => { try { localStorage.setItem('tm-favorites', JSON.stringify([...favorites])) } catch { /* */ } }, [favorites])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.handshakeTimeoutSec ?? 15); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -84,12 +86,16 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function save(): Promise<void> {
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}) }
+    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { handshakeTimeoutSec: handshakeTimeout } : {}) }
     try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
     if (!validate()) return
-    if (editing !== null) { onConnect({ connId: editing }) } else { onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), label: form.label.trim() }) }
+    if (editing !== null) {
+      onConnect({ connId: editing })
+    } else {
+      onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() })
+    }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
   const sessionOfConn = (connId: string): SessionSnap | undefined => sessions.find(s => s.connId === connId && s.status !== 'closed')
@@ -157,9 +163,13 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             {authMode === 'password' ? pwdInput('pass', '密码', '登录密码', true, 'pass') : (<><div className={`tm-fld ${errors.key ? 'error' : ''}`}><label>私钥 <span className="tm-req">*</span></label><input value={form.key} onChange={e => setField('key', e.target.value)} placeholder="私钥内容或路径" /></div>{pwdInput('passphrase', '口令', '口令', false)}</>)}
           </>
         )}
+        {proto === 'telnet' && (
+          <div className="tm-fld"><label>模式</label><select value={telnetMode} onChange={e => setTelnetMode(e.target.value as 'telnet' | 'raw')}><option value="raw">Raw TCP</option><option value="telnet">Telnet</option></select></div>
+        )}
         <div className="tm-fld"><label>备注 <span className="tm-opt">选填</span></label><input value={form.note} onChange={e => setField('note', e.target.value)} placeholder="用途、位置等" /></div>
         <div className={`tm-advToggle ${showAdv ? 'open' : ''}`} onClick={() => setShowAdv(v => !v)}><span className="arrow">▶</span> 连接选项</div>
         <div className={`tm-advBody ${showAdv ? 'open' : ''}`}>
+          {proto === 'ssh' && <div className="tm-fld"><label>握手超时</label><select value={handshakeTimeout} onChange={e => setHandshakeTimeout(Number(e.target.value))}><option value={15}>15 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option><option value={120}>120 秒</option><option value={180}>180 秒</option></select></div>}
           <div className="tm-fld"><label>换行</label><select value={newline} onChange={e => setNewline(e.target.value as 'lf' | 'cr' | 'crlf')}><option value="lf">LF (\n)</option><option value="cr">CR (\r)</option><option value="crlf">CRLF (\r\n)</option></select></div>
           <div className="tm-fld"><label>回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
         </div>

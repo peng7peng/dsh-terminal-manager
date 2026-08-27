@@ -41,6 +41,8 @@ export interface TransportConnectOptions {
   passphrase?: string
   /** 连接建立超时，默认 15 秒 */
   connectTimeoutMs?: number
+  /** Telnet 模式：'telnet'（IAC 协商）| 'raw'（裸 TCP，默认） */
+  telnetMode?: 'telnet' | 'raw'
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 15_000

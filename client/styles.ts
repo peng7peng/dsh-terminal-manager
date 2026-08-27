@@ -92,6 +92,7 @@ export const WORKSPACE_CSS = `
 .tm-pico.ssh { background:var(--dsw-alias-state-business-tertiary, #e4edfd); color:var(--dsw-alias-state-business-primary, #4170e6); }
 .tm-pico.telnet { background:var(--dsw-alias-state-warn-primary, #f59e0b); color:#fff; }
 .tm-ritem .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.tm-sub { display:block; font-size:10px; font-weight:400; color:var(--dsw-alias-label-caption, #aaa); font-family:var(--dsw-font-code, monospace); }
 .tm-ritem .st { width:7px; height:7px; border-radius:50%; flex:none; }
 .tm-ritem .st.off { background:var(--dsw-alias-label-caption, #aaa); opacity:.5; }
 .tm-ritem .st.connecting { background:var(--dsw-alias-state-warn-primary, #f59e0b); }

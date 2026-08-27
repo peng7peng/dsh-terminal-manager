@@ -128,17 +128,19 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
       <label>{label} {required ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label>
       <div className="tm-pwdWrap">
         <input type={showPass ? 'text' : 'password'} value={form[name]} onChange={e => setField(name, e.target.value)} placeholder={placeholder} />
-        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)}>{showPass ? '隐藏' : '显示'}</span>
+        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)}>{showPass ? '👁' : '👁‍🗨'}</span>
       </div>
     </div>
   )
 
   return (
     <div className="tm-side">
-      <div className="tm-sideHead"><span className="t">📡 连接</span></div>
-      <div className="tm-ptabs">
-        <div className={`tm-ptab ${proto === 'ssh' ? 'on' : ''}`} onClick={() => setProto('ssh')}>SSH</div>
-        <div className={`tm-ptab ${proto === 'telnet' ? 'on' : ''}`} onClick={() => setProto('telnet')}>Telnet</div>
+      <div className="tm-sideHead">
+        <span className="t">📡 连接</span>
+        <div className="tm-ptabs" style={{ flex: 1, marginLeft: 8 }}>
+          <div className={`tm-ptab ${proto === 'ssh' ? 'on' : ''}`} onClick={() => setProto('ssh')}>SSH</div>
+          <div className={`tm-ptab ${proto === 'telnet' ? 'on' : ''}`} onClick={() => setProto('telnet')}>Telnet</div>
+        </div>
       </div>
       <div className="tm-sideScroll">
         {/* 1. 连接参数（不折叠） */}
@@ -166,14 +168,13 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
         {/* 2. 活跃会话（可折叠） */}
         <CollapsibleSection title="活跃会话" count={sortedSessions.length}>
           {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => (
-            <div key={s.sessionId} className={`tm-ritem ${pinned.has(s.sessionId) ? 'pinned' : ''} ${hiddenSet.has(s.sessionId) ? 'dimmed' : ''}`} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => onMarkRead(s.sessionId)} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'grab' }}>
+            <div key={s.sessionId} className={`tm-ritem ${pinned.has(s.sessionId) ? 'pinned' : ''} ${hiddenSet.has(s.sessionId) ? 'dimmed' : ''}`} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => { onMarkRead(s.sessionId); onToggleHidden(s.sessionId) }} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }}>
               <span className="tm-drag" title="拖动排序">⣿</span>
               <span className={`tm-pico ${s.protocol}`}>{s.protocol.toUpperCase()}</span>
               {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}</span>)}
               {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
               {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
               {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
-              <button className="tm-eye-btn" onClick={e => { e.stopPropagation(); onToggleHidden(s.sessionId) }} title={hiddenSet.has(s.sessionId) ? '显示' : '隐藏'}>{hiddenSet.has(s.sessionId) ? '👁' : '👁‍🗨'}</button>
             </div>
           ))}
         </CollapsibleSection>

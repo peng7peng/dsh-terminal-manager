@@ -100,6 +100,9 @@ export const WORKSPACE_CSS = `
 .tm-ritem.dimmed { opacity:.5; border-style:dashed; }
 .tm-drag { flex:none; cursor:grab; color:var(--dsw-alias-label-caption, #aaa); font-size:14px; padding-right:2px; }
 .tm-eye-off { font-size:13px; color:var(--dsw-alias-label-caption, #aaa); flex:none; }
+.tm-eye-btn { flex:none; background:none; border:none; cursor:pointer; font-size:14px; padding:0 2px; opacity:.6; }
+.tm-eye-btn:hover { opacity:1; }
+.tm-term-hidden { display:none !important; }
 .tm-ritem.dragging { opacity:.3; }
 .tm-empty { color:var(--dsw-alias-label-caption, #aaa); padding:10px; text-align:center; font-size:12px; }
 `

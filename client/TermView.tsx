@@ -19,9 +19,10 @@ interface TermViewProps {
   target: string
   ws: TermWs
   onDisconnect: (sessionId: string) => void
+  isHidden?: boolean
 }
 
-export function TermView({ sessionId, label, target, ws, onDisconnect }: TermViewProps): React.JSX.Element {
+export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden }: TermViewProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Term | undefined>(undefined)
 
@@ -39,13 +40,10 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
 
     try { fit.fit() } catch { /* 尺寸尚未就绪 */ }
 
-    // 附着：输出写入终端；键盘输入发往后端
-    let isHovered = false
-    container.addEventListener('mouseenter', () => { isHovered = true; markRead(sessionId) })
-    container.addEventListener('mouseleave', () => { isHovered = false })
+    // 附着：输出写入终端；隐藏会话有输出→标记未读
     const unsub = ws.onOutput(sessionId, data => {
       try { term.write(data) } catch { /* 已销毁 */ }
-      if (!isHovered) markUnread(sessionId)
+      if (isHidden) markUnread(sessionId)
     })
     term.onData(data => ws.input(sessionId, data))
 
@@ -147,7 +145,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       term.dispose()
       termRef.current = undefined
     }
-  }, [sessionId, ws])
+  }, [sessionId, ws, isHidden])
 
   return (
     <div className="tm-pane">

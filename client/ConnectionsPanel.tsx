@@ -135,20 +135,20 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
   return (
     <div className="tm-side">
-      <div className="tm-sideHead">
-        <span className="t">📡 连接</span>
-        <div className="tm-ptabs" style={{ marginLeft: 'auto' }}>
-          <div className={`tm-ptab ${proto === 'ssh' ? 'on' : ''}`} onClick={() => setProto('ssh')}>SSH</div>
-          <div className={`tm-ptab ${proto === 'telnet' ? 'on' : ''}`} onClick={() => setProto('telnet')}>Telnet</div>
-        </div>
+      <div className="tm-sideHead"><span className="t">📡 连接</span></div>
+      <div className="tm-ptabs">
+        <div className={`tm-ptab ${proto === 'ssh' ? 'on' : ''}`} onClick={() => setProto('ssh')}>SSH</div>
+        <div className={`tm-ptab ${proto === 'telnet' ? 'on' : ''}`} onClick={() => setProto('telnet')}>Telnet</div>
       </div>
       <div className="tm-sideScroll">
         {/* 1. 连接参数（不折叠） */}
         <div className="tm-secLabel">连接参数</div>
         <div className={`tm-fld ${errors.label ? 'error' : ''}`}><label>名称 <span className="tm-req">*</span></label><input value={form.label} onChange={e => setField('label', e.target.value)} placeholder="如 web-01" /></div>
         <div className={`tm-fld ${errors.host ? 'error' : ''}`}><label>主机 <span className="tm-req">*</span></label><input value={form.host} onChange={e => setField('host', e.target.value)} placeholder="192.168.1.10" /></div>
-        <div className="tm-fld"><label>端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
-        <div className={`tm-fld ${errors.user ? 'error' : ''}`}><label>用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
+        <div style={{ display: 'flex', gap: 7 }}>
+          <div className="tm-fld" style={{ flex: '0 0 110px' }}><label style={{ minWidth: '42px' }}>端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
+          <div className={`tm-fld ${errors.user ? 'error' : ''}`} style={{ flex: 1 }}><label style={{ minWidth: '42px' }}>用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
+        </div>
         {proto === 'ssh' && (
           <>
             <div className="tm-authSwitch"><span className={authMode === 'password' ? 'on' : ''} onClick={() => setAuthMode('password')}>密码</span><span className={authMode === 'key' ? 'on' : ''} onClick={() => setAuthMode('key')}>密钥</span></div>
@@ -173,6 +173,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
               {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
               {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
+              <button className="tm-eye-btn" onClick={e => { e.stopPropagation(); onToggleHidden(s.sessionId) }} title={hiddenSet.has(s.sessionId) ? '显示' : '隐藏'}>{hiddenSet.has(s.sessionId) ? '👁' : '👁‍🗨'}</button>
             </div>
           ))}
         </CollapsibleSection>
@@ -203,8 +204,6 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <>
                 <div className="tm-ctxItem" onClick={() => togglePin(ctxMenu.id)}>{pinned.has(ctxMenu.id) ? '取消置顶' : '置顶'}</div>
                 <div className="tm-ctxItem" onClick={() => startRename(ctxMenu.id, s.label)}>重命名</div>
-                <div className="tm-ctxSep" />
-                <div className="tm-ctxItem" onClick={() => { onToggleHidden(ctxMenu.id); setCtxMenu(null) }}>{hiddenSet.has(ctxMenu.id) ? '👁 显示' : '⊘ 隐藏'}</div>
                 <div className="tm-ctxSep" />
                 <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { onDisconnect(ctxMenu.id); setCtxMenu(null) }}>断开</div>
               </>

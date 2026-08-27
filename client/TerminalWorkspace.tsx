@@ -41,7 +41,13 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const [broadcastChips, setBroadcastChips] = useState<Set<string>>(new Set())
   const [bcCmd, setBcCmd] = useState('')
 
-  function toggleHidden(sid: string): void { setHidden(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n }) }
+  function toggleHidden(sid: string): void {
+    setHidden(prev => {
+      const n = new Set(prev)
+      if (n.has(sid)) { n.delete(sid); markRead(sid) } else { n.add(sid) }
+      return n
+    })
+  }
   function reorder(newOrder: string[]): void { setSessionOrder(newOrder) }
 
   // 初始化 WS（仅一次）
@@ -91,18 +97,19 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }
   }
 
-  const visibleSessions = useMemo(
+  const allOpenSessions = useMemo(
     () => {
-      const vis = sessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
-      return vis.sort((a, b) => {
+      const open = sessions.filter(s => s.status === 'open')
+      return open.sort((a, b) => {
         const ai = sessionOrder.indexOf(a.sessionId); const bi = sessionOrder.indexOf(b.sessionId)
         return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
       })
     },
-    [sessions, hidden, sessionOrder],
+    [sessions, sessionOrder],
   )
 
   // 广播目标默认全选可见会话
+  const visibleSessions = allOpenSessions.filter(s => !hidden.has(s.sessionId))
   const allOn = visibleSessions.length > 0 && visibleSessions.every(s => broadcastChips.has(s.sessionId))
   function toggleChip(sid: string): void {
     setBroadcastChips(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n })
@@ -135,10 +142,12 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <button className="tm-close" onClick={() => setWorkspaceVisible(false)}>✕ 关闭</button>
         </div>
         <div className="tm-grid">
-          {visibleSessions.length === 0 ? (
+          {allOpenSessions.length === 0 ? (
             <div className="tm-empty">暂无已连接会话 —— 右侧连接设备</div>
-          ) : visibleSessions.map(s => (
-            <TermView key={s.sessionId} sessionId={s.sessionId} label={s.label} target={s.target} ws={ws} onDisconnect={disconnect} />
+          ) : allOpenSessions.map(s => (
+            <div key={s.sessionId} className={hidden.has(s.sessionId) ? 'tm-term-hidden' : ''}>
+              <TermView sessionId={s.sessionId} label={s.label} target={s.target} ws={ws} onDisconnect={disconnect} isHidden={hidden.has(s.sessionId)} />
+            </div>
           ))}
         </div>
         <div className="tm-bcast">

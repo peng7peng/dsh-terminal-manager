@@ -19,8 +19,8 @@ import { registerWsIo } from './ws-io.ts'
 /** Cordis 插件名。 */
 export const name = 'terminal-manager'
 
-/** 需要的服务：工具注册表 + 系统提示片段。 */
-export const inject = ['tools', 'systemPrompt']
+/** 需要的服务：工具 + 系统提示 + Web 服务器。 */
+export const inject = ['tools', 'systemPrompt', 'webServer']
 
 /** 连接清单落盘目录（环境变量可覆盖，默认 $DSH_HOME 或 ~/.dsh）。 */
 export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -36,17 +36,10 @@ export function apply(ctx: Context): void {
 
   registerTerminalTools(ctx, sessions)
 
-  // 指令通道：client-connection 就绪后挂载（web profile 内必就绪）
-  ctx.inject(['connection'], () => {
-    const dispose = registerRemotes(ctx, { sessions, store })
-    ctx.effect(dispose, 'terminal-manager: remotes')
-  })
-
-  // 数据流通道：webServer 就绪后挂载 /term-io
-  ctx.inject(['webServer'], () => {
-    const dispose = registerWsIo(ctx, sessions)
-    ctx.effect(dispose, 'terminal-manager: ws-io')
-  })
+  // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
+  // 不能再把它们的返回值传给 ctx.effect（那会立即调用清理、删掉刚注册的路由）
+  registerRemotes(ctx, { sessions, store })
+  registerWsIo(ctx, sessions)
 
   ctx.effect(() => () => {
     void sessions.closeAll()

@@ -14,13 +14,13 @@ function makeError(code: string, message: string): RpcError {
   return error
 }
 
-/** 调用后端指令通道。失败抛 RpcError（code 在 error.code）。 */
+/** 调用后端指令通道。失败抛 RpcError（code 在 error.code）。
+ *  独立 channel /term-manager（不抢 /api）；POST 到 /term-manager/<方法>。 */
 export async function rpc<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
-  const endpoint = `term-manager.${method}`
-  const response = await fetch(`/api/${endpoint}`, {
+  const response = await fetch(`/term-manager/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method: endpoint, payload }),
+    body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
   })
   if (!response.ok) throw makeError('HTTP_' + response.status, `请求失败: ${response.statusText}`)
   const body = (await response.json()) as { result: { ok: true; value: T } | { ok: false; error: { code: string; message: string } } }

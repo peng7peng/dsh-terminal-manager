@@ -97,27 +97,56 @@ export const REMOTE_ERROR_CODES = [
 ] as const
 
 /**
- * 把指令通道挂到 ctx.connection.rpc（若可用）。返回卸载函数。
- * 挂载方式：在共享 /api 通道上拦截 `term-manager.*` 端点（浏览器已知往 /api POST）。
- * 信任策略 trusted-host（受信主机/loopback 均可）。
+ * 把指令通道挂成 webServer 的前缀路由 /term-manager（绕开 connection.rpc.handle——
+ * 后者经 connection 服务的 ctx.effect 注册，作用域问题导致路由没进 webServer 表）。
+ * 客户端 POST 到 /term-manager/<方法>，body = ClientRequest 封包，返回 ClientResponse。
+ * 信任栅栏：MVP 仅 loopback（webServer 本机绑定时已限）。
  */
 export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
-  const connection = ctx.get('connection')
-  if (connection === undefined) {
-    // 测试环境或无 client-connection 的部署：不挂载，调度函数仍可直测
+  const webServer = ctx.get('webServer')
+  if (webServer === undefined) {
+    console.log('[term-manager] webServer 不可用，remotes 未挂载')
     return () => {}
   }
-  const matches = (endpoint: string): boolean => endpoint.startsWith('term-manager.')
-  const handler = async (endpoint: string, payload: unknown, signal: AbortSignal) => {
-    // 拦截器收到的 endpoint 形如 'term-manager.connections.list'；dispatch 用后缀
-    const method = endpoint.replace(/^term-manager\./, '')
-    return dispatch(method, (payload ?? {}) as Payload, deps, signal)
+  console.log('[term-manager] 挂载 /term-manager 前缀路由（直连 webServer）')
+  const route = {
+    kind: 'prefix' as const,
+    path: '/term-manager',
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'method not allowed' }))
+        return
+      }
+      let raw = ''
+      for await (const chunk of req) raw += chunk
+      let rpcId = '', method = '', payload: unknown = {}
+      try {
+        const body = JSON.parse(raw) as { type?: string; rpcId?: string; method?: string; payload?: unknown }
+        rpcId = body.rpcId ?? ''
+        method = body.method ?? ''
+        payload = body.payload ?? {}
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'server-response', rpcId: 'invalid', result: { ok: false, error: { code: 'bad-request', message: 'invalid JSON', details: {} } } }))
+        return
+      }
+      const urlMethod = (req.url ?? '').replace(/^\/term-manager\//, '').split('?')[0]
+      const endpoint = method || urlMethod
+      try {
+        const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
+      } catch (error) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
+      }
+    },
   }
-  let disposer: Promise<() => Promise<void>> | undefined
-  void connection.rpc.intercept('/api', matches, handler, { authority: 'trusted-host' }).then(d => { disposer = d })
-  return () => {
-    void disposer?.then(d => d())
-  }
+  // ctx.effect(fn)：fn 立即执行、其返回值是清理函数。把 register 放进 fn，
+  // 返回的 disposer 才会被存为清理（而不是被立即执行删掉路由）。
+  ctx.effect(() => webServer.register(route), 'terminal-manager: /term-manager 路由')
+  return () => {}
 }
 
 /** 仅用于类型导出（前端类型生成可用）。 */

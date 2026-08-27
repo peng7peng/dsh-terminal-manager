@@ -30,7 +30,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     // 根据 DSH 主题选终端配色
     const DARK_THEME = { background: '#0b0e14', foreground: '#d8dee9', cursor: '#e6c07b', cursorAccent: '#0b0e14', selectionBackground: '#58a6ff44' }
     const LIGHT_THEME = { background: '#ffffff', foreground: '#24292f', cursor: '#4170e6', cursorAccent: '#ffffff', selectionBackground: '#4170e633' }
-    const term = new Terminal({ fontSize: 13, cursorBlink: true, scrollback: 5000, theme: document.body.hasAttribute('data-ds-dark-theme') ? DARK_THEME : LIGHT_THEME })
+    const term = new Terminal({ fontSize: 13, fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace', cursorBlink: true, scrollback: 5000, theme: document.body.hasAttribute('data-ds-dark-theme') ? DARK_THEME : LIGHT_THEME })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)

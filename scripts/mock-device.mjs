@@ -60,15 +60,17 @@ const server = createServer((socket) => {
   let lineBuf = ''
   socket.on('data', (chunk) => {
     const str = chunk.toString('utf8')
-    // 退格：从行缓冲删末字符 + \b\x1b[K（退格+擦到行尾，一步干净不留空格）
-    if (str === '\x7f' || str === '\x08') {
-      lineBuf = lineBuf.slice(0, -1)
-      socket.write('\b\x1b[K')
-      return
+    // 逐字符处理：退止单独处理(\b\x1b[K)，其他正常回显
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i]
+      if (ch === '\x7f' || ch === '\x08') {
+        lineBuf = lineBuf.slice(0, -1)
+        socket.write('\b\x1b[K')
+        continue
+      }
+      socket.write(ch.replace(/\r(?!\n)/g, '\r\n'))
+      lineBuf += ch
     }
-    // 回显（\r→\r\n 让命令独占一行）；同时按行缓冲解析命令
-    socket.write(str.replace(/\r(?!\n)/g, '\r\n'))
-    lineBuf += str
     let nl
     while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {
       const line = lineBuf.slice(0, nl)

@@ -81,14 +81,16 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         let lineBuf = ''
         stream.on('data', (data) => {
           const str = data.toString('utf8')
-          // 退格处理：\b\x1b[K（退格+擦到行尾，一步干净）
-          if (str === '\x7f' || str === '\x08') {
-            lineBuf = lineBuf.slice(0, -1)
-            stream.write('\b\x1b[K')
-            return
+          for (let i = 0; i < str.length; i++) {
+            const ch = str[i]
+            if (ch === '\x7f' || ch === '\x08') {
+              lineBuf = lineBuf.slice(0, -1)
+              stream.write('\b\x1b[K')
+              continue
+            }
+            stream.write(ch.replace(/\r(?!\n)/g, '\r\n'))
+            lineBuf += ch
           }
-          stream.write(str.replace(/\r(?!\n)/g, '\r\n')) // 回显
-          lineBuf += str
           let nl
           while ((nl = lineBuf.search(/[\r\n]/)) >= 0) {
             const line = lineBuf.slice(0, nl)

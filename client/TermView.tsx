@@ -60,8 +60,9 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
         navigator.clipboard.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
       }
     }
-    // 选中即复制：松手时把选区写进剪贴板（PuTTY 式）
-    const onMouseUp = (): void => {
+    // 选中即复制：左键松手时把选区写进剪贴板（PuTTY 式，右键不触发=留给粘贴）
+    const onMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 0) return  // 只响应左键
       const sel = term.getSelection()
       if (sel !== undefined && sel.length > 0) copyToClipboard(sel)
     }
@@ -75,6 +76,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       const shift = event.shiftKey
       // 复制：Cmd+C(Mac) / Ctrl+Shift+C(Win/Linux) / Ctrl+C(有选区→复制，无选区→SIGINT)
       if ((meta && key === 'c') || (ctrl && shift && key === 'c')) {
+        event.preventDefault()  // 阻止浏览器抢快捷键（如 Edge DevTools）
         const sel = term.getSelection()
         if (sel !== undefined && sel.length > 0) copyToClipboard(sel)
         return false
@@ -86,6 +88,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
       }
       // 粘贴：Cmd+V(Mac) / Ctrl+Shift+V(Win/Linux) / Ctrl+V
       if ((meta && key === 'v') || (ctrl && shift && key === 'v') || (ctrl && !shift && !meta && key === 'v')) {
+        event.preventDefault()
         pasteFromClipboard()
         return false
       }

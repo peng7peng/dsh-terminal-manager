@@ -40,13 +40,12 @@ export function TermView({ sessionId, label, target, ws, onDisconnect }: TermVie
     try { fit.fit() } catch { /* 尺寸尚未就绪 */ }
 
     // 附着：输出写入终端；键盘输入发往后端
-    let isFocused = false
-    container.addEventListener('focus', () => { isFocused = true })
-    container.addEventListener('blur', () => { isFocused = false })
-    container.addEventListener('click', () => { isFocused = true })
+    let isHovered = false
+    container.addEventListener('mouseenter', () => { isHovered = true; markRead(sessionId) })
+    container.addEventListener('mouseleave', () => { isHovered = false })
     const unsub = ws.onOutput(sessionId, data => {
       try { term.write(data) } catch { /* 已销毁 */ }
-      if (!isFocused) markUnread(sessionId)
+      if (!isHovered) markUnread(sessionId)
     })
     term.onData(data => ws.input(sessionId, data))
 

@@ -4,8 +4,22 @@
  * @module dsh-terminal-manager/client/ConnectionsPanel
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
+
+/** 可折叠分区 */
+function CollapsibleSection({ title, count, children }: { title: string; count: number; children: ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(true)
+  return (
+    <>
+      <div className="tm-secLabel" style={{ marginTop: 12, cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => setOpen(v => !v)}>
+        <span style={{ fontSize: 10, transition: 'transform .2s', display: 'inline-block', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+        {title} {count > 0 ? `(${count})` : ''}
+      </div>
+      <div style={{ display: open ? 'block' : 'none' }}>{children}</div>
+    </>
+  )
+}
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' }
@@ -121,20 +135,20 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
   return (
     <div className="tm-side">
-      <div className="tm-sideHead"><span className="t">📡 连接</span></div>
-      <div className="tm-sideScroll">
-        <div className="tm-ptabs">
+      <div className="tm-sideHead">
+        <span className="t">📡 连接</span>
+        <div className="tm-ptabs" style={{ marginLeft: 'auto' }}>
           <div className={`tm-ptab ${proto === 'ssh' ? 'on' : ''}`} onClick={() => setProto('ssh')}>SSH</div>
           <div className={`tm-ptab ${proto === 'telnet' ? 'on' : ''}`} onClick={() => setProto('telnet')}>Telnet</div>
         </div>
-
+      </div>
+      <div className="tm-sideScroll">
+        {/* 1. 连接参数（不折叠） */}
         <div className="tm-secLabel">连接参数</div>
         <div className={`tm-fld ${errors.label ? 'error' : ''}`}><label>名称 <span className="tm-req">*</span></label><input value={form.label} onChange={e => setField('label', e.target.value)} placeholder="如 web-01" /></div>
         <div className={`tm-fld ${errors.host ? 'error' : ''}`}><label>主机 <span className="tm-req">*</span></label><input value={form.host} onChange={e => setField('host', e.target.value)} placeholder="192.168.1.10" /></div>
-        <div style={{ display: 'flex', gap: 7 }}>
-          <div className="tm-fld" style={{ flex: '0 0 110px' }}><label>端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
-          <div className={`tm-fld ${errors.user ? 'error' : ''}`} style={{ flex: 1 }}><label>用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
-        </div>
+        <div className="tm-fld"><label>端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
+        <div className={`tm-fld ${errors.user ? 'error' : ''}`}><label>用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
         {proto === 'ssh' && (
           <>
             <div className="tm-authSwitch"><span className={authMode === 'password' ? 'on' : ''} onClick={() => setAuthMode('password')}>密码</span><span className={authMode === 'key' ? 'on' : ''} onClick={() => setAuthMode('key')}>密钥</span></div>
@@ -149,64 +163,35 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button className="tm-btn primary" onClick={save}>保存</button><button className="tm-btn" onClick={quickConnect}>连接</button>{editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}</div>
 
-        {/* 收藏区（可折叠） */}
-        <div className="tm-secLabel" style={{ marginTop: 12, cursor: 'pointer', userSelect: 'none' }} onClick={() => setFavCollapse(v => !v)}>
-          ⭐ 收藏 {favConns.length > 0 ? `(${favConns.length})` : ''} <span style={{ fontSize: 10 }}>{favCollapse ? '▶' : '▼'}</span>
-        </div>
-        <div style={{ display: favCollapse ? 'none' : 'block' }}>
-          {favConns.length === 0 ? <div className="tm-empty">暂无收藏</div> : favConns.map(c => {
-            const sess = sessionOfConn(c.id); const status = sess?.status ?? 'off'
-            return (
-              <div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} onContextMenu={e => onConnContext(e, c)} title="点连接 / 右键菜单">
-                <span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span>
-                <span className="nm">{c.label}</span>
-                <span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} />
-              </div>
-            )
-          })}
-        </div>
-
-        {/* 最近连接（右键菜单） */}
-        <div className="tm-secLabel" style={{ marginTop: 12 }}>最近连接</div>
-        <div>
-          {otherConns.length === 0 ? <div className="tm-empty">暂无</div> : otherConns.map(c => {
-            const sess = sessionOfConn(c.id); const status = sess?.status ?? 'off'
-            return (
-              <div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} onContextMenu={e => onConnContext(e, c)} title="点连接 / 右键菜单">
-                <span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span>
-                <span className="nm">{c.label}</span>
-                <span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} />
-              </div>
-            )
-          })}
-        </div>
-
-        {/* 活跃会话（右键菜单 + 排序 + 未读 + 显示/隐藏 + 拖动） */}
-        <div className="tm-secLabel" style={{ marginTop: 12 }}>活跃会话</div>
-        <div>
+        {/* 2. 活跃会话（可折叠） */}
+        <CollapsibleSection title="活跃会话" count={sortedSessions.length}>
           {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => (
-            <div
-              key={s.sessionId}
-              className={`tm-ritem ${pinned.has(s.sessionId) ? 'pinned' : ''} ${hiddenSet.has(s.sessionId) ? 'dimmed' : ''}`}
-              draggable
-              onDragStart={() => onDragStart(idx)}
-              onDragOver={onDragOver}
-              onDrop={() => onDrop(idx)}
-              onClick={() => onMarkRead(s.sessionId)}
-              onContextMenu={e => onSessionContext(e, s)}
-              style={{ cursor: 'grab' }}
-            >
+            <div key={s.sessionId} className={`tm-ritem ${pinned.has(s.sessionId) ? 'pinned' : ''} ${hiddenSet.has(s.sessionId) ? 'dimmed' : ''}`} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => onMarkRead(s.sessionId)} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'grab' }}>
               <span className="tm-drag" title="拖动排序">⣿</span>
               <span className={`tm-pico ${s.protocol}`}>{s.protocol.toUpperCase()}</span>
-              {renameId === s.sessionId ? (
-                <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />
-              ) : (<span className="nm">{s.label}</span>)}
+              {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}</span>)}
               {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
-              {hiddenSet.has(s.sessionId) && <span style={{ fontSize: 10, opacity: .5 }}>🚫</span>}
+              {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
               {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
             </div>
           ))}
-        </div>
+        </CollapsibleSection>
+
+        {/* 3. 收藏（可折叠） */}
+        <CollapsibleSection title="⭐ 收藏" count={favConns.length}>
+          {favConns.length === 0 ? <div className="tm-empty">暂无收藏</div> : favConns.map(c => {
+            const sess = sessionOfConn(c.id); const status = sess?.status ?? 'off'
+            return (<div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} onContextMenu={e => onConnContext(e, c)} title="点连接 / 右键菜单"><span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}</span><span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} /></div>)
+          })}
+        </CollapsibleSection>
+
+        {/* 4. 最近连接（可折叠） */}
+        <CollapsibleSection title="最近连接" count={otherConns.length}>
+          {otherConns.length === 0 ? <div className="tm-empty">暂无</div> : otherConns.map(c => {
+            const sess = sessionOfConn(c.id); const status = sess?.status ?? 'off'
+            return (<div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} onContextMenu={e => onConnContext(e, c)} title="点连接 / 右键菜单"><span className={`tm-pico ${c.protocol}`}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}</span><span className={`st ${status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off'}`} /></div>)
+          })}
+        </CollapsibleSection>
       </div>
 
       {/* 右键菜单 */}
@@ -219,7 +204,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
                 <div className="tm-ctxItem" onClick={() => togglePin(ctxMenu.id)}>{pinned.has(ctxMenu.id) ? '取消置顶' : '置顶'}</div>
                 <div className="tm-ctxItem" onClick={() => startRename(ctxMenu.id, s.label)}>重命名</div>
                 <div className="tm-ctxSep" />
-                <div className="tm-ctxItem" onClick={() => { onToggleHidden(ctxMenu.id); setCtxMenu(null) }}>{hiddenSet.has(ctxMenu.id) ? '显示' : '隐藏'}</div>
+                <div className="tm-ctxItem" onClick={() => { onToggleHidden(ctxMenu.id); setCtxMenu(null) }}>{hiddenSet.has(ctxMenu.id) ? '👁 显示' : '⊘ 隐藏'}</div>
                 <div className="tm-ctxSep" />
                 <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { onDisconnect(ctxMenu.id); setCtxMenu(null) }}>断开</div>
               </>

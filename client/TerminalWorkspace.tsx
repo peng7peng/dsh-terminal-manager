@@ -92,8 +92,14 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   }
 
   const visibleSessions = useMemo(
-    () => sessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId)),
-    [sessions, hidden],
+    () => {
+      const vis = sessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
+      return vis.sort((a, b) => {
+        const ai = sessionOrder.indexOf(a.sessionId); const bi = sessionOrder.indexOf(b.sessionId)
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+      })
+    },
+    [sessions, hidden, sessionOrder],
   )
 
   // 广播目标默认全选可见会话

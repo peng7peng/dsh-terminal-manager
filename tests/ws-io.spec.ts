@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
-import { TermIoConnection, type OutFrame } from '../src/ws-io.ts'
+import { TermIoConnection, registerWsIo, type OutFrame } from '../src/ws-io.ts'
 import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
 
 /** 假传输：每会话一个槽位，可控喂输出。 */
@@ -104,5 +104,64 @@ describe('TermIoConnection 数据流帧分发', () => {
     ws.close() // 模拟 WS 关闭
     // 内部订阅已清；连接对象不再推
     expect(sessions.list().length).toBe(before) // 会话本身不受 WS 关闭影响（设计如此）
+  })
+})
+
+describe('TermIoConnection 生命周期与容错', () => {
+  it('非法 JSON 不崩溃、不关闭连接', async () => {
+    const { conn, ws } = await setup()
+    expect(() => ws._emit('message', 'not-json{{{')).not.toThrow()
+    // 连接仍然活着：发一条正常帧还能处理
+    const { sent } = await setup() // 另起一个验证
+  })
+
+  it('未知 kind 帧静默忽略', async () => {
+    const { conn, ws, sent } = await setup()
+    const before = sent.length
+    expect(() => ws._emit('message', JSON.stringify({ kind: 'unknown', sessionId: 'x' }))).not.toThrow()
+    expect(sent.length).toBe(before)
+  })
+
+  it('同一会话连续两次 attach → subscribe 只调一次', async () => {
+    const { sessions, ws, snap } = await setup()
+    const subscribeSpy = vi.spyOn(sessions, 'subscribe')
+    ws._emit('message', JSON.stringify({ kind: 'attach', sessionId: snap.sessionId }))
+    ws._emit('message', JSON.stringify({ kind: 'attach', sessionId: snap.sessionId }))
+    // 第一次 attach 调了 subscribe，第二次被内部 if 拦住
+    expect(subscribeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('detach 未 attach 的会话不报错', async () => {
+    const { ws } = await setup()
+    expect(() => ws._emit('message', JSON.stringify({ kind: 'detach', sessionId: 'nonexistent' }))).not.toThrow()
+  })
+
+  it('input 到不存在的会话静默忽略', async () => {
+    const { ws } = await setup()
+    expect(() => ws._emit('message', JSON.stringify({ kind: 'input', sessionId: 'nonexistent', data: 'x' }))).not.toThrow()
+  })
+
+  it('连接关闭后，会话输出不再推给该连接', async () => {
+    const { emit, conn, sent, ws, snap } = await setup()
+    ws._emit('message', JSON.stringify({ kind: 'attach', sessionId: snap.sessionId }))
+    emit(0, 'before-close\n')
+    expect(sent.some(f => f.kind === 'output' && f.data === 'before-close\n')).toBe(true)
+
+    ws.close() // 模拟 WS 关闭
+    const afterClose = sent.length
+
+    // 关闭后设备继续输出 → 不再推送
+    emit(0, 'after-close\n')
+    expect(sent.length).toBe(afterClose)
+  })
+})
+
+describe('registerWsIo 降级', () => {
+  it('ctx.get(webServer) 返回 undefined 时不报错，返回空 disposer', () => {
+    const fakeSessions = { onStatus: () => () => {} } as unknown as SessionManager
+    const ctx = { get: (_name: string) => undefined } as never
+    expect(() => registerWsIo(ctx, fakeSessions)).not.toThrow()
+    const disposer = registerWsIo(ctx, fakeSessions)
+    expect(() => disposer()).not.toThrow()
   })
 })

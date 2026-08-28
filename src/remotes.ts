@@ -9,6 +9,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ConnectionConfig, ConnectionInput } from './connection-store.ts'
 import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
@@ -109,6 +110,53 @@ export const REMOTE_ERROR_CODES = [
 ] as const
 
 /**
+ * 构造 HTTP 路由 handler（便于独立测试）。
+ * 返回一个 (req, res) => void 的异步函数。
+ */
+export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res: ServerResponse) => void {
+  return async (req, res) => {
+    // CORS 预检：浏览器 POST application/json 前会先 OPTIONS，必须放行
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+      })
+      res.end()
+      return
+    }
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'method not allowed' }))
+      return
+    }
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    let rpcId = '', method = '', payload: unknown = {}
+    try {
+      const body = JSON.parse(raw) as { type?: string; rpcId?: string; method?: string; payload?: unknown }
+      rpcId = body.rpcId ?? ''
+      method = body.method ?? ''
+      payload = body.payload ?? {}
+    } catch {
+      res.writeHead(400, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ type: 'server-response', rpcId: 'invalid', result: { ok: false, error: { code: 'bad-request', message: 'invalid JSON', details: {} } } }))
+      return
+    }
+    const urlMethod = (req.url ?? '').replace(/^\/term-manager\//, '').split('?')[0]
+    const endpoint = method || urlMethod
+    try {
+      const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
+      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+      res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
+    } catch (error) {
+      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+      res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
+    }
+  }
+}
+
+/**
  * 把指令通道挂成 webServer 的前缀路由 /term-manager（绕开 connection.rpc.handle——
  * 后者经 connection 服务的 ctx.effect 注册，作用域问题导致路由没进 webServer 表）。
  * 客户端 POST 到 /term-manager/<方法>，body = ClientRequest 封包，返回 ClientResponse。
@@ -124,46 +172,7 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
   const route = {
     kind: 'prefix' as const,
     path: '/term-manager',
-    handler: async (req, res) => {
-      // CORS 预检：浏览器 POST application/json 前会先 OPTIONS，必须放行
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-          'access-control-allow-origin': '*',
-          'access-control-allow-methods': 'POST, OPTIONS',
-          'access-control-allow-headers': 'content-type',
-        })
-        res.end()
-        return
-      }
-      if (req.method !== 'POST') {
-        res.writeHead(405, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ error: 'method not allowed' }))
-        return
-      }
-      let raw = ''
-      for await (const chunk of req) raw += chunk
-      let rpcId = '', method = '', payload: unknown = {}
-      try {
-        const body = JSON.parse(raw) as { type?: string; rpcId?: string; method?: string; payload?: unknown }
-        rpcId = body.rpcId ?? ''
-        method = body.method ?? ''
-        payload = body.payload ?? {}
-      } catch {
-        res.writeHead(400, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ type: 'server-response', rpcId: 'invalid', result: { ok: false, error: { code: 'bad-request', message: 'invalid JSON', details: {} } } }))
-        return
-      }
-      const urlMethod = (req.url ?? '').replace(/^\/term-manager\//, '').split('?')[0]
-      const endpoint = method || urlMethod
-      try {
-        const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
-        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
-        res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
-      } catch (error) {
-        res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
-        res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
-      }
-    },
+    handler: (req: IncomingMessage, res: ServerResponse) => createHttpHandler(deps)(req, res),
   }
   // ctx.effect(fn)：fn 立即执行、其返回值是清理函数。把 register 放进 fn，
   // 返回的 disposer 才会被存为清理（而不是被立即执行删掉路由）。

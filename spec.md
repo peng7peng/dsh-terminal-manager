@@ -198,6 +198,18 @@ interface ConnectionConfig {
 6. **DSH 重启后清空前端状态**：WebSocket 重连后从后端重新拉取会话列表，避免显示已丢失的会话
 7. **同一目标去重**：多个连接配置指向同一目标（protocol:host:port）时共享会话，前端先按 connId 精确匹配，找不到再按目标模糊匹配，避免创建重复终端窗口
 
+**会话去重与协议隔离**：
+
+去重键为 `protocol:host:port`，意味着：
+- **同协议同目标**（如两个 Telnet 配置都连 127.0.0.1:2323）→ 共享会话，复用同一 TCP 连接
+- **不同协议同目标**（如 Telnet:2323 和 SSH:2323）→ 独立会话，各自建立独立 TCP 连接
+
+**原因**：
+- Telnet 和 SSH 是完全不同的协议，服务器端由不同的守护进程处理
+- 每个 TCP 连接在服务器端是独立的会话（通过四元组识别：源IP、源端口、目标IP、目标端口）
+- 服务器不会在 Telnet 和 SSH 会话之间共享状态（除非特殊配置）
+- 用户可能需要在同一台设备上同时用 Telnet 和 SSH 测试不同场景
+
 #### B2/B3 传输层（`src/transport/`，接口见 `types.ts`）
 
 内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。

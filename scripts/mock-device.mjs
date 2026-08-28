@@ -20,14 +20,14 @@ const PORT = Number(process.argv[2] ?? 2323)
 const USE_IAC = process.argv.includes('--iac')
 const LABEL = `Mock Router :${PORT}`
 
-const HELP = `可用命令：
-  show version            显示版本
-  show interface          显示接口表
-  show ip interface brief 显示接口简要
-  ping <host>             ping 测试
-  echo <text>             原样回显
-  help                    本帮助
-  exit                    断开
+const HELP = `可用命令：\r
+  show version            显示版本\r
+  show interface          显示接口表\r
+  show ip interface brief 显示接口简要\r
+  ping <host>             ping 测试\r
+  echo <text>             原样回显\r
+  help                    本帮助\r
+  exit                    断开\r
 `
 
 function banner() {
@@ -39,10 +39,10 @@ function respond(cmd) {
   if (c === '') return '\x1b[32mrouter>\x1b[0m '
   if (c === 'help' || c === '?') return HELP + '\r\n\x1b[32mrouter>\x1b[0m '
   if (c === 'show version') {
-    return `MockOS Version 1.0.4\nCompiled ${new Date().toISOString().slice(0, 10)}\n uptime 3 days, 2 hours\n\x1b[32mrouter>\x1b[0m `
+    return `MockOS Version 1.0.4\r\nCompiled ${new Date().toISOString().slice(0, 10)}\r\n uptime 3 days, 2 hours\r\n\x1b[32mrouter>\x1b[0m `
   }
   if (c === 'show interface' || c === 'show ip interface brief') {
-    return `Interface      Status    Protocol\nGig0/0         up        up\nGig0/1         up        up\nLoopback0      up        up\n\x1b[32mrouter>\x1b[0m `
+    return `Interface      Status    Protocol\r\nGig0/0         up        up\r\nGig0/1         up        up\r\nLoopback0      up        up\r\n\x1b[32mrouter>\x1b[0m `
   }
   if (c.startsWith('ping ')) {
     const host = c.slice(5)

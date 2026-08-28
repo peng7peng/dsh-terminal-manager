@@ -17,9 +17,13 @@ interface TermViewProps {
   ws: TermWs
   onDisconnect: (sessionId: string) => void
   isHidden?: boolean
+  isClosed?: boolean
+  isMaximized?: boolean
+  onToggleMaximize?: () => void
+  onMinimize?: () => void
 }
 
-export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden }: TermViewProps): React.JSX.Element {
+export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize }: TermViewProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Term | undefined>(undefined)
   const hiddenRef = useRef(isHidden)
@@ -70,6 +74,15 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden 
       const ctrl = event.ctrlKey
       const meta = event.metaKey
       const shift = event.shiftKey
+      // 拦截退格/删除：手动发送给服务器，不让 xterm 本地移动光标（设备会做退格钳制）
+      if (key === 'backspace') {
+        ws.input(sessionId, '\x7f') // DEL 字符
+        return false // 阻止 xterm 默认行为
+      }
+      if (key === 'delete') {
+        ws.input(sessionId, '\x1b[3~') // xterm 删除序列
+        return false
+      }
       if ((meta && key === 'c') || (ctrl && shift && key === 'c')) {
         event.preventDefault()
         const sel = term.getSelection()
@@ -134,12 +147,24 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden 
   }, [sessionId, ws])
 
   return (
-    <div className="tm-pane">
+    <div className={`tm-pane ${isClosed ? 'tm-pane-closed' : ''} ${isMaximized ? 'tm-pane-maximized' : ''}`}>
       <div className="tm-paneBar">
         <span className="dot" />
         <span className="nm">{label}</span>
         <span className="tgt">{target}</span>
-        <button onClick={() => onDisconnect(sessionId)} title="断开">✕</button>
+        {isClosed ? (
+          <span className="tm-closed-label">已断开</span>
+        ) : (
+          <>
+            {isMaximized ? (
+              <button onClick={onToggleMaximize} title="还原">🗗</button>
+            ) : (
+              <button onClick={onToggleMaximize} title="最大化">🗖</button>
+            )}
+            <button onClick={onMinimize} title="最小化">🗕</button>
+            <button onClick={() => onDisconnect(sessionId)} title="断开">✕</button>
+          </>
+        )}
       </div>
       <div className="tm-paneBody" ref={containerRef} />
     </div>

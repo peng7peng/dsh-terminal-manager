@@ -31,6 +31,7 @@ export interface GuardOptions {
 /** 默认黑名单：典型破坏性命令（可按部署扩充）。 */
 export const DEFAULT_DANGEROUS_RULES: readonly GuardRule[] = [
   { pattern: '\\brm\\s+(-[a-z]+\\s+)*(/|/\\*|~|\\$HOME)\\s*(?:[;&|]|$)', why: '递归删除根目录/主目录' },
+  { pattern: '\\brm\\s+[^|;&]*-[a-z]*r[a-z]*', why: '递归删除（含 -r 标志）' },
   { pattern: '\\bmkfs(\\.[a-z0-9]+)?\\b', why: '格式化文件系统' },
   { pattern: '\\bdd\\b[^|;&]*\\bof=/dev/', why: '对磁盘设备低层写入' },
   { pattern: '\\b(shutdown|reboot|halt|poweroff)\\b', why: '关机/重启设备' },

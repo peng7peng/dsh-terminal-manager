@@ -10,6 +10,9 @@ describe('命令守卫', () => {
       'sudo rm -rf /',
       'rm -rf $HOME',
       'rm -rf / && echo done',
+      'rm -rf',
+      'rm -rf /tmp/build',
+      'rm -fr /var/log',
       'mkfs.ext4 /dev/sda1',
       'mkfs /dev/sdb',
       'dd if=/dev/zero of=/dev/sda',
@@ -35,7 +38,6 @@ describe('命令守卫', () => {
       'show version',
       'ls -la /tmp',
       'rm report.txt',
-      'rm -rf /tmp/build', // 删具体目录下的内容，不是根目录本身
       'display interface',
       'ping 10.0.0.1',
       'cat /var/log/syslog',

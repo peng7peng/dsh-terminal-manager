@@ -40,6 +40,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const [broadcastChips, setBroadcastChips] = useState<Set<string>>(new Set())
   const [bcCmd, setBcCmd] = useState('')
+  const [columns, setColumns] = useState<1 | 2 | 3>(2) // 默认 2 列
+  const [maximized, setMaximized] = useState<string | null>(null) // 最大化的会话 ID
 
   function toggleHidden(sid: string): void {
     setHidden(prev => {
@@ -49,6 +51,17 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     })
   }
   function reorder(newOrder: string[]): void { setSessionOrder(newOrder) }
+  function toggleMaximize(sid: string): void {
+    setMaximized(prev => prev === sid ? null : sid)
+  }
+  function minimize(sid: string): void {
+    setHidden(prev => {
+      const n = new Set(prev)
+      n.add(sid)
+      return n
+    })
+    setMaximized(null)
+  }
 
   // 初始化 WS（仅一次）
   if (wsRef.current === undefined && visible) {
@@ -56,10 +69,9 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     ws.onStatus(frame => {
       setSessions(prev => {
         const snap = frame as unknown as SessionSnap
-        // 只接受 open 状态；connecting 跳过（避免连接失败时幽灵条目）；closed 移除
-        if (snap.status !== 'open') {
-          return prev.filter(s => s.sessionId !== snap.sessionId)
-        }
+        // connecting 跳过（避免连接失败时幽灵条目）
+        if (snap.status === 'connecting') return prev
+        // open/closed 都保留在列表里（closed 标记为已断开，可重连）
         const i = prev.findIndex(s => s.sessionId === snap.sessionId)
         return i >= 0 ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap]
       })
@@ -97,10 +109,9 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }
   }
 
-  const allOpenSessions = useMemo(
+  const allSessions = useMemo(
     () => {
-      const open = sessions.filter(s => s.status === 'open')
-      return open.sort((a, b) => {
+      return [...sessions].sort((a, b) => {
         const ai = sessionOrder.indexOf(a.sessionId); const bi = sessionOrder.indexOf(b.sessionId)
         return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
       })
@@ -108,8 +119,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     [sessions, sessionOrder],
   )
 
-  // 广播目标默认全选可见会话
-  const visibleSessions = allOpenSessions.filter(s => !hidden.has(s.sessionId))
+  // 广播目标默认全选可见的「在线」会话
+  const visibleSessions = allSessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
   const allOn = visibleSessions.length > 0 && visibleSessions.every(s => broadcastChips.has(s.sessionId))
   function toggleChip(sid: string): void {
     setBroadcastChips(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n })
@@ -137,18 +148,40 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <span className="t">🖥️ 终端</span>
           <span className="onb">在线 <b>{onlineCount}</b> / {allCount}</span>
           <span className="sp" />
+          <label className="tm-col-select">
+            <span>列数</span>
+            <select value={columns} onChange={e => setColumns(Number(e.target.value) as 1 | 2 | 3)}>
+              <option value={1}>1 列</option>
+              <option value={2}>2 列</option>
+              <option value={3}>3 列</option>
+            </select>
+          </label>
           <button className="tm-close" onClick={() => setHidden(h => { const n = new Set(h); visibleSessions.forEach(s => n.add(s.sessionId)); return n })}>全部隐藏</button>
           <button className="tm-close" onClick={() => setHidden(new Set())}>全部显示</button>
-          <button className="tm-close" onClick={() => setWorkspaceVisible(false)}>✕ 关闭</button>
         </div>
-        <div className="tm-grid">
-          {allOpenSessions.length === 0 ? (
+        <div className="tm-grid" style={{ gridTemplateColumns: maximized ? '1fr' : `repeat(${columns}, 1fr)` }}>
+          {allSessions.length === 0 ? (
             <div className="tm-empty">暂无已连接会话 —— 右侧连接设备</div>
-          ) : allOpenSessions.map(s => (
-            <div key={s.sessionId} className={hidden.has(s.sessionId) ? 'tm-term-hidden' : ''}>
-              <TermView sessionId={s.sessionId} label={s.label} target={s.target} ws={ws} onDisconnect={disconnect} isHidden={hidden.has(s.sessionId)} />
-            </div>
-          ))}
+          ) : allSessions.map(s => {
+            // 最大化时只显示被最大化的那个
+            if (maximized !== null && s.sessionId !== maximized) return null
+            return (
+              <div key={s.sessionId} className={`${hidden.has(s.sessionId) ? 'tm-term-hidden' : ''} ${s.status === 'closed' ? 'tm-term-closed' : ''} ${maximized === s.sessionId ? 'tm-term-maximized' : ''}`}>
+                <TermView
+                  sessionId={s.sessionId}
+                  label={s.label}
+                  target={s.target}
+                  ws={ws}
+                  onDisconnect={disconnect}
+                  isHidden={hidden.has(s.sessionId)}
+                  isClosed={s.status === 'closed'}
+                  isMaximized={maximized === s.sessionId}
+                  onToggleMaximize={() => toggleMaximize(s.sessionId)}
+                  onMinimize={() => minimize(s.sessionId)}
+                />
+              </div>
+            )
+          })}
         </div>
         <div className="tm-bcast">
           <div className="tm-brow">

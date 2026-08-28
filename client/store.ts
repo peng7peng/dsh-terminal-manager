@@ -80,9 +80,15 @@ export function setChatWidth(w: number): void {
   chatWidth = clamped
   chatListeners.forEach(l => l())
 }
-/** 实际生效的聊天宽度：手动拖过用手动值，否则自动算（终端模块固定 TARGET_TERM_WIDTH，聊天填满剩余，无留白）。 */
+/** 实际生效的聊天宽度：手动拖过用手动值，否则自动算（终端模块固定 TARGET_TERM_WIDTH，聊天填满剩余，无留白）。
+ *  手动值会被 clamp 到当前视口，防止全屏拖动后退出全屏导致终端模块被挤出视口。 */
 export function getEffectiveChatWidth(viewport: number, sidebar: number): number {
-  if (chatWidthManual !== null) return chatWidthManual
+  if (chatWidthManual !== null) {
+    // 每次重新 clamp，适应视口/侧边栏变化（全屏 ↔ 普通、侧边栏收缩/展开）
+    // 764 ≈ 面板300 + 终端最小200 + 余量264，减去实际 sidebar 后加上
+    const max = Math.max(MAX_CHAT, viewport - sidebar - PANEL_WIDTH - 200)
+    return Math.max(MIN_CHAT, Math.min(max, chatWidthManual))
+  }
   return Math.max(MIN_CHAT, viewport - sidebar - TARGET_TERM_WIDTH - PANEL_WIDTH)
 }
 export function useChatWidth(): number {

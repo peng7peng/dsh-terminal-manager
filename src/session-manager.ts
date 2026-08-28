@@ -144,6 +144,19 @@ export class SessionManager {
     return record === undefined ? undefined : this.snapshot(record)
   }
 
+  /** 按 host+port 查找已保存的连接配置（用于 AI 工具匹配已有配置）。 */
+  findConnectionByTarget(protocol: 'ssh' | 'telnet', host: string, port?: number): { connId: string; label: string } | undefined {
+    if (this.store === undefined) return undefined
+    const defaultPort = protocol === 'ssh' ? 22 : 23
+    const targetPort = port ?? defaultPort
+    for (const conn of this.store.list()) {
+      if (conn.protocol === protocol && conn.host === host && conn.port === targetPort) {
+        return { connId: conn.id, label: conn.label }
+      }
+    }
+    return undefined
+  }
+
   /** 用已保存的连接建立会话；同一连接重复调用返回既有会话。 */
   async connectByConnId(connId: string): Promise<SessionSnapshot> {
     if (this.store === undefined) throw new SessionError('SESSION_NOT_FOUND', '未配置连接存储')
@@ -169,19 +182,36 @@ export class SessionManager {
     }, connId)
   }
 
-  /** 建立会话（临时连接不入库）。同 protocol+host:port 的 open 会话直接复用（去重）。 */
+  /** 建立会话。同 protocol+host:port 的 open 会话直接复用（去重）。
+   *  无 connId 时自动创建连接配置入库（出现在「最近连接」）。 */
   async connect(target: ConnectTarget, connId?: string): Promise<SessionSnapshot> {
     // 去重：同协议+同地址的 open 会话直接返回
     const targetKey = `${target.protocol}:${target.host}:${target.port}`
     for (const record of this.sessions.values()) {
-      if (record.status === 'open' && `${record.protocol}:${record.target}` === targetKey) {
+      if (record.status === 'open' && `${record.protocol}:${target.host}:${record.target}` === targetKey) {
         return this.snapshot(record)
       }
+    }
+    // 无 connId 时自动创建连接配置（临时连接也入「最近连接」）
+    let effectiveConnId = connId
+    if (effectiveConnId === undefined && this.store !== undefined) {
+      await this.store.ensureLoaded()
+      const autoConn = await this.store.create({
+        protocol: target.protocol,
+        host: target.host,
+        port: target.port,
+        label: target.label ?? target.host,
+        ...(target.username !== undefined ? { username: target.username } : {}),
+        ...(target.password !== undefined ? { password: target.password } : {}),
+        ...(target.privateKey !== undefined ? { privateKey: target.privateKey } : {}),
+        ...(target.passphrase !== undefined ? { passphrase: target.passphrase } : {}),
+      })
+      effectiveConnId = autoConn.id
     }
     const sessionId = randomUUID()
     const record: SessionRecord = {
       sessionId,
-      connId,
+      connId: effectiveConnId,
       label: target.label ?? target.host,
       target: `${target.host}:${target.port}`,
       protocol: target.protocol,

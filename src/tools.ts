@@ -139,19 +139,29 @@ export function registerTerminalTools(ctx: Context, sessions: SessionManager): v
       render: (_args, value) => [{ type: 'text', text: `已连接 ${value.label}（${value.target}，${value.protocol}）会话 ${value.sessionId}\n${value.banner}` }],
     },
     async execute(args: ConnectArgs, _exec) {
+      // 1. 如果传了 connId，直接用
       if (args.connId !== undefined && args.connId.length > 0) {
         const snap = await sessions.connectByConnId(args.connId)
         return { ...snap, banner: sessions.read(snap.sessionId, 200).text }
       }
+      // 2. 否则先查有没有匹配的已保存连接（host:port）
       const protocol = args.protocol
       if (protocol !== 'ssh' && protocol !== 'telnet') throw new Error('需要 connId，或临时连接的 protocol（ssh|telnet）')
       const host = args.host?.trim()
       if (host === undefined || host.length === 0) throw new Error('临时连接需要 host（IP 地址）')
+      const port = args.port ?? (protocol === 'ssh' ? 22 : 23)
+      const existing = sessions.findConnectionByTarget(protocol, host, port)
+      if (existing !== undefined) {
+        // 找到已保存的连接，用它而不是建临时连接
+        const snap = await sessions.connectByConnId(existing.connId)
+        return { ...snap, banner: sessions.read(snap.sessionId, 200).text }
+      }
+      // 3. 没有匹配的，建临时连接
       if (protocol === 'ssh' && (args.username === undefined || args.username.length === 0)) throw new Error('SSH 临时连接需要 username')
       const snap = await sessions.connect({
         protocol,
         host,
-        port: args.port ?? (protocol === 'ssh' ? 22 : 23),
+        port,
         username: args.username,
         password: args.password,
         label: args.label,

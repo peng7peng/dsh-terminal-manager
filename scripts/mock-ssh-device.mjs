@@ -84,6 +84,8 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
           for (let i = 0; i < str.length; i++) {
             const ch = str[i]
             if (ch === '\x7f' || ch === '\x08') {
+              // 钳制：输入行已空时不回退（真实设备不让删过提示符 ssh>）
+              if (lineBuf.length === 0) continue
               lineBuf = lineBuf.slice(0, -1)
               stream.write('\b\x1b[K')
               continue
@@ -107,6 +109,7 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[mock-ssh-device] ${LABEL} 已启动，监听 127.0.0.1:${PORT}`)
-  console.log(`[mock-ssh-device] 在插件里新建 SSH 连接：主机 127.0.0.1 端口 ${PORT} 用户名 admin 密码 ${PASSWORD}`)
+  const actual = server.address().port
+  console.log(`[mock-ssh-device] ${LABEL} 已启动，监听 127.0.0.1:${actual}`)
+  console.log(`[mock-ssh-device] 在插件里新建 SSH 连接：主机 127.0.0.1 端口 ${actual} 用户名 admin 密码 ${PASSWORD}`)
 })

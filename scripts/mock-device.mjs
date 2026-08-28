@@ -69,6 +69,8 @@ const server = createServer((socket) => {
     for (let i = 0; i < str.length; i++) {
       const ch = str[i]
       if (ch === '\x7f' || ch === '\x08') {
+        // 钳制：输入行已空时不回退（真实路由器不让删过提示符 router>）
+        if (lineBuf.length === 0) continue
         lineBuf = lineBuf.slice(0, -1)
         socket.write('\b\x1b[K')
         continue
@@ -89,6 +91,7 @@ const server = createServer((socket) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[mock-device] ${LABEL} 已启动，监听 127.0.0.1:${PORT}`)
-  console.log(`[mock-device] 在终端管理插件里新建 Telnet 连接：主机 127.0.0.1 端口 ${PORT}`)
+  const actual = server.address().port
+  console.log(`[mock-device] ${LABEL} 已启动，监听 127.0.0.1:${actual}`)
+  console.log(`[mock-device] 在终端管理插件里新建 Telnet 连接：主机 127.0.0.1 端口 ${actual}`)
 })

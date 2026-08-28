@@ -80,6 +80,13 @@ export function TerminalWorkspace(): React.JSX.Element | null {
         return i >= 0 ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap]
       })
     })
+    // WebSocket 重连后清空会话状态，从后端重新拉取（DSH 重启后会话已丢失）
+    ws.onReconnect(() => {
+      setSessions([])
+      void (async () => {
+        try { setSessions(await rpc<SessionSnap[]>('sessions.list')) } catch { /* ignore */ }
+      })()
+    })
     ws.open()
     wsRef.current = ws
   }
@@ -186,7 +193,6 @@ export function TerminalWorkspace(): React.JSX.Element | null {
                   target={s.target}
                   ws={ws}
                   onDisconnect={disconnect}
-                  onReconnect={reconnect}
                   isHidden={hidden.has(s.sessionId)}
                   isClosed={s.status === 'closed'}
                   isMaximized={maximized === s.sessionId}

@@ -117,7 +117,25 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const renderConn = (c: ConnectionCfg) => {
     const sess = sessionOfConn(c.id); const status = sess?.status ?? 'off'
     const sub = (c.username ? c.username + '@' : '') + c.host + ':' + c.port
-    return <div key={c.id} className="tm-ritem" onClick={() => onConnect({ connId: c.id })} onContextMenu={e => onConnContext(e, c)} title="点连接 / 右键菜单"><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'st ' + (status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : 'off')} /></div>
+
+    // 智能路由：根据会话状态决定点击行为
+    const handleClick = () => {
+      if (status === 'open') {
+        // 已有 open 会话，聚焦（切换显示）
+        if (sess) onToggleHidden(sess.sessionId)
+      } else if (status === 'closed') {
+        // 被动断开，重连
+        if (sess) onReconnect(sess.sessionId)
+      } else {
+        // 无会话或 removed，创建新会话
+        onConnect({ connId: c.id })
+      }
+    }
+
+    const statusClass = status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : status === 'closed' ? 'closed' : 'off'
+    const title = status === 'open' ? '已连接 - 点击聚焦' : status === 'closed' ? '已断开 - 点击重连' : '点击连接'
+
+    return <div key={c.id} className="tm-ritem" onClick={handleClick} onContextMenu={e => onConnContext(e, c)} title={title}><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'st ' + statusClass} /></div>
   }
 
   return (
@@ -158,17 +176,29 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button className="tm-btn primary" onClick={save}>保存</button><button className="tm-btn" onClick={quickConnect}>连接</button>{editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}</div>
 
         <CollapsibleSection title="活跃会话" count={sortedSessions.length}>
-          {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => (
-            <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (s.status === 'closed' ? 'disconnected' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => { onMarkRead(s.sessionId); onToggleHidden(s.sessionId) }} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }}>
-              <span className="tm-drag" title="拖动排序">⣿</span>
-              <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
-              {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span></span>)}
-              {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
-              {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
-              {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
-              {s.status === 'closed' && <button className="tm-reconnect-small" onClick={(e) => { e.stopPropagation(); onReconnect(s.sessionId) }} title="重连">🔄</button>}
-            </div>
-          ))}
+          {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => {
+            const isClosed = s.status === 'closed'
+            const handleClick = () => {
+              onMarkRead(s.sessionId)
+              if (isClosed) {
+                // 被动断开，点击重连
+                onReconnect(s.sessionId)
+              } else {
+                // open 状态，切换显示/隐藏
+                onToggleHidden(s.sessionId)
+              }
+            }
+            return (
+              <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (isClosed ? 'disconnected' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={handleClick} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }} title={isClosed ? '已断开 - 点击重连' : '点击切换显示'}>
+                <span className="tm-drag" title="拖动排序">⣿</span>
+                <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
+                {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint"> - 已断开，点击重连</span>}</span>)}
+                {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
+                {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
+                {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
+              </div>
+            )
+          })}
         </CollapsibleSection>
 
         <CollapsibleSection title="⭐ 收藏" count={favConns.length}>

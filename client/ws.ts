@@ -34,6 +34,7 @@ export class TermWs {
   private readonly attached = new Set<string>()
   private readonly outputHandlers = new Map<string, (data: string) => void>()
   private statusHandler: ((frame: InFrame) => void) | undefined
+  private reconnectHandler: (() => void) | undefined
   private reconnectAttempt = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private disposed = false
@@ -68,6 +69,12 @@ export class TermWs {
     return () => { this.statusHandler = undefined }
   }
 
+  /** 订阅 WebSocket 重连事件（断开后重新连接成功时触发）。 */
+  onReconnect(handler: () => void): () => void {
+    this.reconnectHandler = handler
+    return () => { this.reconnectHandler = undefined }
+  }
+
   /** 向某会话写入（键盘输入）。 */
   input(sessionId: string, data: string): void {
     this.send({ kind: 'input', sessionId, data })
@@ -85,9 +92,15 @@ export class TermWs {
     const ws = new this.ctor(this.url)
     this.ws = ws
     ws.onopen = () => {
+      const wasReconnect = this.reconnectAttempt > 0
       this.reconnectAttempt = 0
       this.status = 'open'
-      // 重连后重新附着所有会话
+      // 重连后清空附着列表（会话可能已丢失），通知前端重新拉取
+      if (wasReconnect) {
+        this.attached.clear()
+        this.reconnectHandler?.()
+      }
+      // 重新附着所有会话
       for (const sid of this.attached) this.send({ kind: 'attach', sessionId: sid })
     }
     ws.onmessage = (event) => this.onMessage(event.data)

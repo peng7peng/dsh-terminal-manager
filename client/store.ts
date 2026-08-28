@@ -60,20 +60,25 @@ export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-/** 聊天列宽度（px），可拖动调整（v4：默认按视口自适应 300–520，范围 300–760）。 */
+/** 聊天列宽度（px），可拖动调整（范围 300–760，手动拖动钳制在此区间）。 */
 const MIN_CHAT = 300, MAX_CHAT = 760
-function defaultChatWidth(): number {
-  if (typeof window === 'undefined') return 460
-  // ~26% 视口，夹在 300–520：小屏收窄给终端让位，大屏不无限拉宽
-  return Math.max(300, Math.min(520, Math.round(window.innerWidth * 0.26)))
-}
-let chatWidth = defaultChatWidth()
+/** 终端模块（tm-main）目标宽度 + 连接面板宽度——自动模式下聊天加宽填满左侧，让终端模块固定此宽，无留白 */
+const TARGET_TERM_WIDTH = 600, PANEL_WIDTH = 300
+let chatWidth = 460
+/** null = 未手动拖过，用自动值（终端模块固定 TARGET_TERM_WIDTH，聊天填满左侧）；非 null = 用拖动值 */
+let chatWidthManual: number | null = null
 const chatListeners = new Set<() => void>()
 export function setChatWidth(w: number): void {
   const clamped = Math.max(MIN_CHAT, Math.min(MAX_CHAT, w))
+  chatWidthManual = clamped
   if (chatWidth === clamped) return
   chatWidth = clamped
   chatListeners.forEach(l => l())
+}
+/** 实际生效的聊天宽度：手动拖过用手动值，否则自动算（终端模块固定 TARGET_TERM_WIDTH，聊天填满剩余，无留白）。 */
+export function getEffectiveChatWidth(viewport: number, sidebar: number): number {
+  if (chatWidthManual !== null) return chatWidthManual
+  return Math.max(MIN_CHAT, viewport - sidebar - TARGET_TERM_WIDTH - PANEL_WIDTH)
 }
 export function useChatWidth(): number {
   return useSyncExternalStore(
@@ -92,13 +97,22 @@ export function subscribeChatWidth(cb: () => void): () => void {
 }
 
 /**
- * 工作区激活时强制 frame 网格成 `sidebar chatWidth 0px`。
+ * 工作区激活时强制 frame 网格成 `sidebar effectiveChat 0px`。
+ * effectiveChat = 手动拖动值（拖过则固定）/ 自动值（终端模块固定 TARGET_TERM_WIDTH，聊天填满左侧，无留白）。
  * capture/restore 在 setWorkspaceVisible 里（同步），这里只管强制 + 观察。
  */
 export function useFrameLayout(active: boolean, chat: number): number {
   const [left, setLeft] = useState(0)
   const chatRef = useRef(chat)
   chatRef.current = chat
+
+  const applyGrid = (frame: HTMLElement): number => {
+    const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
+    const eff = typeof window !== 'undefined' ? getEffectiveChatWidth(window.innerWidth, sidebar) : chatRef.current
+    const target = `${sidebar}px ${eff}px 0px`
+    if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
+    return sidebar + eff
+  }
 
   useEffect(() => {
     if (!active) { setLeft(0); return }
@@ -108,10 +122,8 @@ export function useFrameLayout(active: boolean, chat: number): number {
     let raf = 0
     const apply = (): void => {
       raf = 0
-      const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
-      const target = `${sidebar}px ${chatRef.current}px 0px`
-      if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
-      setLeft(prev => { const n = sidebar + chatRef.current; return prev === n ? prev : n })
+      const n = applyGrid(frame)
+      setLeft(prev => (prev === n ? prev : n))
     }
     const schedule = (): void => { if (raf === 0) raf = requestAnimationFrame(apply) }
     schedule()
@@ -128,10 +140,8 @@ export function useFrameLayout(active: boolean, chat: number): number {
     if (!active) return
     const frame = findFrame()
     if (frame === null) return
-    const sidebar = (frame.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
-    const target = `${sidebar}px ${chat}px 0px`
-    if (frame.style.gridTemplateColumns !== target) frame.style.gridTemplateColumns = target
-    setLeft(prev => { const n = sidebar + chat; return prev === n ? prev : n })
+    const n = applyGrid(frame)
+    setLeft(prev => (prev === n ? prev : n))
   }, [active, chat])
 
   return left

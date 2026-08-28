@@ -141,17 +141,36 @@ terminal-manager/
 ## 后续（MVP 之后）
 
 ### 已知待办
-- **未读标记不工作**：会话点击切换显示/隐藏后，隐藏会话有新输出时蓝点没出现。根因：点击切换 onClick 同时调了 `onToggleHidden` 和 `onMarkRead`，但 `isHidden` prop 依赖 React 重渲染，TermView 的 useEffect 不会因为 isHidden 变化而重新订阅。需要修复。
+- **未读标记不工作**：会话点击切换显示/隐藏后，隐藏会话有新输出时蓝点没出现。根因：点击切换 onClick 同时调 `onToggleHidden` 和 `onMarkRead`，但 `isHidden` prop 依赖 React 重渲染，TermView 的 useEffect 不会因为 isHidden 变化而重新订阅。需要修复。
 - **选中即复制**：xterm mouseup 触发 onData 导致同时粘贴，根因待查。
 
-### 功能扩展（第二批，已确认要做）
-- ~~Telnet/Raw TCP 模式切换~~（正在做）
-- ~~SSH 握手超时下拉~~（正在做）
+### 已完成的第一批升级（连接管理区）
+- SSH/Telnet Tab 与标题同行
+- 密码可见切换（👁/👁‍🗨 图标）
+- Telnet Raw TCP/Telnet 模式双按钮 + IAC 剥离
+- SSH 握手超时下拉（15/30/60/120/180 秒）
+- 换行 LF/CR/CRLF（保存后端 + sendAndWait 实际生效）
+- 本地回显开关（保存后端；xterm 本地回显未接通）
+- 高级折叠（连接选项可折叠）
+- 收藏栏（可折叠，localStorage 持久化，保存连接自动入收藏）
+- 最近连接（可折叠，右键菜单：收藏/编辑/删除）
+- 会话右键菜单（置顶/重命名/断开）
+- 拖动排序（⣿ 手柄，影响终端区实际排序）
+- 卡片显示 user@host:port（灰色小字）
+- 点击会话切换显示/隐藏（虚线 dimmed 样式）
+- 终端配色跟 DSH 明暗主题动态切换
+- 模拟设备 ANSI 色（提示符绿/横幅青/错误红）
+- 退格逐字符处理 + `\b\x1b[K`
+- 复制粘贴（Ctrl+C/Shift+C/V + 右键 PuTTY 式）
+- 84 项 vitest + 19 场景冒烟全绿
+- CI（ci.yml + smoke.yml）
 
 ### 推迟待评估
 - 收藏分组/搜索
 - Telnet 自动登录（账号/密码/提示正则/超时/延迟）
 - 会话信息弹窗（协议/状态/换行/回显/会话ID）
+- 重命名/置顶持久化到后端（目前本地临时）
+- 本地回显在 xterm 接通
 - 导入/导出 CSV/JSON
 
 ### 功能扩展（第三批，待排期）

@@ -257,6 +257,11 @@ export class SessionManager {
     if (record.status !== 'closed') {
       throw new SessionError('SESSION_NOT_DISCONNECTED', '会话未处于断开状态')
     }
+    // 清理旧 transport（如果有）
+    if (record.transport !== undefined) {
+      try { await record.transport.close() } catch { /* ignore */ }
+      record.transport = undefined
+    }
     // 重新建立连接
     record.status = 'connecting'
     this.notify(record)

@@ -133,6 +133,47 @@ describe('SessionManager 发送与完成判定', () => {
     expect(rec.written[0]).toBe('show version\r\n')
   })
 
+  it('换行回退到连接配置：newline=lf → 行尾用 \\n（而非默认 crlf）', async () => {
+    const { rec, factory } = fakeFactory()
+    const lfConn = await store.create({ label: 'dev-lf', protocol: 'telnet', host: '127.0.0.1', port: 9, quietMs: 100, newline: 'lf' })
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(lfConn.id)
+    const pending = sm.sendAndWait(snap.sessionId, 'show version')
+    setTimeout(() => rec.sessions[0].callbacks.onData('ok\n'), 20)
+    await pending
+    expect(rec.written[0]).toBe('show version\n')
+  })
+
+  it('换行：临时连接的 newline 也生效', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 9, label: 'tmp', newline: 'cr' })
+    const pending = sm.sendAndWait(snap.sessionId, 'show version')
+    setTimeout(() => rec.sessions[0].callbacks.onData('ok\n'), 20)
+    await pending
+    expect(rec.written[0]).toBe('show version\r')
+  })
+
+  it('换行：调用参数覆盖连接配置', async () => {
+    const { rec, factory } = fakeFactory()
+    const lfConn = await store.create({ label: 'dev-lf2', protocol: 'telnet', host: '127.0.0.1', port: 9, quietMs: 100, newline: 'lf' })
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(lfConn.id)
+    const pending = sm.sendAndWait(snap.sessionId, 'show version', { newline: 'crlf' })
+    setTimeout(() => rec.sessions[0].callbacks.onData('ok\n'), 20)
+    await pending
+    expect(rec.written[0]).toBe('show version\r\n')
+  })
+
+  it('sendImmediate 也用连接配置换行', async () => {
+    const { rec, factory } = fakeFactory()
+    const lfConn = await store.create({ label: 'dev-lf3', protocol: 'telnet', host: '127.0.0.1', port: 9, newline: 'lf' })
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(lfConn.id)
+    await sm.sendImmediate(snap.sessionId, 'show clock', { guard: {} })
+    expect(rec.written[0]).toBe('show clock\n')
+  })
+
   it('提示符判定：来自连接配置的正则', async () => {
     const { rec, factory } = fakeFactory()
     const sm = new SessionManager(store, factory)

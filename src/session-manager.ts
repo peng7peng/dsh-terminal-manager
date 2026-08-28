@@ -100,6 +100,8 @@ interface SessionRecord {
   buffer: string
   subscribers: Set<(chunk: string) => void>
   busy: boolean
+  /** 连接级换行（来自 ConnectTarget / 连接配置），sendAndWait/sendImmediate 缺省时回退到此值 */
+  newline?: 'lf' | 'cr' | 'crlf'
 }
 
 export interface SendOptions {
@@ -187,6 +189,7 @@ export class SessionManager {
       buffer: '',
       subscribers: new Set(),
       busy: false,
+      ...(target.newline !== undefined ? { newline: target.newline } : {}),
     }
     this.sessions.set(sessionId, record)
     this.notify(record)
@@ -227,12 +230,12 @@ export class SessionManager {
     record.transport?.write(data)
   }
 
-  /** AI 路径"发完即回"：过守卫，追加回车写入，不等待执行完成。 */
-  async sendImmediate(sessionId: string, command: string, options: { guard?: GuardOptions; signal?: AbortSignal } = {}): Promise<void> {
+  /** AI 路径"发完即回"：过守卫，追加换行写入，不等待执行完成。换行优先用调用参数，其次连接级配置，缺省 crlf。 */
+  async sendImmediate(sessionId: string, command: string, options: { guard?: GuardOptions; signal?: AbortSignal; newline?: 'lf' | 'cr' | 'crlf' } = {}): Promise<void> {
     const record = this.requireOpen(sessionId)
     if (record.busy) throw new SessionError('SESSION_BUSY', '该会话正在执行另一条发送')
     this.assertAllowed(record, command, options)
-    record.transport?.write(command + '\r')
+    record.transport?.write(command + this.eolOf(record, options.newline))
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
@@ -263,8 +266,7 @@ export class SessionManager {
       const waitConfig = this.resolveWaitConfig(record, options.wait)
       const policy = new WaitPolicy(waitConfig)
       const submit = options.submit ?? true
-      const nl = options.newline ?? 'crlf'
-      const eol = nl === 'lf' ? '\n' : nl === 'cr' ? '\r' : '\r\n'
+      const eol = this.eolOf(record, options.newline)
 
       const outcome = await new Promise<WaitReason>((resolve, reject) => {
         policy.start(Date.now())
@@ -367,6 +369,13 @@ export class SessionManager {
       ...(conn?.timeoutMs !== undefined ? { timeoutMs: conn.timeoutMs } : {}),
       ...overrides,
     }
+  }
+
+  /** 行尾换行串：优先调用参数，其次连接配置的 newline（实时读 conn），再次会话建立时的记录值（临时连接），缺省 crlf（\r\n）。 */
+  private eolOf(record: SessionRecord, override?: 'lf' | 'cr' | 'crlf'): string {
+    const conn = this.connectionOf(record)
+    const nl = override ?? conn?.newline ?? record.newline ?? 'crlf'
+    return nl === 'lf' ? '\n' : nl === 'cr' ? '\r' : '\r\n'
   }
 
   private handleData(record: SessionRecord, chunk: string): void {

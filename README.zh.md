@@ -28,7 +28,7 @@ git clone <本仓库>
 cd terminal-manager
 pnpm install          # 依赖用 link: 指向相邻 deepseek-harness 检出
 pnpm build            # 产出 lib/index.js（host 半）+ lib/client.js（浏览器半）
-pnpm test             # 161 项 vitest（模拟设备，不碰真设备）
+pnpm test             # 165 项 vitest（模拟设备，不碰真设备）
 ```
 
 运行验证（相邻 deepseek-harness 检出）：

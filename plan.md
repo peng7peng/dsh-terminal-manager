@@ -50,7 +50,7 @@
 
 ### 测试与脚本
 
-- `tests/`：161 项 vitest（含 `mock-device.spec.ts` 退格钳制、`remotes-http.spec.ts`、`ws-io` 容错等）。
+- `tests/`：165 项 vitest（含 `mock-device.spec.ts` 退格钳制、`remotes-http.spec.ts`、`ws-io` 容错等）。
 - `scripts/mock-device.mjs`（Telnet 路由器 CLI，退格钳制）、`scripts/mock-ssh-device.mjs`（SSH 路由器 CLI）、`scripts/smoke-e2e.mjs`（19 场景冒烟）。
 
 ## 工作顺序（M0–M5，均已完成）
@@ -74,6 +74,6 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 
 ## 证据
 
-- `tests/` 161 项全绿；`pnpm build` 产出 host + client 双半包；覆盖率阈值 72/72/60/74。
+- `tests/` 165 项全绿；`pnpm build` 产出 host + client 双半包；覆盖率阈值 72/72/60/74。
 - 真实启动冒烟：DSH profile tm-dev，`/plugins/dsh-terminal-manager/client.js` 200 + 首页含 `dsh-terminal-manager` 行。
 - `scripts/smoke-e2e.mjs` 19 场景对活服务。

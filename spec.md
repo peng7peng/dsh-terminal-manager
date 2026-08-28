@@ -156,7 +156,7 @@ interface ConnectionConfig {
 - 操作：`connect(target, connId?)` / `connectByConnId(connId)` / `disconnect` / `write`（人工键入，不过守卫不排队）/ `sendImmediate`（AI 发完即回，过守卫）/ `sendAndWait`（D3 三重判定 + 独占）/ `broadcast` / `read(sessionId, count=500)` / `list` / `closeAll` / `onStatus`。
 - **去重**：同 `protocol:host:port` 的 open 会话直接复用（临时连接与 connId 连接共用同一池）；`connectByConnId` 对同一 `connId` 的未关闭会话直接返回既有会话。
 - **独占发送**：每会话最多一个进行中的 `sendAndWait`，并发发送直接抛 `SESSION_BUSY`；广播对每台独立执行。
-- **完成判定**：`resolveWaitConfig` 合并连接级 `quietMs/promptPattern/timeoutMs` + 调用覆盖参数；`WaitPolicy` 每轮 50ms 轮询（`POLL_INTERVAL_MS`）。换行：`sendAndWait` 按 `SendOptions.newline`（`'lf'|'cr'|'crlf'`，缺省 `crlf`）追加行尾；`submit` 缺省 true。待核实：连接配置的 `newline` 字段当前实现未从配置回读到 `sendAndWait`（`options.newline ?? 'crlf'`），仅保存后端。
+- **完成判定**：`resolveWaitConfig` 合并连接级 `quietMs/promptPattern/timeoutMs` + 调用覆盖参数；`WaitPolicy` 每轮 50ms 轮询（`POLL_INTERVAL_MS`）。换行：`sendAndWait`/`sendImmediate` 经 `eolOf` 取行尾——优先调用参数 `newline`，其次连接配置 `conn.newline`（实时回读），再次会话建立时的记录值（临时连接），缺省 `crlf`；`submit` 缺省 true。
 - **输出分发**：`handleData` 同时写环形缓冲 + 推给所有订阅者（订阅者 = WS 连接，推给它挂着的那条 `/term-io` 管道）；连接终结 `handleClose` 移除会话并 `notify` 状态帧。
 - **命令守卫**：`SendOptions.guard` 传入时才启用（AI 路径必传），合并连接级 `guardWhitelist` + 调用方规则；命中抛 `COMMAND_BLOCKED`。
 - 卸载时 `ctx.effect` 清理全部会话（`closeAll`）。
@@ -355,7 +355,7 @@ terminal-manager/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 161 项 vitest（14 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 165 项 vitest（14 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
 ├── docs/
 │   └── archive/
@@ -402,11 +402,10 @@ terminal-manager/
 | 凭据加密（DSH `ctx.credentials`） | 后续迭代，替掉明文 JSON |
 | SSH 主机密钥 TOFU | MVP 后首个安全迭代 |
 | 面板入口快捷键 | 延后，MVP 不做 |
-| `newline` 从连接配置回读到 `sendAndWait` | 当前实现 `options.newline ?? 'crlf'`；若产品预期「按连接生效」需补接缝（待核实） |
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，161 项基线）**
+**构建期测试（`pnpm test` = vitest，165 项基线）**
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
 - 工具层：经测试上下文调用六个 `tm_*`，断言 schema 与返回（含 `presentCall` 卡片）。
@@ -428,4 +427,4 @@ terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（161 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（165 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

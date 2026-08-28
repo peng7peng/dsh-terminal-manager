@@ -68,8 +68,10 @@ export class TermIoConnection {
     switch (frame.kind) {
       case 'attach': {
         if (this.subscriptions.has(sid)) return
-        const unsub = this.sessions.subscribe(sid, data => this.send({ kind: 'output', sessionId: sid, data }))
-        this.subscriptions.set(sid, unsub)
+        try {
+          const unsub = this.sessions.subscribe(sid, data => this.send({ kind: 'output', sessionId: sid, data }))
+          this.subscriptions.set(sid, unsub)
+        } catch { /* 会话不存在：忽略 attach */ }
         break
       }
       case 'detach': {

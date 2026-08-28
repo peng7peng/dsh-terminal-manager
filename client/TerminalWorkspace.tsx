@@ -116,7 +116,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     try {
       const snap = await rpc<SessionSnap>('sessions.reconnect', { sessionId })
       setSessions(prev => prev.map(s => s.sessionId === snap.sessionId ? snap : s))
-    } catch (err) { alert((err as RpcError).message) }
+    } catch (err) {
+      console.error('Reconnect failed:', err)
+      alert((err as RpcError).message)
+    }
   }
 
   const allSessions = useMemo(

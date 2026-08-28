@@ -253,7 +253,9 @@ export class SessionManager {
 
   /** 重连已断开的会话（被动断开后恢复）。 */
   async reconnect(sessionId: string): Promise<SessionSnapshot> {
+    console.log('[session-manager] reconnect called for', sessionId)
     const record = this.requireRecord(sessionId)
+    console.log('[session-manager] record status:', record.status)
     if (record.status !== 'closed') {
       throw new SessionError('SESSION_NOT_DISCONNECTED', '会话未处于断开状态')
     }
@@ -269,6 +271,7 @@ export class SessionManager {
       const conn = record.connId !== undefined && this.store !== undefined
         ? this.store.get(record.connId)
         : undefined
+      console.log('[session-manager] conn found:', conn !== undefined)
       if (conn === undefined) {
         throw new SessionError('SESSION_NOT_FOUND', '无法获取连接配置')
       }
@@ -290,8 +293,10 @@ export class SessionManager {
       record.status = 'open'
       record.openedAtMs = Date.now()
       this.notify(record)
+      console.log('[session-manager] reconnect successful')
       return this.snapshot(record)
     } catch (error) {
+      console.error('[session-manager] reconnect failed:', error)
       record.status = 'closed'
       this.notify(record)
       throw error

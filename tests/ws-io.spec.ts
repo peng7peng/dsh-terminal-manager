@@ -1,7 +1,10 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer, type Server } from 'node:http'
+import { createConnection } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { WebSocket, WebSocketServer } from 'ws'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import { TermIoConnection, registerWsIo, type OutFrame } from '../src/ws-io.ts'
@@ -162,6 +165,166 @@ describe('registerWsIo 降级', () => {
     const ctx = { get: (_name: string) => undefined } as never
     expect(() => registerWsIo(ctx, fakeSessions)).not.toThrow()
     const disposer = registerWsIo(ctx, fakeSessions)
+    expect(() => disposer()).not.toThrow()
+  })
+})
+
+describe('registerWsIo 心跳与清理', () => {
+  let dir: string
+  let httpServer: Server
+  let port: number
+  let disposer: () => void
+  let client: WebSocket
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'tm-wsio-heartbeat-'))
+    const store = new ConnectionStore(join(dir, 'connections.json'))
+    await store.load()
+    const sessions = new SessionManager(store, (async () => ({
+      write: () => {},
+      close: async () => {},
+    })) as unknown as TransportFactory)
+
+    httpServer = createServer()
+    await new Promise<void>(resolve => httpServer.listen(0, '127.0.0.1', resolve))
+    port = (httpServer.address() as { port: number }).port
+
+    const ctx = {
+      get: (name: string) => {
+        if (name === 'webServer') {
+          return {
+            registerUpgrade: (route: { path: string; handler: unknown }) => {
+              httpServer.on('upgrade', route.handler as never)
+              return () => httpServer.removeAllListeners('upgrade')
+            },
+          }
+        }
+        return undefined
+      },
+      effect: (setup: () => (() => void) | void) => setup(),
+    } as never
+
+    disposer = registerWsIo(ctx, sessions)
+  })
+
+  afterAll(async () => {
+    client?.terminate?.()
+    await new Promise<void>(resolve => httpServer.close(() => resolve()))
+    disposer?.()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  async function connectClient(): Promise<WebSocket> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/term-io`)
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve())
+      ws.on('error', reject)
+    })
+    return ws
+  }
+
+  it('每 30 秒给客户端发一次 ping', async () => {
+    // 用 spyOn 拦截 setInterval，手动触发回调 —— 不动真实时钟，不干扰 ws 内部 I/O
+    const original = global.setInterval
+    const intervalCbs: Array<() => void> = []
+    const spy = vi.spyOn(global, 'setInterval').mockImplementation((cb: never, _ms?: never) => {
+      intervalCbs.push(cb as () => void)
+      return original(() => {}, 10_000_000) // 占位 timer，永远不会真触发
+    })
+
+    const ws = await connectClient()
+    const pings = { n: 0 }
+    ws.on('ping', () => { pings.n++ })
+
+    // 手动触发心跳回调两次
+    expect(intervalCbs.length).toBe(1)
+    intervalCbs[0]()
+    await new Promise(r => setTimeout(r, 50))
+    expect(pings.n).toBe(1)
+
+    intervalCbs[0]()
+    await new Promise(r => setTimeout(r, 50))
+    expect(pings.n).toBe(2)
+
+    spy.mockRestore()
+    ws.close()
+    await new Promise(r => setTimeout(r, 50))
+  })
+
+  it('客户端断开后，clearInterval 被调用', async () => {
+    const originalClear = global.clearInterval
+    const cleared: NodeJS.Timeout[] = []
+    const clearSpy = vi.spyOn(global, 'clearInterval').mockImplementation((id: never) => {
+      cleared.push(id as NodeJS.Timeout)
+      return originalClear(id as never)
+    })
+
+    const ws = await connectClient()
+    ws.close()
+    await new Promise(r => setTimeout(r, 50))
+
+    // close 事件应触发 clearInterval
+    expect(cleared.length).toBeGreaterThanOrEqual(1)
+    clearSpy.mockRestore()
+  })
+
+  it('非 loopback 来源被拒（socket 销毁）', async () => {
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: '127.0.0.1', port }, () => {
+        socket.write(
+          'GET /term-io HTTP/1.1\r\n' +
+          'Host: evil.example\r\n' +
+          'Upgrade: websocket\r\n' +
+          'Connection: Upgrade\r\n' +
+          '\r\n',
+        )
+      })
+      socket.on('close', () => resolve())
+      socket.on('error', reject)
+      setTimeout(() => { socket.destroy(); reject(new Error('非 loopback socket 未被销毁')) }, 1000)
+    })
+  })
+
+  it('多个客户端各自有独立心跳；disposer 统一清理', async () => {
+    const original = global.setInterval
+    const intervalCbs: Array<() => void> = []
+    const spy = vi.spyOn(global, 'setInterval').mockImplementation((cb: never, _ms?: never) => {
+      intervalCbs.push(cb as () => void)
+      return original(() => {}, 10_000_000)
+    })
+
+    const c1 = await connectClient()
+    const c2 = await connectClient()
+    const pings1 = { n: 0 }
+    const pings2 = { n: 0 }
+    c1.on('ping', () => { pings1.n++ })
+    c2.on('ping', () => { pings2.n++ })
+
+    // 每个连接各自注册了一个 setInterval
+    expect(intervalCbs.length).toBe(2)
+
+    intervalCbs[0]()
+    intervalCbs[1]()
+    await new Promise(r => setTimeout(r, 50))
+    expect(pings1.n).toBe(1)
+    expect(pings2.n).toBe(1)
+
+    // disposer：清掉所有 timer，关所有连接
+    disposer()
+    await new Promise(r => setTimeout(r, 50))
+
+    // disposer 之后回调里的 readyState 不是 OPEN，ping 不会发出
+    // （即使手动再调一次回调）
+    intervalCbs[0]()
+    intervalCbs[1]()
+    await new Promise(r => setTimeout(r, 50))
+    expect(pings1.n).toBe(1)
+    expect(pings2.n).toBe(1)
+
+    c1.terminate()
+    c2.terminate()
+    await new Promise(r => setTimeout(r, 50))
+    spy.mockRestore()
     expect(() => disposer()).not.toThrow()
   })
 })

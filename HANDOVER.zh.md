@@ -20,7 +20,7 @@
 |---|---|---|
 | M0 垂直切片 | ✅ | 双半包打包通了：host 半加载、浏览器半出现在页面。验证方式见 §6 |
 | M1 方案 + 选型 | ✅ | 方案文档定稿（v4）；界面选型 = `prototypes/full-view-bc.html`（B 卡片式 + C 状态条混搭），结论在 `prototypes/SELECTION.zh.md` |
-| M2 连接核心 | ✅ | B1/B2/B3/B4/B5/B8 全部落地，64 项测试全绿（`pnpm test`） |
+| M2 连接核心 | ✅ | B1/B2/B3/B4/B5/B8 全部落地，161 项测试全绿（`pnpm test`） |
 | M3 AI 工具面 | ✅ | B6 六个 tm_* 工具 + B7a 指令通道；AI 调用端到端验证通过（连设备+发命令+拿回结果）|
 | M4 真界面 | ✅ | 前端 6 模块 + B7b 数据流通道；v4 式聊天/终端并排可拖动；本地模拟设备 + AI 调用全链路验证 |
 | M5 收尾 | ✅ | 24 条 eval 种子 + README/已知限制 + 健壮性审查（WS 重连/掉线/ctx.effect 陷阱）|
@@ -72,7 +72,7 @@ MVP 交付：人 + AI 共用 SSH/Telnet 终端，端到端验证通过（本地�
 ```sh
 cd /d/myProject/dsh/terminal-manager   # 本仓库
 pnpm build      # tsdown：lib/index.js（host 半）+ lib/client.js（浏览器半工厂包）
-pnpm test       # vitest，64 项全绿是基线；改挂了必须修绿再提交
+pnpm test       # vitest，161 项全绿是基线；改挂了必须修绿再提交
 ```
 
 - **运行验证**：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
@@ -111,5 +111,5 @@ terminal-manager/
 │                             #        B4 session-manager / B5 wait-policy / B8 command-guard
 │                             #        （M3：tools.ts + remotes.ts；M4：ws-io.ts）
 ├── client/                   # 前端（M4 重写为真实实现；现为 M0 最小片）
-└── tests/                    # 64 项；helpers.ts = 模拟设备工厂
+└── tests/                    # 161 项；helpers.ts = 模拟设备工厂
 ```

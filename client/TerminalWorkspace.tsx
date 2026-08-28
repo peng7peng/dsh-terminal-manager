@@ -135,6 +135,16 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     }
   }
 
+  function focusSession(sessionId: string): void {
+    // 触发聚焦动画：找到对应的终端窗格，添加动画类
+    const pane = document.querySelector(`[data-session-id="${sessionId}"] .tm-pane`)
+    if (pane) {
+      pane.classList.add('tm-focus-flash')
+      // 动画结束后移除类
+      setTimeout(() => pane.classList.remove('tm-focus-flash'), 1200)
+    }
+  }
+
   const allSessions = useMemo(
     () => {
       return [...sessions].sort((a, b) => {
@@ -192,7 +202,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
             // 最大化时只显示被最大化的那个
             if (maximized !== null && s.sessionId !== maximized) return null
             return (
-              <div key={s.sessionId} className={`${hidden.has(s.sessionId) ? 'tm-term-hidden' : ''} ${s.status === 'closed' ? 'tm-term-closed' : ''} ${maximized === s.sessionId ? 'tm-term-maximized' : ''}`}>
+              <div key={s.sessionId} data-session-id={s.sessionId} className={`${hidden.has(s.sessionId) ? 'tm-term-hidden' : ''} ${s.status === 'closed' ? 'tm-term-closed' : ''} ${maximized === s.sessionId ? 'tm-term-maximized' : ''}`}>
                 <TermView
                   sessionId={s.sessionId}
                   label={s.label}
@@ -225,7 +235,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           </div>
         </div>
       </div>
-      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
+      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>
   )
 }

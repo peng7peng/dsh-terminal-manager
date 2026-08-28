@@ -32,12 +32,13 @@ interface Props {
   onConnect: (target: ConnectTarget) => void
   onDisconnect: (sessionId: string) => void
   onReconnect: (sessionId: string) => void
+  onFocus: (sessionId: string) => void
   onMarkRead: (sessionId: string) => void
   onToggleHidden: (sessionId: string) => void
   onReorder: (newOrder: string[]) => void
 }
 
-export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, onConnect, onDisconnect, onReconnect, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
+export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, onConnect, onDisconnect, onReconnect, onFocus, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
   const [conns, setConns] = useState<ConnectionCfg[]>([])
   const [proto, setProto] = useState<'ssh' | 'telnet'>('ssh')
   const [authMode, setAuthMode] = useState<'password' | 'key'>('password')
@@ -131,8 +132,11 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     // 智能路由：根据会话状态决定点击行为
     const handleClick = () => {
       if (status === 'open') {
-        // 已有 open 会话，聚焦（切换显示）
-        if (sess) onToggleHidden(sess.sessionId)
+        // 已有 open 会话，聚焦（切换显示 + 闪烁提示）
+        if (sess) {
+          onToggleHidden(sess.sessionId)
+          onFocus(sess.sessionId)
+        }
       } else if (status === 'closed') {
         // 被动断开，重连
         if (sess) onReconnect(sess.sessionId)

@@ -128,4 +128,13 @@ export const WORKSPACE_CSS = `
 .tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-ritem.dragging { opacity:.3; }
 .tm-empty { color:var(--dsw-alias-label-caption, #aaa); padding:10px; text-align:center; font-size:12px; }
+
+/* 聚焦动画：当会话被聚焦时，边框闪烁提示 */
+@keyframes tm-focus-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5); }
+}
+.tm-pane.tm-focus-flash {
+  animation: tm-focus-flash 0.6s ease-in-out 2;
+}
 `

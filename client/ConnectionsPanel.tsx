@@ -90,6 +90,26 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (editing !== null) { onConnect({ connId: editing }) } else { onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() }) }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
+
+  // 检查当前表单是否与已收藏的连接重复（protocol + host + port + username）
+  const isDuplicateFavorite = (): boolean => {
+    if (editing !== null) return false // 编辑模式不算重复
+    const host = form.host.trim()
+    const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
+    const username = proto === 'ssh' ? form.user.trim() : undefined
+    if (!host) return false
+
+    return conns.some(c => {
+      // 只检查收藏的连接
+      if (!favorites.has(c.id)) return false
+      // 匹配 protocol + host + port
+      if (c.protocol !== proto || c.host !== host || c.port !== port) return false
+      // SSH 还需要匹配 username
+      if (proto === 'ssh' && c.username !== username) return false
+      return true
+    })
+  }
+
   // 查找会话：先按 connId 精确匹配，再按目标（protocol:host:port）模糊匹配
   const sessionOfConn = (connId: string): SessionSnap | undefined => {
     // 精确匹配 connId
@@ -187,7 +207,15 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button className="tm-btn primary" onClick={save}>保存</button><button className="tm-btn" onClick={quickConnect}>连接</button>{editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}</div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          {isDuplicateFavorite() ? (
+            <button className="tm-btn primary" disabled style={{ opacity: 0.6, cursor: 'not-allowed' }}>已收藏</button>
+          ) : (
+            <button className="tm-btn primary" onClick={save}>收藏</button>
+          )}
+          <button className="tm-btn" onClick={quickConnect}>连接</button>
+          {editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}
+        </div>
 
         <CollapsibleSection title="活跃会话" count={sortedSessions.length}>
           {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => {

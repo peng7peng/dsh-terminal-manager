@@ -188,7 +188,7 @@ export class SessionManager {
     // 去重：同协议+同地址的 open 会话直接返回
     const targetKey = `${target.protocol}:${target.host}:${target.port}`
     for (const record of this.sessions.values()) {
-      if (record.status === 'open' && `${record.protocol}:${target.host}:${record.target}` === targetKey) {
+      if (record.status === 'open' && `${record.protocol}:${record.target}` === targetKey) {
         return this.snapshot(record)
       }
     }

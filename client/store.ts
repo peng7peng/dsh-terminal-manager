@@ -139,8 +139,9 @@ export function useFrameLayout(active: boolean, chat: number): number {
     const schedule = (): void => { if (raf === 0) raf = requestAnimationFrame(apply) }
     schedule()
     const mo = new MutationObserver(schedule)
-    mo.observe(frame, { attributes: true, attributeFilter: ['style'] })
+    mo.observe(frame, { attributes: true, attributeFilter: ['style'], subtree: true })
     const ro = new ResizeObserver(schedule)
+    ro.observe(frame) // 观察 frame 本身的尺寸变化
     const sidebar = frame.children[0] as HTMLElement | undefined
     if (sidebar !== undefined) ro.observe(sidebar)
     window.addEventListener('resize', schedule)

@@ -5,7 +5,7 @@
 ## 能力
 
 - **SSH / Telnet** 连接（密码 + 密钥；Telnet 裸 TCP）；
-- 多会话同屏终端（xterm.js），可拖动调聊天/终端宽度；
+- 多会话同屏终端（xterm.js），可拖动调聊天/终端宽度（大屏拖动上限随视口放大，终端可收很窄）；
 - **AI 工具** `tm_connect` / `tm_list` / `tm_send` / `tm_send_all` / `tm_read` / `tm_disconnect`——AI 在对话里调，自主连设备、发命令、拿回结果；
 - **命令守卫**：AI 发的危险命令（`rm -rf /` 等）自动拦截；
 - 广播：一条命令发多台，逐台独立出结果；
@@ -28,7 +28,7 @@ git clone <本仓库>
 cd terminal-manager
 pnpm install          # 依赖用 link: 指向相邻 deepseek-harness 检出
 pnpm build            # 产出 lib/index.js（host 半）+ lib/client.js（浏览器半）
-pnpm test             # 82+ 项 vitest（模拟设备，不碰真设备）
+pnpm test             # 161 项 vitest（模拟设备，不碰真设备）
 ```
 
 运行验证（相邻 deepseek-harness 检出）：

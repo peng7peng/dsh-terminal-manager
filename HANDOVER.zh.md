@@ -1,6 +1,6 @@
 # 交接文档 — DSH 终端管理插件（terminal-manager）
 
-- 写于：2026-08-27（M5 全面测试 + UI 打磨完成）
+- 写于：2026-08-27（M5 全面测试 + UI 打磨完成）；2026-08-28 又做了一轮 MVP 后 UI 打磨（终端宽度响应式、退格钳制、广播两行、字段悬停提示、React #321 修复），见 `DEVLOG.zh.md` 同日段
 - 目的：让接手的 AI 不翻车地继续干下去。**先读完本文，再动任何代码。**
 
 ---
@@ -42,7 +42,7 @@ MVP 交付：人 + AI 共用 SSH/Telnet 终端，端到端验证通过（本地�
 - host 半入口 `src/index.ts`：装配 ConnectionStore + SessionManager + 工具 + `/term-manager` 路由 + `/term-io` WS。
 - 指令通道 `src/remotes.ts`：**直连 `webServer.register` 前缀路由**（绕开 `connection.rpc.handle` 的 ctx 作用域问题 + `intercept('/api')` 与 api-gateway 冲突）；OPTIONS 预检必处理。
 - 数据流通道 `src/ws-io.ts`：`ctx.effect(() => webServer.registerUpgrade(...))`（注意 ctx.effect 语义——见 CLAUDE.md 第 6 条）。
-- 客户端 `client/`：xterm + WS + 插槽；布局用 `useFrameLayout` 强制 DSH frame 网格成 `sidebar 聊天宽 0px`（聊天收窄、终端占右侧、可拖动分隔条）。
+- 客户端 `client/`：xterm + WS + 插槽；布局用 `useFrameLayout` 强制 DSH frame 网格成 `sidebar 聊天宽 0px`（聊天收窄、终端占右侧、可拖动分隔条；拖动上限随视口动态，大屏可收窄终端；未拖动时终端模块固定 480、聊天填满左侧无留白）。
 
 ## 4. 关键共识（别推翻，推翻先问用户）
 

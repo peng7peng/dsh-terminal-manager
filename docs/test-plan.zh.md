@@ -248,7 +248,7 @@ pnpm vitest run --coverage
 > - setWorkspaceVisible(true) 后 listener 被调用
 > - toggleWorkspace 连续调两次 → 状态回到原值
 > - setChatWidth(100) → 实际值被夹到 300（最小值）
-> - setChatWidth(9999) → 实际值被夹到 760（最大值）
+> - setChatWidth(9999) → 实际值被夹到动态上限（小屏 760；大屏 = 视口宽 - 764，可远超 760，让终端收更窄）
 > - markUnread(sid) → 未读集合包含 sid
 > - markRead(sid) → 未读集合不含 sid
 > - markUnread 连续调两次同一 sid → 集合大小不变（幂等）
@@ -408,7 +408,7 @@ pnpm dsh --profile tm-dev --port 3180 --no-open
 
 **操作**：鼠标放在聊天区和终端区的分界线上 → 拖动
 
-**通过**：拖动跟手，松手后宽度保持；拉到最左/最右有边界（不会无限窄或无限宽）
+**通过**：拖动跟手，松手后宽度保持；最左聊天收窄到 300，最右聊天拉宽到动态上限（小屏 760，大屏视口宽-764），终端相应变宽/变窄
 
 ---
 

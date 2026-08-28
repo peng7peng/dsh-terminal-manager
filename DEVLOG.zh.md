@@ -80,6 +80,24 @@ src-only：语句 73%、分支 64%、函数 75%、行 76%。
 - `scripts/mock-device.mjs`：Telnet 裸 TCP 路由器 CLI（ANSI 色：提示符绿/横幅青/错误红）
 - `scripts/mock-ssh-device.mjs`：SSH 路由器 CLI（密码 admin/test-pass + 密钥认证）
 
+## 2026-08-28：MVP 后 UI 打磨（响应式 + 体验细节）
+
+### 终端宽度响应式（来回拉锯后定案）
+用户的真实诉求：全屏下终端模块太宽、且能拖窄。根因是 `MAX_CHAT=760` 卡死拖动上限——拖到最右聊天也只到 760，终端收不窄。
+- **拖动上限改动态**：`max(760, 视口宽-764)`。大屏可拉到 1156+，终端收至约 200px；小屏仍 760。
+- **未拖动时**：`getEffectiveChatWidth` 自动算聊天宽 = 视口-侧栏-终端目标(480)-面板(300)，聊天填满左侧、终端模块固定 480，无留白。
+- **终端网格**：`auto-fit + minmax(min(280px,100%), 1fr)`，单窗格填满模块、多窗格填满无空隙（之前 `max 760 + 居中` 会留内部空隙）。
+- 教训：拖动上限是个常量时，大屏用户永远收不窄——上限必须随视口。
+
+### 模拟设备退格钳制
+真实路由器输入行空了之后退格不动；模拟设备之前无条件回发 `\b\x1b[K`，能一路删掉 `router>` 提示符。修：`lineBuf` 为空时 `continue`。顺带修端口传 0 时不报真实绑定端口。新增 `tests/mock-device.spec.ts`（spawn 子进程验证钳制）。
+
+### 其他
+- 广播栏单行挤窄 → 拆两行（chips 一行、输入框+发送一行）。
+- 连接面板字段加 `title` 中文悬停提示（回显/换行/握手超时/各协议切换等）；回显提示专门说明"设备不回显时开，否则双字符"。
+- `remotes.ts` 内联 HTTP handler 抽成 `createHttpHandler` 便于单测；新增 `tests/remotes-http.spec.ts`。
+- TermView 修 React error #321（`useRef` 误放 useEffect 内 + `copyToClipboard` 未定义引用改名 `fallbackCopy`）。
+
 ## 关键决策清单
 
 | # | 决策 | 理由 |

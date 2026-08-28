@@ -510,18 +510,18 @@ terminal-manager/
 
 | 想改什么 | 去改哪个文件 |
 |---|---|
-| 加一种新协议（如串口） | `src/transport/` 加一个实现 + `client/ConnectionsTab.tsx` 加协议选项 |
-| 连接表单的必填/选填规则 | `client/ConnectionsTab.tsx`（前端校验）+ `src/connection-store.ts`（后端校验） |
+| 加一种新协议（如串口） | `src/transport/` 加一个实现 + `client/ConnectionsPanel.tsx` 加协议选项 |
+| 连接表单的必填/选填规则 | `client/ConnectionsPanel.tsx`（前端校验）+ `src/connection-store.ts`（后端校验） |
 | 连接配置存哪、什么格式 | `src/connection-store.ts` |
-| 完成判定的默认值/行为 | `src/wait-policy.ts` + `src/config.ts` |
-| 危险命令黑名单/白名单 | `src/command-guard.ts` + `src/config.ts` |
+| 完成判定的默认值/行为 | `src/wait-policy.ts`（默认值在各模块顶部常量） |
+| 危险命令黑名单/白名单 | `src/command-guard.ts` |
 | 给 AI 加一个新工具 | `src/tools.ts` |
-| 终端的长相、网格布局、状态条 | `client/TerminalsTab.tsx`、`client/TermView.tsx` + 对应 `.module.css`（照 `prototypes/full-view-bc.html`） |
+| 终端的长相、网格布局、状态条 | `client/TerminalWorkspace.tsx`、`client/TermView.tsx` + `client/styles.ts`（全局 `.tm-` 前缀，照 `prototypes/full-view-bc.html`） |
 | 广播的行为（后端逻辑） | `src/session-manager.ts` 的 broadcast |
-| 广播栏的交互（前端） | `client/TerminalsTab.tsx` |
+| 广播栏的交互（前端） | `client/TerminalWorkspace.tsx` |
 | 错误码增删 | 本文档 3.6 + 后端错误产生处（`src/` 各模块） |
-| 面板入口/页签结构 | `client/index.tsx` + `client/TerminalPanel.tsx` |
-| 状态徽标不同步 | `client/TerminalPanel.tsx`（F6）+ `src/ws-io.ts`（status 帧） |
+| 面板入口/页签结构 | `client/index.tsx` + `client/TerminalWorkspace.tsx` |
+| 状态徽标不同步 | `client/store.ts`（F6）+ `src/ws-io.ts`（status 帧） |
 | WS 断线重连表现 | `client/ws.ts` + `src/ws-io.ts`（心跳） |
 
 ## 3.3 核心需求 → 代码路径（走一遍）

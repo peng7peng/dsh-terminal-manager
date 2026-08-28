@@ -130,7 +130,7 @@ describe('SessionManager 发送与完成判定', () => {
     const result = await pending
     expect(result.waitReason).toBe('quiet') // quietMs=100（连接配置）
     expect(result.output).toContain('Version 1.2.3')
-    expect(rec.written[0]).toBe('show version\r')
+    expect(rec.written[0]).toBe('show version\r\n')
   })
 
   it('提示符判定：来自连接配置的正则', async () => {

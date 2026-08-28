@@ -28,25 +28,44 @@ const ECHO = 1
 const SUPPRESS_GO_AHEAD = 3
 
 /** 从数据流中剥离 IAC 协商序列，返回纯文本。不回发响应（避免 echo server 回环）。
- *  真网络设备会处理 IAC 协商；对 echo server/裸设备，不响应不会出问题。 */
-function stripIac(input: Buffer): string {
+ *  真网络设备会处理 IAC 协商；对 echo server/裸设备，不响应不会出问题。
+ *  支持跨 chunk 拼接：返回 { text, leftover } —— leftover 是末尾未完成的 IAC 序列，
+ *  需要和下一个 chunk 拼起来再处理。 */
+function stripIac(input: Buffer): { text: string; leftover: Buffer } {
   let out = Buffer.alloc(0)
   let i = 0
   while (i < input.length) {
     const b = input[i]
     if (b !== IAC) { out = Buffer.concat([out, input.subarray(i, i + 1)]); i++; continue }
-    if (i + 1 >= input.length) break
+    // 遇到 IAC，检查后续字节是否完整
+    if (i + 1 >= input.length) {
+      // IAC 是最后一个字节，留到下个 chunk
+      return { text: out.toString('utf8'), leftover: input.subarray(i) }
+    }
     const cmd = input[i + 1]
     if (cmd === IAC) { out = Buffer.concat([out, Buffer.from([IAC])]); i += 2; continue }
-    if (cmd === DO || cmd === DONT || cmd === WILL || cmd === WONT) { i += 3; continue }
+    if (cmd === DO || cmd === DONT || cmd === WILL || cmd === WONT) {
+      // 3 字节序列：IAC + cmd + option
+      if (i + 2 >= input.length) {
+        // 不完整，留到下个 chunk
+        return { text: out.toString('utf8'), leftover: input.subarray(i) }
+      }
+      i += 3; continue
+    }
     if (cmd === SB) {
+      // SB 子协商：IAC SB ... IAC SE，找终止符
       let j = i + 2
-      while (j < input.length && !(input[j] === IAC && input[j + 1] === SE)) j++
+      while (j < input.length && !(input[j] === IAC && j + 1 < input.length && input[j + 1] === SE)) j++
+      if (j >= input.length || j + 1 >= input.length) {
+        // SB 序列未完成，留到下个 chunk
+        return { text: out.toString('utf8'), leftover: input.subarray(i) }
+      }
       i = j + 2; continue
     }
+    // 其他未知 IAC 序列，跳过 2 字节
     i += 2
   }
-  return out.toString('utf8')
+  return { text: out.toString('utf8'), leftover: Buffer.alloc(0) }
 }
 
 /** 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。 */
@@ -74,6 +93,7 @@ export function connectTelnet(
 
       // Telnet 模式：不主动发 IAC（避免 echo server 回环）；只剥离收到的 IAC
       let closed = false
+      let iacLeftover = Buffer.alloc(0) // 跨 chunk 拼接：未完成的 IAC 序列
       const finishClose = (reason: string): void => {
         if (closed) return
         closed = true
@@ -81,8 +101,11 @@ export function connectTelnet(
       }
       socket.on('data', (chunk: Buffer) => {
         if (useIac) {
-          const clean = stripIac(chunk)
-          if (clean.length > 0) callbacks.onData(clean)
+          // 把上一个 chunk 的 leftover 拼到前面
+          const full = iacLeftover.length > 0 ? Buffer.concat([iacLeftover, chunk]) : chunk
+          const { text, leftover } = stripIac(full)
+          iacLeftover = leftover
+          if (text.length > 0) callbacks.onData(text)
         } else {
           callbacks.onData(chunk.toString('utf8'))
         }

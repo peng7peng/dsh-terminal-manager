@@ -235,15 +235,16 @@ export class SessionManager {
       return this.snapshot(record)
     } catch (error) {
       this.sessions.delete(sessionId)
-      record.status = 'closed'
-      this.notify(record)
+      // 连接失败时不通知前端，会话已删除，不应出现在列表中
       throw error
     }
   }
 
   /** 主动断开会话（用户操作）。标记为 removed 并从列表中删除。 */
   async disconnect(sessionId: string): Promise<void> {
+    console.log('[session-manager] disconnect called for', sessionId)
     const record = this.requireRecord(sessionId)
+    console.log('[session-manager] record status:', record.status)
     if (record.status === 'removed') return
     // 无论 open 还是 closed，都标记为 removed 并删除
     record.status = 'removed'
@@ -252,6 +253,7 @@ export class SessionManager {
       try { await record.transport.close() } catch { /* ignore */ }
       record.transport = undefined
     }
+    console.log('[session-manager] notifying removal')
     this.notify(record)
   }
 

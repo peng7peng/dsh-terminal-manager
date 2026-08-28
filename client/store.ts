@@ -60,7 +60,7 @@ export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-/** 聊天列宽度（px），可拖动调整（范围 300–760，手动拖动钳制在此区间）。 */
+/** 聊天列宽度（px），可拖动调整。下限 300；上限随视口动态：大屏允许拉更宽以收窄终端（至少 760）。 */
 const MIN_CHAT = 300, MAX_CHAT = 760
 /** 终端模块（tm-main）目标宽度 + 连接面板宽度——自动模式下聊天加宽填满左侧，让终端模块固定此宽，无留白 */
 const TARGET_TERM_WIDTH = 480, PANEL_WIDTH = 300
@@ -68,8 +68,13 @@ let chatWidth = 460
 /** null = 未手动拖过，用自动值（终端模块固定 TARGET_TERM_WIDTH，聊天填满左侧）；非 null = 用拖动值 */
 let chatWidthManual: number | null = null
 const chatListeners = new Set<() => void>()
+/** 拖动上限：大屏允许聊天拉更宽（终端收更窄，约至 200px）；小屏至少 760。 */
+function maxChatWidth(): number {
+  if (typeof window === 'undefined') return MAX_CHAT
+  return Math.max(MAX_CHAT, window.innerWidth - 764) // 764 ≈ 侧栏264 + 面板300 + 终端最小200
+}
 export function setChatWidth(w: number): void {
-  const clamped = Math.max(MIN_CHAT, Math.min(MAX_CHAT, w))
+  const clamped = Math.max(MIN_CHAT, Math.min(maxChatWidth(), w))
   chatWidthManual = clamped
   if (chatWidth === clamped) return
   chatWidth = clamped

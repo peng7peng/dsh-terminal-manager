@@ -40,20 +40,17 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden 
 
     try { fit.fit() } catch { /* 尺寸尚未就绪 */ }
 
-    // 附着：输出写入终端；隐藏会话有输出→标记未读
+    // 附着：输出写入终端；隐藏会话有输出→标记未读（用 ref 避免 useEffect 重建+竞态）
+    const hiddenRef = useRef(isHidden)
+    hiddenRef.current = isHidden
     const unsub = ws.onOutput(sessionId, data => {
       try { term.write(data) } catch { /* 已销毁 */ }
-      if (isHidden) markUnread(sessionId)
+      if (hiddenRef.current) markUnread(sessionId)
     })
     term.onData(data => ws.input(sessionId, data))
 
     // ─── 复制粘贴（全快捷键覆盖 + PuTTY 式选中即复制 + 右键粘贴）───
     const isMac = navigator.platform.toLowerCase().includes('mac')
-    const copyToClipboard = (text: string): void => {
-      // 用 fallbackCopy（隐藏 textarea + execCommand）而非 navigator.clipboard.writeText——
-      // 后者在某些浏览器（Edge）写剪贴板时会自动粘进当前焦点元素（xterm 隐藏 textarea → onData → 粘贴到设备）
-      fallbackCopy(text)
-    }
     const fallbackCopy = (text: string): void => {
       const ta = document.createElement('textarea')
       ta.value = text
@@ -63,15 +60,18 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden 
       try { document.execCommand('copy') } catch { /* ignore */ }
       document.body.removeChild(ta)
     }
+    // 选中即复制：左键松手时把选区写进剪贴板（fallbackCopy 不触发 onData，安全）
+    const onMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 0) return
+      const sel = term.getSelection()
+      if (sel !== undefined && sel.length > 0) fallbackCopy(sel)
+    }
+    container.addEventListener('mouseup', onMouseUp)
     const pasteFromClipboard = (): void => {
       if (navigator.clipboard?.readText !== undefined) {
         navigator.clipboard.readText().then(text => { if (text.length > 0) ws.input(sessionId, text) }).catch(() => {})
       }
     }
-    // 选中即复制：暂时禁用——xterm 内部在 mouseup 时触发了 onData 导致同时粘贴，
-    // 根因待查；先用 Ctrl+C / Ctrl+Shift+C / Cmd+C 复制（已验证正常）
-    // const onMouseUp = ...
-    // container.addEventListener('mouseup', onMouseUp)
     // 快捷键拦截
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
@@ -142,6 +142,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden 
       ro.disconnect()
       themeMo.disconnect()
       container.removeEventListener('contextmenu', onContext)
+      container.removeEventListener('mouseup', onMouseUp)
       term.dispose()
       termRef.current = undefined
     }

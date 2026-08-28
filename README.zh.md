@@ -49,7 +49,7 @@ node scripts/mock-device.mjs 2324   # 第二台（测多会话/广播）
 ## 架构
 
 双半包：host 半（DSH 进程内，连接/会话/工具/路由）+ 浏览器半（xterm + WS 客户端 + 插槽挂载）。
-完整设计见 `docs/solution.zh.md`；交接信息见 `HANDOVER.zh.md`。
+完整设计见 `spec.md`；进度/待办/偏离见 `plan.md`；命令/坑/约定见 `CLAUDE.md`。
 
 ## 已知限制（MVP）
 

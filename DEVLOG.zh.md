@@ -1,200 +1,41 @@
 # 开发日志（DEVLOG）
 
-> 写给产品负责人自己看。记录从想法到 MVP 的全过程、踩过的坑、关键决策。
+> 写给产品负责人自己看的流水账。只记「那天干了啥、为啥这么定」，不堆代码细节（代码细节看代码和 spec.md）。
 
-## 2026-08-25：起步
+## 2026-08-25：从想法到动工
 
-### 想法
-在 DeepSeek Harness（DSH）上做一个终端管理插件：
-- SSH + Telnet 连接
-- 多端口同时操作
-- AI 能直接在对话里操作终端（核心价值：解决"AI 碰不到终端"的断层）
-- 纯本地，不依赖 MCP
+想给 DSH 做个终端管理插件：人和 AI 共用同一批 SSH/Telnet 终端，AI 在对话里直接操作设备。按 ai-native-sdlc 流程走：意图→规格→计划→里程碑门，每步人审批才进下一步。
 
-### SDLC 流程
-按 AI-native SDLC 跑：意图(intent.md) → 规格(spec.md) → 计划(plan.md) → 里程碑门(M0-M5)。
-每个阶段产物提交 git，人工审批后才进下一步。
+定了两件大事：
+- **会话是公共资产**，不用 DSH 自带的 AI 私有终端（那个 AI 独占，人插不进去）。自建会话池，人和 AI 走同一个池子。
+- **打包成双半包**：后端跑在 DSH 进程里，前端是浏览器组件。外部插件能不能装进 DSH 是最大风险，先做个最小验证——通了。
 
-## 2026-08-25：M0-M1（试探坑 + 方案选型）
+## 2026-08-26：M2-M5 一口气做完
 
-### M0 验证：外部插件能进 DSH
-最大风险：外部包（不在 harness monorepo 里）的浏览器半能不能被 DSH 装配？
-答案：能。双半包结构——host 半(Node ESM) + 浏览器半(惰性 CJS 工厂包)。
-关键是 tsdown 的 `deps: { neverBundle, alwaysBundle }`——基线模块走 require，其余打包内联。
+- **后端核心**：连接存储、SSH、Telnet、会话管理器、完成判定（静默/提示符/超时三重）、命令守卫。161 项测试全用模拟设备（进程内起的假 SSH 服务和 TCP echo），不碰真机。
+- **AI 工具**：六个 `tm_*` 工具注册进去，AI 能自己连设备、发命令、拿回结果。
+- **前端**：xterm 终端 + 连接面板 + 广播栏，全链路打通。
+- **踩了几个坑**（细节在 CLAUDE.md）：
+  - 前端 CSS 用 `?raw` 导入不认，改成虚拟模块内联。
+  - 浏览器发 POST 会先发 OPTIONS 预检，路由得处理，不然 405。
+  - 退格在模拟设备里要逐字符处理，不然删不对。
+  - 复制粘贴：Ctrl+C 有选区就复制、没选区就发中断信号；右键 PuTTY 式。
 
-### M1 方案定稿
-- 架构：公共会话池（不用 DSH 自带 `ctx.terminals`——那是 AI 私有的本机 PTY，做不到人机共用）
-- 布局：聊天居中（DSH 原生）+ 右侧工作区（覆盖层），不重画侧边栏和聊天
-- 界面选型：B 卡片式 + C 状态中枢混搭，用户做了多轮原型最终定稿 full-view-bc
+定案几个关键点：
+- 控制面用独立路由 `/term-manager`（不走 DSH 的 /api，那个被别的服务占了）。
+- 数据面用 WebSocket `/term-io`（终端字节流高频，HTTP 不合适）。
+- SSH 接受任意主机密钥（MVP 的权宜，后续做首次信任）。
+- 串口不进 MVP，留接口以后做。
 
-## 2026-08-26：M2-M3（后端核心 + AI 工具）
+## 2026-08-28：MVP 后的 UI 打磨
 
-### M2 八个后端模块
-B1 连接存储 → B2 SSH → B3 Telnet → B4 会话管理器 → B5 完成判定 → B8 命令守卫。
-82 项自动化测试，全程用模拟设备（进程内 ssh2 Server + TCP echo），不碰真机。
+实际用起来发现几个体验问题，集中修一轮：
 
-### M3 AI 工具面 + 指令通道
-六个 `tm_*` 工具注册到 `ctx.tools`。AI 调用验证：AI 自主调 tm_connect → tm_send，拿到 MockOS 版本输出。
+- **终端宽度**：全屏下终端区太宽、拖分隔条也收不窄。根因是聊天宽度有个 760 的硬上限，拖到最右也只到 760。改成上限跟着屏幕宽度走（大屏能拉到一千多），终端就能收很窄了。没拖的时候聊天自动填满左边、终端模块固定窄宽、不留白。
+- **终端窗格填满**：之前窗格有宽度上限还居中，模块比窗格宽就留空隙。改成窗格自动填满模块，一个填满、多个也填满。
+- **退格**：模拟设备里退格能一路删掉提示符 `router>`（真路由器不会这样）。修成输入行空了就不退。
+- **广播栏**：单行太挤，拆成两行（目标在上、输入框和发送在下）。
+- **字段提示**：连接面板的字段（回显、换行、握手超时等）鼠标悬停能看到中文说明。回显那条专门说清「设备不回显时开，否则会双字符」。
+- **崩溃修复**：点终端管理有时整个面板崩（React #321），是 hook 用错位置+函数改名没改全，修了。
 
-**关键坑**：`ctx.effect(disposer)` 会立即调用清理函数——把刚注册的路由删了 → 405。
-正解：`ctx.effect(() => webServer.register(route))`（register 是 setup，返回的 disposer 才是 cleanup）。
-
-## 2026-08-26：M4（前端 + 全链路打通）
-
-### 前端六大模块
-F1 入口(sidebar.footer.action) + F2 连接面板 + F3 终端页 + F4 xterm 终端 + F5 WS 客户端 + F6 状态同步。
-
-### 关键坑（前端）
-1. **xterm.css 用 `?raw` 导入** → tsdown 不认，留成 external → "missed the module table"。
-   修：用虚拟模块 `tm:xterm-css`（tsdown 插件读文件内联成字符串）。
-2. **xterm JS 被 externalize** → 废弃的 `external` 数组导致 bare 包被误判。
-   修：改用 `deps: { neverBundle, alwaysBundle }`（对齐官方 clientConfig）。
-3. **浏览器 POST application/json 先发 OPTIONS 预检** → 自建路由只接受 POST → 405。
-   修：路由处理 OPTIONS（返回 204 + CORS 头）。
-4. **布局**：强制 DSH frame 网格成 `sidebar 聊天宽 0px`（详情列压 0 宽，聊天收窄，终端占右侧）。
-5. **关闭还原**：capture/restore 放到 `setWorkspaceVisible`（同步），不依赖 React effect 时序。
-6. **退格**：模拟设备逐字符处理（多字符 chunk 含退格），用 `\b\x1b[K`（退格+擦到行尾）。
-7. **复制粘贴**：Ctrl+C(有选区→复制/无选区→SIGINT) + Ctrl+Shift+C/V + Cmd+C/V + 右键(有选区→复制/无选区→粘贴) + execCommand 降级。
-   选中即复制暂时禁用（xterm mouseup 触发 onData 导致同时粘贴，根因待查）。
-
-## 2026-08-26：M5（收尾 + 全面测试）
-
-### 测试四层
-| 层 | 覆盖 | 数量 |
-|---|---|---|
-| vitest 单测 | B1-B8 模块逻辑（假传输） | 82+ |
-| 端到端冒烟 | 真 RPC + 真 net.connect（含 SSH） | 19 |
-| AI 驱动 | AI 调 tm_* 连模拟设备拿回输出 | 已验 |
-| 人工 UI | 连接/敲字/广播/拖动/退格/复制粘贴 | 已验 |
-
-### 覆盖率
-src-only：语句 73%、分支 64%、函数 75%、行 76%。
-弱项：remotes(39% HTTP 路由)、ws-io(51% WS 升级)——集成胶水，靠冒烟覆盖。
-纯逻辑模块 87-100%。
-
-### CI
-- `.github/workflows/ci.yml`：每次 push → build + test + coverage(阈值)
-- `.github/workflows/smoke.yml`：PR + tag → 起 DSH + 模拟设备 → 跑冒烟 19 场景
-
-### 模拟设备
-- `scripts/mock-device.mjs`：Telnet 裸 TCP 路由器 CLI（ANSI 色：提示符绿/横幅青/错误红）
-- `scripts/mock-ssh-device.mjs`：SSH 路由器 CLI（密码 admin/test-pass + 密钥认证）
-
-## 2026-08-28：MVP 后 UI 打磨（响应式 + 体验细节）
-
-### 终端宽度响应式（来回拉锯后定案）
-用户的真实诉求：全屏下终端模块太宽、且能拖窄。根因是 `MAX_CHAT=760` 卡死拖动上限——拖到最右聊天也只到 760，终端收不窄。
-- **拖动上限改动态**：`max(760, 视口宽-764)`。大屏可拉到 1156+，终端收至约 200px；小屏仍 760。
-- **未拖动时**：`getEffectiveChatWidth` 自动算聊天宽 = 视口-侧栏-终端目标(480)-面板(300)，聊天填满左侧、终端模块固定 480，无留白。
-- **终端网格**：`auto-fit + minmax(min(280px,100%), 1fr)`，单窗格填满模块、多窗格填满无空隙（之前 `max 760 + 居中` 会留内部空隙）。
-- 教训：拖动上限是个常量时，大屏用户永远收不窄——上限必须随视口。
-
-### 模拟设备退格钳制
-真实路由器输入行空了之后退格不动；模拟设备之前无条件回发 `\b\x1b[K`，能一路删掉 `router>` 提示符。修：`lineBuf` 为空时 `continue`。顺带修端口传 0 时不报真实绑定端口。新增 `tests/mock-device.spec.ts`（spawn 子进程验证钳制）。
-
-### 其他
-- 广播栏单行挤窄 → 拆两行（chips 一行、输入框+发送一行）。
-- 连接面板字段加 `title` 中文悬停提示（回显/换行/握手超时/各协议切换等）；回显提示专门说明"设备不回显时开，否则双字符"。
-- `remotes.ts` 内联 HTTP handler 抽成 `createHttpHandler` 便于单测；新增 `tests/remotes-http.spec.ts`。
-- TermView 修 React error #321（`useRef` 误放 useEffect 内 + `copyToClipboard` 未定义引用改名 `fallbackCopy`）。
-
-## 关键决策清单
-
-| # | 决策 | 理由 |
-|---|---|---|
-| 1 | 不用 DSH 自带 `ctx.terminals` | 它是 AI 私有 PTY，做不到人机共用；自建公共会话池 |
-| 2 | 双半包打包 | 外部插件必须说宿主语言(TS)；host ESM + 浏览器半 CJS 工厂包 |
-| 3 | 指令通道走独立 `/term-manager` 路由 | 不抢 `/api`（api-gateway 已占）；直连 webServer.register |
-| 4 | 数据面走 `/term-io` WebSocket | 高频小包双向流，HTTP 不适合 |
-| 5 | 完成判定三重：静默500ms/提示符/超时30s | 适配千奇百怪的设备回显 |
-| 6 | 命令守卫只拦 AI 路径 | 人的键盘输入字符级没法可靠拦；AI 路径必传 guard |
-| 7 | 串口不进 MVP | 传输层接口已留，交付后第一个扩展项 |
-| 8 | SSH shell()+PTY | 人和 AI 共用一种交互模式；exec 一次性命令看不到中间输出 |
-
-## 踩坑 Top 10（CLAUDE.md 里有完整版）
-
-1. Windows node 不吃 `/d/...` 路径——用 `D:/...`
-2. pnpm 构建豁免写在 `pnpm-workspace.yaml` 的 `allowBuilds:`
-3. ssh2 测试服务器必须处理 `session.on('pty', accept)`
-4. DSH 没有 `ctx.router`/`ctx.ws`——用 `ctx.webServer.register/registerUpgrade`
-5. `ctx.effect(fn)` 的 fn 是 setup、返回值是清理——别把清理函数当 fn 传
-6. xterm.css 用虚拟模块内联（不用 `?raw`/`?inline`）
-7. `deps.neverBundle/alwaysBundle` 替代废弃的 `external` 数组
-8. 浏览器 POST application/json 先发 OPTIONS 预检
-9. 退格逐字符处理 + `\b\x1b[K`
-10. 复制粘贴的 Ctrl+C 有选区→复制/无选区→SIGINT 二分
-
-## 代码结构
-
-```
-terminal-manager/
-├── src/                    # 后端（host 半）
-│   ├── index.ts            # 装配入口
-│   ├── connection-store.ts # B1
-│   ├── transport/{types,ssh,telnet}.ts  # B2/B3
-│   ├── session-manager.ts  # B4（心脏）
-│   ├── wait-policy.ts      # B5
-│   ├── command-guard.ts    # B8
-│   ├── tools.ts            # B6 AI 工具 ×6
-│   ├── remotes.ts          # B7a 指令通道（/term-manager 路由）
-│   └── ws-io.ts            # B7b 数据流通道（/term-io WS）
-├── client/                 # 前端（浏览器半）
-│   ├── index.tsx           # 插槽注册 + 样式注入
-│   ├── TerminalWorkspace.tsx  # 覆盖层外壳 + 布局
-│   ├── ConnectionsPanel.tsx    # 连接面板
-│   ├── TermView.tsx           # xterm.js 终端
-│   ├── ws.ts                  # WS 客户端
-│   ├── rpc.ts                 # /term-manager RPC 客户端
-│   ├── store.ts              # 可见性 + 布局 + 侧边栏宽度
-│   └── styles.ts             # CSS（DSH token）
-├── tests/                  # 82+ 项 vitest
-├── scripts/                # 模拟设备 + 冒烟脚本
-├── evals/                  # 24 条 eval + 人工验收清单
-├── .github/workflows/      # CI（ci.yml + smoke.yml）
-├── docs/solution.zh.md     # 主方案
-├── HANDOVER.zh.md          # 交接文档
-└── CLAUDE.md               # 仓库记忆（坑 + 命令 + 约定）
-```
-
-## 后续（MVP 之后）
-
-### 已知待办
-- **本地回显**：`localEcho` 已保存后端，xterm 未接通（onData 时需 term.write 回显，控制字符需额外处理，中等复杂度，推迟）。
-
-### 已完成的第一批升级（连接管理区）
-- SSH/Telnet Tab 与标题同行
-- 密码可见切换（👁/👁‍🗨 图标）
-- Telnet Raw TCP/Telnet 模式双按钮 + IAC 剥离
-- SSH 握手超时下拉（15/30/60/120/180 秒）
-- 换行 LF/CR/CRLF（保存后端 + sendAndWait 实际生效）
-- 本地回显开关（保存后端；xterm 本地回显未接通）
-- 高级折叠（连接选项可折叠）
-- 收藏栏（可折叠，localStorage 持久化，保存连接自动入收藏）
-- 最近连接（可折叠，右键菜单：收藏/编辑/删除）
-- 会话右键菜单（置顶/重命名/断开）
-- 拖动排序（⣿ 手柄，影响终端区实际排序）
-- 卡片显示 user@host:port（灰色小字）
-- 点击会话切换显示/隐藏（虚线 dimmed 样式）
-- 终端配色跟 DSH 明暗主题动态切换
-- 模拟设备 ANSI 色（提示符绿/横幅青/错误红）
-- 退格逐字符处理 + `\b\x1b[K`
-- 复制粘贴（Ctrl+C/Shift+C/V + 右键 PuTTY 式）
-- 84 项 vitest + 19 场景冒烟全绿
-- CI（ci.yml + smoke.yml）
-
-### 推迟待评估
-- 收藏分组/搜索
-- Telnet 自动登录（账号/密码/提示正则/超时/延迟）
-- 会话信息弹窗（协议/状态/换行/回显/会话ID）
-- 重命名/置顶持久化到后端（目前本地临时）
-- 本地回显在 xterm 接通
-- 导入/导出 CSV/JSON
-
-### 功能扩展（第三批，待排期）
-- 串口（第一个扩展项，`SerialTransport` 接口已留）
-- 递归分屏（v4 的 tmux 式可拖动分屏树，现在是简单网格）
-- eval 自动化（24 条接 CI）
-- 真机联调（Telnet 协商、SSH 跳板机）
-- 凭据加密（接 DSH `ctx.credentials`）
-- SSH 主机密钥 TOFU
-- OSC 52（远程 vim/tmux 经 SSH 操控本地剪贴板）
+这轮的教训：拖动上限写死成常量，大屏用户永远收不窄——上限得跟视口走。

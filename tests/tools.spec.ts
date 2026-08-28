@@ -164,3 +164,54 @@ describe('B6 工具层', () => {
     expect(byId['nonexistent']).toBe('disconnected')
   })
 })
+
+describe('B6 工具层错误路径', () => {
+  it('tm_connect 临时连接缺 host → isError', async () => {
+    const { call } = await setup()
+    const r = await call('tm_connect', { protocol: 'telnet' })
+    expect(r.isError).toBe(true)
+  })
+
+  it('tm_send 传不存在的 sessionId → isError', async () => {
+    const { call } = await setup()
+    const r = await call('tm_send', { sessionId: 'nonexistent-session', command: 'show version' })
+    expect(r.isError).toBe(true)
+  })
+
+  it('tm_read 传不存在的 sessionId → isError', async () => {
+    const { call } = await setup()
+    const r = await call('tm_read', { sessionId: 'nonexistent-session' })
+    expect(r.isError).toBe(true)
+  })
+
+  it('tm_send 超时 → waitReason=timeout', async () => {
+    const { call } = await setup()
+    const opened = await call('tm_connect', { connId })
+    const sid = (opened.value as { sessionId: string }).sessionId
+    const r = await call('tm_send', { sessionId: sid, command: 'sleep 999', timeoutMs: 1000, quietMs: 5000 })
+    expect(r.isError).toBe(false)
+    expect(r.value).toMatchObject({ kind: 'completed', waitReason: 'timeout' })
+  })
+
+  it('tm_send 过程中会话掉线 → isError', async () => {
+    const { emit, call, sessions } = await setup()
+    const opened = await call('tm_connect', { connId })
+    const sid = (opened.value as { sessionId: string }).sessionId
+    const pending = call('tm_send', { sessionId: sid, command: 'slow', timeoutMs: 10000, quietMs: 5000 })
+    // 模拟设备掉线：触发传输层的 onClose
+    await sessions.disconnect(sid)
+    const r = await pending
+    expect(r.isError).toBe(true)
+  })
+
+  it('tm_connect 重复连同一 connId → 返回同一 sessionId', async () => {
+    const { call } = await setup()
+    const first = await call('tm_connect', { connId })
+    expect(first.isError).toBe(false)
+    const sid1 = (first.value as { sessionId: string }).sessionId
+    const second = await call('tm_connect', { connId })
+    expect(second.isError).toBe(false)
+    const sid2 = (second.value as { sessionId: string }).sessionId
+    expect(sid2).toBe(sid1)
+  })
+})

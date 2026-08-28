@@ -47,13 +47,27 @@ function subscribe(cb: () => void): () => void {
 
 function getSnapshot(): boolean { return visible }
 
+/** 测试用：获取当前工作区可见性状态 */
+export function getWorkspaceVisible(): boolean { return visible }
+
+/** 测试用：订阅工作区可见性变化 */
+export function subscribeWorkspace(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => { listeners.delete(cb) }
+}
+
 export function useWorkspaceVisible(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot)
 }
 
-/** 聊天列宽度（px），可拖动调整（v4：默认 460，范围 300–760）。 */
-const MIN_CHAT = 300, MAX_CHAT = 760, DEFAULT_CHAT = 460
-let chatWidth = DEFAULT_CHAT
+/** 聊天列宽度（px），可拖动调整（v4：默认按视口自适应 300–520，范围 300–760）。 */
+const MIN_CHAT = 300, MAX_CHAT = 760
+function defaultChatWidth(): number {
+  if (typeof window === 'undefined') return 460
+  // ~26% 视口，夹在 300–520：小屏收窄给终端让位，大屏不无限拉宽
+  return Math.max(300, Math.min(520, Math.round(window.innerWidth * 0.26)))
+}
+let chatWidth = defaultChatWidth()
 const chatListeners = new Set<() => void>()
 export function setChatWidth(w: number): void {
   const clamped = Math.max(MIN_CHAT, Math.min(MAX_CHAT, w))
@@ -68,11 +82,13 @@ export function useChatWidth(): number {
   )
 }
 
-/** 找 DSH 真实 frame（overlayLayer 的父元素）。 */
-function findFrame(): HTMLElement | null {
-  if (typeof document === 'undefined') return null
-  const overlay = document.querySelector('[data-shell-overlay]')
-  return (overlay?.parentElement as HTMLElement) ?? null
+/** 测试用：获取当前聊天宽度 */
+export function getChatWidth(): number { return chatWidth }
+
+/** 测试用：订阅聊天宽度变化 */
+export function subscribeChatWidth(cb: () => void): () => void {
+  chatListeners.add(cb)
+  return () => { chatListeners.delete(cb) }
 }
 
 /**
@@ -142,4 +158,13 @@ export function useUnread(): Set<string> {
     (cb) => { unreadListeners.add(cb); return () => { unreadListeners.delete(cb) } },
     () => unreadSet,
   )
+}
+
+/** 测试用：获取当前未读集合 */
+export function getUnreadSet(): Set<string> { return new Set(unreadSet) }
+
+/** 测试用：订阅未读集合变化 */
+export function subscribeUnread(cb: () => void): () => void {
+  unreadListeners.add(cb)
+  return () => { unreadListeners.delete(cb) }
 }

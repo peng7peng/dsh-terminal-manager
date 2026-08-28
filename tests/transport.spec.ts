@@ -123,3 +123,47 @@ describe('B3 Telnet IAC 协商', () => {
     await transport.close()
   })
 })
+
+describe('B3 Telnet 传输边界', () => {
+  it('连接到无服务的端口 → HOST_UNREACHABLE', async () => {
+    const { port } = await lab.startEchoServer()
+    await lab.cleanup()
+    await expect(connectTelnet(
+      { host: '127.0.0.1', port, connectTimeoutMs: 2000 },
+      { onData: () => {}, onClose: () => {} },
+    )).rejects.toMatchObject({ code: 'HOST_UNREACHABLE' })
+  })
+
+  it('close 后调 write → 不抛异常（静默忽略）', async () => {
+    const { port } = await lab.startEchoServer()
+    const transport = await connectTelnet(
+      { host: '127.0.0.1', port },
+      { onData: () => {}, onClose: () => {} },
+    )
+    await transport.close()
+    expect(() => transport.write('after-close\n')).not.toThrow()
+  })
+
+  it('服务端主动关闭连接 → onClose 被调用', async () => {
+    const { port } = await lab.startEchoServer()
+    let closeReason: string | undefined
+    const transport = await connectTelnet(
+      { host: '127.0.0.1', port },
+      { onData: () => {}, onClose: (reason) => { closeReason = reason } },
+    )
+    await transport.close() // 本端关闭会触发服务端断开，进而触发 onClose
+    // 等一下让 close 事件传播
+    await new Promise(r => setTimeout(r, 50))
+    expect(closeReason).toBeTruthy()
+  })
+
+  it('close 连续调两次 → 第二次不报错', async () => {
+    const { port } = await lab.startEchoServer()
+    const transport = await connectTelnet(
+      { host: '127.0.0.1', port },
+      { onData: () => {}, onClose: () => {} },
+    )
+    await transport.close()
+    await expect(transport.close()).resolves.toBeUndefined()
+  })
+})

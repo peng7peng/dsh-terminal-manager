@@ -89,7 +89,17 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (editing !== null) { onConnect({ connId: editing }) } else { onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() }) }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
-  const sessionOfConn = (connId: string): SessionSnap | undefined => sessions.find(s => s.connId === connId && s.status !== 'removed')
+  // 查找会话：先按 connId 精确匹配，再按目标（protocol:host:port）模糊匹配
+  const sessionOfConn = (connId: string): SessionSnap | undefined => {
+    // 精确匹配 connId
+    const byConnId = sessions.find(s => s.connId === connId && s.status !== 'removed')
+    if (byConnId) return byConnId
+    // 模糊匹配目标（同一目标的多个连接配置共享会话）
+    const conn = conns.find(c => c.id === connId)
+    if (!conn) return undefined
+    const target = `${conn.protocol}:${conn.host}:${conn.port}`
+    return sessions.find(s => s.target === target && s.protocol === conn.protocol && s.status !== 'removed')
+  }
   const sortedSessions = [...sessions].sort((a, b) => { const ap = pinned.has(a.sessionId) ? -1 : 0; const bp = pinned.has(b.sessionId) ? -1 : 0; if (ap !== bp) return ap - bp; const ai = sessionOrder.indexOf(a.sessionId); const bi = sessionOrder.indexOf(b.sessionId); return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi) })
   function togglePin(sid: string): void { setPinned(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n }); setCtxMenu(null) }
   function startRename(sid: string, label: string): void { setRenameId(sid); setRenameVal(label); setCtxMenu(null) }

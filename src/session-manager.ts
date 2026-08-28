@@ -244,10 +244,14 @@ export class SessionManager {
   /** 主动断开会话（用户操作）。标记为 removed 并从列表中删除。 */
   async disconnect(sessionId: string): Promise<void> {
     const record = this.requireRecord(sessionId)
-    if (record.status === 'closed' || record.status === 'removed') return
+    if (record.status === 'removed') return
+    // 无论 open 还是 closed，都标记为 removed 并删除
     record.status = 'removed'
     this.sessions.delete(record.sessionId)
-    await record.transport?.close()
+    if (record.transport !== undefined) {
+      try { await record.transport.close() } catch { /* ignore */ }
+      record.transport = undefined
+    }
     this.notify(record)
   }
 

@@ -46,7 +46,7 @@ export const WORKSPACE_CSS = `
 @keyframes tm-flash-red { 0%, 100% { opacity:1; } 50% { opacity:0.3; } }
 .tm-ritem.disconnected .dot, .tm-ritem.disconnected .tm-pico { animation:tm-flash-red 1s infinite; }
 .tm-ritem.disconnected .nm { opacity:0.6; }
-.tm-disconnected-hint { font-size:10px; color:var(--dsw-alias-state-error-primary, #ef4444); font-weight:normal; margin-left:4px; }
+.tm-disconnected-hint { font-size:10px; color:var(--dsw-alias-state-info-primary, #3b82f6); font-weight:500; margin-left:auto; padding:2px 6px; background:var(--dsw-alias-bg-layer-2, rgba(59,130,246,0.1)); border-radius:3px; }
 .tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-paneBody { flex:1; min-height:0; overflow:hidden; }
 

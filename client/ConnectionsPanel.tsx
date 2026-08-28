@@ -89,7 +89,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (editing !== null) { onConnect({ connId: editing }) } else { onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() }) }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
-  const sessionOfConn = (connId: string): SessionSnap | undefined => sessions.find(s => s.connId === connId && s.status !== 'closed')
+  const sessionOfConn = (connId: string): SessionSnap | undefined => sessions.find(s => s.connId === connId && s.status !== 'removed')
   const sortedSessions = [...sessions].sort((a, b) => { const ap = pinned.has(a.sessionId) ? -1 : 0; const bp = pinned.has(b.sessionId) ? -1 : 0; if (ap !== bp) return ap - bp; const ai = sessionOrder.indexOf(a.sessionId); const bi = sessionOrder.indexOf(b.sessionId); return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi) })
   function togglePin(sid: string): void { setPinned(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n }); setCtxMenu(null) }
   function startRename(sid: string, label: string): void { setRenameId(sid); setRenameVal(label); setCtxMenu(null) }
@@ -192,7 +192,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (isClosed ? 'disconnected' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={handleClick} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }} title={isClosed ? '已断开 - 点击重连' : '点击切换显示'}>
                 <span className="tm-drag" title="拖动排序">⣿</span>
                 <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
-                {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint"> - 已断开，点击重连</span>}</span>)}
+                {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint">点击重连</span>}</span>)}
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
                 {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
                 {unreadSet.has(s.sessionId) && <span className="tm-unread" />}

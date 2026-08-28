@@ -141,8 +141,7 @@ terminal-manager/
 ## 后续（MVP 之后）
 
 ### 已知待办
-- **未读标记不工作**：会话点击切换显示/隐藏后，隐藏会话有新输出时蓝点没出现。根因：点击切换 onClick 同时调 `onToggleHidden` 和 `onMarkRead`，但 `isHidden` prop 依赖 React 重渲染，TermView 的 useEffect 不会因为 isHidden 变化而重新订阅。需要修复。
-- **选中即复制**：xterm mouseup 触发 onData 导致同时粘贴，根因待查。
+- **本地回显**：`localEcho` 已保存后端，xterm 未接通（onData 时需 term.write 回显，控制字符需额外处理，中等复杂度，推迟）。
 
 ### 已完成的第一批升级（连接管理区）
 - SSH/Telnet Tab 与标题同行

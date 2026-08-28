@@ -65,6 +65,10 @@ export interface ConnectTarget {
   telnetMode?: 'telnet' | 'raw'
   /** SSH 握手超时毫秒（默认 15000） */
   connectTimeoutMs?: number
+  /** 换行模式（默认 'crlf'） */
+  newline?: 'lf' | 'cr' | 'crlf'
+  /** 本地回显（默认 false） */
+  localEcho?: boolean
 }
 
 /** 传输层工厂（可注入假实现用于测试）。 */
@@ -103,6 +107,10 @@ export interface SendOptions {
   wait?: WaitPolicyConfig
   /** 传入则做命令守卫检查（AI 路径必传，人工键入不传） */
   guard?: GuardOptions
+  /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
+  newline?: 'lf' | 'cr' | 'crlf'
+  /** 本地回显（默认 false） */
+  localEcho?: boolean
   /** 命令后是否追加回车，默认 true */
   submit?: boolean
   /** 取消信号（AI 工具层透传 exec.signal） */
@@ -154,6 +162,8 @@ export class SessionManager {
       ...(auth?.kind === 'key' ? { privateKey: auth.privateKey, passphrase: auth.passphrase } : {}),
       ...(conn.telnetMode !== undefined ? { telnetMode: conn.telnetMode } : {}),
       ...(conn.handshakeTimeoutSec !== undefined ? { connectTimeoutMs: conn.handshakeTimeoutSec * 1000 } : {}),
+      ...(conn.newline !== undefined ? { newline: conn.newline } : {}),
+      ...(conn.localEcho !== undefined ? { localEcho: conn.localEcho } : {}),
     }, connId)
   }
 
@@ -253,6 +263,8 @@ export class SessionManager {
       const waitConfig = this.resolveWaitConfig(record, options.wait)
       const policy = new WaitPolicy(waitConfig)
       const submit = options.submit ?? true
+      const nl = options.newline ?? 'crlf'
+      const eol = nl === 'lf' ? '\n' : nl === 'cr' ? '\r' : '\r\n'
 
       const outcome = await new Promise<WaitReason>((resolve, reject) => {
         policy.start(Date.now())
@@ -287,7 +299,7 @@ export class SessionManager {
           const reason = policy.poll(Date.now())
           if (reason !== undefined) finish(reason)
         }, POLL_INTERVAL_MS)
-        record.transport?.write(command + (submit ? '\r' : ''))
+        record.transport?.write(command + (submit ? eol : ''))
       })
 
       return { output: policy.output(), waitReason: outcome, truncated: policy.truncated() }

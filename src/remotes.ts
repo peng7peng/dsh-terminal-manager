@@ -66,8 +66,8 @@ export async function dispatch(
       case 'sessions.list':
         return ok(deps.sessions.list())
       case 'sessions.connect': {
-        const { connId, protocol, host, port, username, password, label, telnetMode, connectTimeoutMs } = payload as {
-          connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number
+        const { connId, protocol, host, port, username, password, label, telnetMode, connectTimeoutMs, newline, localEcho } = payload as {
+          connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean
         }
         const snap = connId !== undefined && connId.length > 0
           ? await deps.sessions.connectByConnId(connId)
@@ -77,6 +77,8 @@ export async function dispatch(
               ...(label !== undefined ? { label } : {}),
               ...(telnetMode !== undefined ? { telnetMode } : {}),
               ...(connectTimeoutMs !== undefined ? { connectTimeoutMs } : {}),
+              ...(newline !== undefined ? { newline } : {}),
+              ...(localEcho !== undefined ? { localEcho } : {}),
             })
         return ok(snap)
       }

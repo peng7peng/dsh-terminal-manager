@@ -45,7 +45,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [form, setForm] = useState({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' })
   const [showPass, setShowPass] = useState(false)
   const [showAdv, setShowAdv] = useState(false)
-  const [newline, setNewline] = useState<'lf' | 'cr' | 'crlf'>('lf')
+  const [newline, setNewline] = useState<'lf' | 'cr' | 'crlf'>('crlf')
   const [localEcho, setLocalEcho] = useState(false)
   const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('raw')
   const [handshakeTimeout, setHandshakeTimeout] = useState<number>(15)
@@ -68,8 +68,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   useEffect(() => { try { localStorage.setItem('tm-favorites', JSON.stringify([...favorites])) } catch { /* */ } }, [favorites])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.handshakeTimeoutSec ?? 15); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.handshakeTimeoutSec ?? 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -80,7 +80,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function save(): Promise<void> {
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { handshakeTimeoutSec: handshakeTimeout } : {}) }
+    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { handshakeTimeoutSec: handshakeTimeout } : {}), newline, localEcho }
     try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else { const created = await rpc<ConnectionCfg>('connections.create', base); setFavorites(prev => { const n = new Set(prev); n.add(created.id); return n }) } await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {

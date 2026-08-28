@@ -37,6 +37,10 @@ export interface ConnectionConfig {
   telnetMode?: 'telnet' | 'raw'
   /** SSH 握手超时秒数（默认 15） */
   handshakeTimeoutSec?: number
+  /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
+  newline?: 'lf' | 'cr' | 'crlf'
+  /** 本地回显开关（默认 false） */
+  localEcho?: boolean
   note?: string
 }
 

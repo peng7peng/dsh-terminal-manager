@@ -157,9 +157,45 @@ interface ConnectionConfig {
 - **去重**：同 `protocol:host:port` 的 open 会话直接复用（临时连接与 connId 连接共用同一池）；`connectByConnId` 对同一 `connId` 的未关闭会话直接返回既有会话。
 - **独占发送**：每会话最多一个进行中的 `sendAndWait`，并发发送直接抛 `SESSION_BUSY`；广播对每台独立执行。
 - **完成判定**：`resolveWaitConfig` 合并连接级 `quietMs/promptPattern/timeoutMs` + 调用覆盖参数；`WaitPolicy` 每轮 50ms 轮询（`POLL_INTERVAL_MS`）。换行：`sendAndWait`/`sendImmediate` 经 `eolOf` 取行尾——优先调用参数 `newline`，其次连接配置 `conn.newline`（实时回读），再次会话建立时的记录值（临时连接），缺省 `crlf`；`submit` 缺省 true。
-- **输出分发**：`handleData` 同时写环形缓冲 + 推给所有订阅者（订阅者 = WS 连接，推给它挂着的那条 `/term-io` 管道）；连接终结 `handleClose` 移除会话并 `notify` 状态帧。
+- **输出分发**：`handleData` 同时写环形缓冲 + 推给所有订阅者（订阅者 = WS 连接，推给它挂着的那条 `/term-io` 管道）；连接终结 `handleClose` 标记会话为 `closed`（被动断开，保留会话以供重连）并 `notify` 状态帧。
 - **命令守卫**：`SendOptions.guard` 传入时才启用（AI 路径必传），合并连接级 `guardWhitelist` + 调用方规则；命中抛 `COMMAND_BLOCKED`。
+- **重连**：`reconnect(sessionId)` 仅对 `closed` 状态会话有效，清理旧 transport 后重建连接，sessionId 保持不变；失败则恢复为 `closed`。
+- **主动断开**：`disconnect(sessionId)` 标记会话为 `removed` 并从会话池删除，前端据此移除该会话；连接配置（收藏）保留。
 - 卸载时 `ctx.effect` 清理全部会话（`closeAll`）。
+
+##### 连接与会话的状态机（产品设计）
+
+**核心概念**：
+- **收藏（Favorite）** = 连接配置（`ConnectionConfig`，持久化于 `connections.json`）
+- **会话（Session）** = 运行时实例（`SessionRecord`，内存中，DSH 重启即丢失）
+- 每个收藏**最多对应一个活跃会话**（通过 `connId` 关联）
+
+**会话状态**：
+- `connecting`：正在建立连接
+- `open`：已连接，可交互
+- `closed`：被动断开（网络问题/设备掉线），保留会话以供重连
+- `removed`：主动断开（用户点✕），会话已删除
+
+**UI 行为矩阵**：
+
+| 组件 | 状态 | 显示 | 用户操作 |
+|------|------|------|---------|
+| **收藏卡片** | 无会话 | 连接配置信息 | 点击 → 创建新会话 |
+| **收藏卡片** | 有 `open` 会话 | 绿色状态点 | 点击 → 聚焦该会话 |
+| **收藏卡片** | 有 `closed` 会话 | 灰色状态点 | 点击 → 重连该会话 |
+| **收藏卡片** | 有 `removed` 会话 | 连接配置信息 | 点击 → 创建新会话 |
+| **活跃会话卡片** | `open` | 正常显示 | 点击 → 切换显示/隐藏 |
+| **活跃会话卡片** | `closed` | 「已断开 - 点击重连」 | 点击 → 重连该会话 |
+| **终端窗口** | `open` | 正常终端 | 正常交互 |
+| **终端窗口** | `closed` | 「已断开」覆盖层 + ✕ 按钮 | 点 ✕ → 移除会话 |
+
+**设计原则**：
+1. **终端窗口只负责显示和交互**，不负责连接管理（无重连按钮）
+2. **连接管理集中在会话卡片**（重连、断开等操作）
+3. **收藏卡片智能路由**：根据会话状态决定创建/聚焦/重连
+4. **被动断开保留会话**：网络问题后可重连，用户体验连续
+5. **主动断开清除会话**：用户明确意图，不保留幽灵会话
+6. **DSH 重启后清空前端状态**：WebSocket 重连后从后端重新拉取会话列表，避免显示已丢失的会话
 
 #### B2/B3 传输层（`src/transport/`，接口见 `types.ts`）
 

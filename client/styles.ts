@@ -27,8 +27,8 @@ export const WORKSPACE_CSS = `
 .tm-close { border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); background:transparent; color:var(--dsw-alias-label-secondary, #666); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
 .tm-close:hover { color:var(--dsw-alias-state-error-primary, #ef4444); border-color:var(--dsw-alias-state-error-primary, #ef4444); }
 
-/* 终端网格：auto-fit + 封顶 760px + 居中——小屏填满、全屏不无限拉伸（窗格过宽行长难读） */
-.tm-grid { flex:1; min-height:0; overflow:auto; padding:6px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(280px, 100%), 760px)); justify-content:center; gap:6px; background:var(--dsw-alias-bg-base, #fff); }
+/* 终端网格：1fr 填满——单个窗格填满整个模块，多个窗格也填满（自动换列/换行），无任何空隙 */
+.tm-grid { flex:1; min-height:0; overflow:auto; padding:6px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap:6px; background:var(--dsw-alias-bg-base, #fff); }
 .tm-pane { display:flex; flex-direction:column; min-height:180px; border:1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.16)); border-radius:6px; overflow:hidden; }
 .tm-paneBar { flex:none; display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--dsw-alias-bg-layer-2, #161b22); border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); font-size:11.5px; color:var(--dsw-alias-label-secondary, #8a91a5); }
 .tm-paneBar .dot { width:7px; height:7px; border-radius:50%; background:var(--dsw-static-green-500, #22c55e); }

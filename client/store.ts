@@ -63,7 +63,7 @@ export function useWorkspaceVisible(): boolean {
 /** 聊天列宽度（px），可拖动调整（范围 300–760，手动拖动钳制在此区间）。 */
 const MIN_CHAT = 300, MAX_CHAT = 760
 /** 终端模块（tm-main）目标宽度 + 连接面板宽度——自动模式下聊天加宽填满左侧，让终端模块固定此宽，无留白 */
-const TARGET_TERM_WIDTH = 600, PANEL_WIDTH = 300
+const TARGET_TERM_WIDTH = 480, PANEL_WIDTH = 300
 let chatWidth = 460
 /** null = 未手动拖过，用自动值（终端模块固定 TARGET_TERM_WIDTH，聊天填满左侧）；非 null = 用拖动值 */
 let chatWidthManual: number | null = null

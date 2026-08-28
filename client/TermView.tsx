@@ -16,6 +16,7 @@ interface TermViewProps {
   target: string
   ws: TermWs
   onDisconnect: (sessionId: string) => void
+  onReconnect: (sessionId: string) => void
   isHidden?: boolean
   isClosed?: boolean
   isMaximized?: boolean
@@ -23,7 +24,7 @@ interface TermViewProps {
   onMinimize?: () => void
 }
 
-export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize }: TermViewProps): React.JSX.Element {
+export function TermView({ sessionId, label, target, ws, onDisconnect, onReconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize }: TermViewProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Term | undefined>(undefined)
   const hiddenRef = useRef(isHidden)
@@ -153,15 +154,19 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         <span className="nm">{label}</span>
         <span className="tgt">{target}</span>
         {isClosed ? (
-          <span className="tm-closed-label">已断开</span>
+          <>
+            <span className="tm-closed-label">已断开</span>
+            <button onClick={() => onReconnect(sessionId)} title="重连" className="tm-reconnect-btn">🔄 重连</button>
+            <button onClick={() => onDisconnect(sessionId)} title="关闭">✕</button>
+          </>
         ) : (
           <>
+            <button onClick={onMinimize} title="最小化">🗕</button>
             {isMaximized ? (
               <button onClick={onToggleMaximize} title="还原">🗗</button>
             ) : (
               <button onClick={onToggleMaximize} title="最大化">🗖</button>
             )}
-            <button onClick={onMinimize} title="最小化">🗕</button>
             <button onClick={() => onDisconnect(sessionId)} title="断开">✕</button>
           </>
         )}

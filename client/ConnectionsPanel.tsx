@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string }
-export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' }
+export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
 export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string }
 
 function CollapsibleSection({ title, count, children }: { title: string; count: number; children: ReactNode }): React.JSX.Element {
@@ -31,12 +31,13 @@ interface Props {
   sessionOrder: string[]
   onConnect: (target: ConnectTarget) => void
   onDisconnect: (sessionId: string) => void
+  onReconnect: (sessionId: string) => void
   onMarkRead: (sessionId: string) => void
   onToggleHidden: (sessionId: string) => void
   onReorder: (newOrder: string[]) => void
 }
 
-export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, onConnect, onDisconnect, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
+export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, onConnect, onDisconnect, onReconnect, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
   const [conns, setConns] = useState<ConnectionCfg[]>([])
   const [proto, setProto] = useState<'ssh' | 'telnet'>('ssh')
   const [authMode, setAuthMode] = useState<'password' | 'key'>('password')
@@ -101,7 +102,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   function onDrop(idx: number): void { if (dragIdx === null || dragIdx === idx) return; const newOrder = [...sortedSessions.map(s => s.sessionId)]; const [moved] = newOrder.splice(dragIdx, 1); newOrder.splice(idx, 0, moved); onReorder(newOrder); setDragIdx(null) }
 
   const favConns = conns.filter(c => favorites.has(c.id))
-  const otherConns = conns.filter(c => !favorites.has(c.id))
+  const otherConns = conns.filter(c => !favorites.has(c.id)).slice(0, 7) // 最近连接最多保留 7 个
 
   const pwdInput = (name: keyof typeof form, label: string, placeholder: string, required: boolean, errKey?: string, hint?: string) => (
     <div className={'tm-fld ' + (errKey && errors[errKey] ? 'error' : '')}>
@@ -158,13 +159,14 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
         <CollapsibleSection title="活跃会话" count={sortedSessions.length}>
           {sortedSessions.length === 0 ? <div className="tm-empty">暂无活跃会话</div> : sortedSessions.map((s, idx) => (
-            <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => { onMarkRead(s.sessionId); onToggleHidden(s.sessionId) }} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }}>
+            <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (s.status === 'closed' ? 'disconnected' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={() => { onMarkRead(s.sessionId); onToggleHidden(s.sessionId) }} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }}>
               <span className="tm-drag" title="拖动排序">⣿</span>
               <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
               {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span></span>)}
               {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
               {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
               {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
+              {s.status === 'closed' && <button className="tm-reconnect-small" onClick={(e) => { e.stopPropagation(); onReconnect(s.sessionId) }} title="重连">🔄</button>}
             </div>
           ))}
         </CollapsibleSection>

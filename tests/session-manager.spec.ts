@@ -84,14 +84,14 @@ describe('SessionManager 会话生命周期', () => {
     expect(sm.list()).toHaveLength(1)
   })
 
-  it('状态监听：连接中 → 已连接 → 已关闭', async () => {
+  it('状态监听：连接中 → 已连接 → 已移除（主动断开）', async () => {
     const { factory } = fakeFactory()
     const sm = new SessionManager(store, factory)
     const seen: string[] = []
     sm.onStatus(snap => seen.push(snap.status))
     const snap = await sm.connectByConnId(connId)
     await sm.disconnect(snap.sessionId)
-    expect(seen).toEqual(['connecting', 'open', 'closed'])
+    expect(seen).toEqual(['connecting', 'open', 'removed'])
   })
 
   it('人工键入原样写入、可订阅输出、可调尺寸', async () => {

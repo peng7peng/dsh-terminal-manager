@@ -88,6 +88,11 @@ export async function dispatch(
         await deps.sessions.disconnect(sessionId)
         return ok({ sessionId })
       }
+      case 'sessions.reconnect': {
+        const { sessionId } = payload as { sessionId: string }
+        const snap = await deps.sessions.reconnect(sessionId)
+        return ok(snap)
+      }
       case 'sessions.read': {
         const { sessionId, count } = payload as { sessionId: string; count?: number }
         return ok(deps.sessions.read(sessionId, count))

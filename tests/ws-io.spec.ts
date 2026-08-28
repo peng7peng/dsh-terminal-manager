@@ -91,12 +91,12 @@ describe('TermIoConnection 数据流帧分发', () => {
     const { sessions, sent, ws } = await setup()
     const seen: string[] = []
     const unsub = sessions.onStatus(s => seen.push(s.status))
-    // 已有连接订阅了 status；断开一个会话触发 closed 帧
+    // 已有连接订阅了 status；断开一个会话触发 removed 帧
     // （status 帧应出现在 sent 里）
     const snap2 = await sessions.connect({ protocol: 'telnet', host: '10.0.0.2', port: 23, label: 'b' })
     expect(sent.some(f => f.kind === 'status' && f.sessionId === snap2.sessionId && f.status === 'open')).toBe(true)
     await sessions.disconnect(snap2.sessionId)
-    expect(sent.some(f => f.kind === 'status' && f.sessionId === snap2.sessionId && f.status === 'closed')).toBe(true)
+    expect(sent.some(f => f.kind === 'status' && f.sessionId === snap2.sessionId && f.status === 'removed')).toBe(true)
     unsub()
   })
 

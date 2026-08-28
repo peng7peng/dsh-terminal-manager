@@ -71,6 +71,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
         const snap = frame as unknown as SessionSnap
         // connecting 跳过（避免连接失败时幽灵条目）
         if (snap.status === 'connecting') return prev
+        // removed：用户主动断开，从列表移除
+        if (snap.status === 'removed') {
+          return prev.filter(s => s.sessionId !== snap.sessionId)
+        }
         // open/closed 都保留在列表里（closed 标记为已断开，可重连）
         const i = prev.findIndex(s => s.sessionId === snap.sessionId)
         return i >= 0 ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap]
@@ -107,6 +111,12 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   }
   async function disconnect(sessionId: string): Promise<void> {
     try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }
+  }
+  async function reconnect(sessionId: string): Promise<void> {
+    try {
+      const snap = await rpc<SessionSnap>('sessions.reconnect', { sessionId })
+      setSessions(prev => prev.map(s => s.sessionId === snap.sessionId ? snap : s))
+    } catch (err) { alert((err as RpcError).message) }
   }
 
   const allSessions = useMemo(
@@ -173,6 +183,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
                   target={s.target}
                   ws={ws}
                   onDisconnect={disconnect}
+                  onReconnect={reconnect}
                   isHidden={hidden.has(s.sessionId)}
                   isClosed={s.status === 'closed'}
                   isMaximized={maximized === s.sessionId}
@@ -199,7 +210,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           </div>
         </div>
       </div>
-      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
+      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>
   )
 }

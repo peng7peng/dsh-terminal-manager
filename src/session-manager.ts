@@ -15,7 +15,7 @@ import { connectTelnet } from './transport/telnet.ts'
 import type { Transport, TransportCallbacks } from './transport/types.ts'
 import { WaitPolicy, type WaitPolicyConfig, type WaitReason } from './wait-policy.ts'
 
-export type SessionStatus = 'connecting' | 'open' | 'closed'
+export type SessionStatus = 'connecting' | 'open' | 'closed' | 'removed'
 
 export interface SessionSnapshot {
   sessionId: string
@@ -241,10 +241,56 @@ export class SessionManager {
     }
   }
 
-  /** 断开会话。 */
+  /** 主动断开会话（用户操作）。标记为 removed 并从列表中删除。 */
   async disconnect(sessionId: string): Promise<void> {
     const record = this.requireRecord(sessionId)
+    if (record.status === 'closed' || record.status === 'removed') return
+    record.status = 'removed'
+    this.sessions.delete(record.sessionId)
     await record.transport?.close()
+    this.notify(record)
+  }
+
+  /** 重连已断开的会话（被动断开后恢复）。 */
+  async reconnect(sessionId: string): Promise<SessionSnapshot> {
+    const record = this.requireRecord(sessionId)
+    if (record.status !== 'closed') {
+      throw new SessionError('SESSION_NOT_DISCONNECTED', '会话未处于断开状态')
+    }
+    // 重新建立连接
+    record.status = 'connecting'
+    this.notify(record)
+    try {
+      const conn = record.connId !== undefined && this.store !== undefined
+        ? this.store.get(record.connId)
+        : undefined
+      if (conn === undefined) {
+        throw new SessionError('SESSION_NOT_FOUND', '无法获取连接配置')
+      }
+      const auth = conn.auth
+      const transport = await this.transportFactory({
+        protocol: conn.protocol,
+        host: conn.host,
+        port: conn.port,
+        username: conn.username,
+        ...(auth?.kind === 'password' ? { password: auth.password } : {}),
+        ...(auth?.kind === 'key' ? { privateKey: auth.privateKey, passphrase: auth.passphrase } : {}),
+        ...(conn.telnetMode !== undefined ? { telnetMode: conn.telnetMode } : {}),
+        ...(conn.handshakeTimeoutSec !== undefined ? { connectTimeoutMs: conn.handshakeTimeoutSec * 1000 } : {}),
+      }, {
+        onData: (chunk) => this.handleData(record, chunk),
+        onClose: (reason) => this.handleClose(record, reason),
+      })
+      record.transport = transport
+      record.status = 'open'
+      record.openedAtMs = Date.now()
+      this.notify(record)
+      return this.snapshot(record)
+    } catch (error) {
+      record.status = 'closed'
+      this.notify(record)
+      throw error
+    }
   }
 
   /** 订阅一个会话的输出（"看"）。返回取消订阅函数。 */
@@ -417,9 +463,9 @@ export class SessionManager {
   }
 
   private handleClose(record: SessionRecord, reason: string): void {
-    if (record.status === 'closed') return
+    if (record.status === 'closed' || record.status === 'removed') return
     record.status = 'closed'
-    this.sessions.delete(record.sessionId)
+    // 被动断开：保留在列表中（不删除），前端显示「已断开」状态
     this.notify(record, reason)
   }
 

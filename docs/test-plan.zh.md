@@ -1,302 +1,409 @@
-# 终端管理插件 — 测试方案
+# 终端管理插件 — 测试验收清单
 
-- 版本：v1.0
-- 日期：2026-08-28
-- 基线：84 项单测全绿，覆盖率 73/64/75/76（语句/分支/函数/行）
+这份文档给你（项目负责人）用。你拿它做三件事：
+1. **把 Bug 修复指令复制给 AI**，让它改代码
+2. **把测试补全指令复制给 AI**，让它补测试
+3. **最后手工验收**最关键的用户场景
 
----
-
-## 一、测试现状总览
-
-### 1.1 已覆盖（按模块）
-
-| 模块 | 文件 | 语句% | 分支% | 函数% | 行数 | 测试文件 | 评价 |
-|---|---|---|---|---|---|---|---|
-| B1 连接存储 | connection-store.ts | 91 | 86 | 100 | 97 | connection-store.spec | ✅ 扎实 |
-| B2 SSH 传输 | ssh.ts | 82 | 62 | 87 | 86 | transport.spec | ⚠️ 错误分支不全 |
-| B3 Telnet 传输 | telnet.ts | 78 | 59 | 83 | 84 | transport.spec | ⚠️ IAC 实现有 bug，测试未覆盖 |
-| B4 会话管理器 | session-manager.ts | 87 | 75 | 93 | 91 | session-manager.spec | ✅ 核心扎实 |
-| B5 完成判定 | wait-policy.ts | 97 | 93 | 100 | 100 | wait-policy.spec | ✅ 优秀 |
-| B6 AI 工具层 | tools.ts | 66 | 54 | 61 | 72 | tools.spec | ❌ 错误路径大量缺失 |
-| B7a 指令通道 | remotes.ts | 39 | 33 | 38 | 42 | remotes.spec | ❌ HTTP 路由 handler 未测 |
-| B7b 数据流通道 | ws-io.ts | 51 | 35 | 40 | 51 | ws-io.spec | ❌ 生命周期未测 |
-| 入口装配 | index.ts | 0 | 0 | 0 | 0 | 无 | ❌ 完全未测 |
-| F1-F6 前端 | client/*.tsx | 0 | 0 | 0 | 0 | 无 | ❌ 完全未测 |
-
-### 1.2 需求场景覆盖度（spec 1.2 的 14 个场景）
-
-| 组 | 场景 | 编号 | 自动化状态 | 备注 |
-|---|---|---|---|---|
-| 配置管理 | 新建连接 | S1 | ✅ 覆盖 | connection-store + remotes + tools |
-| 配置管理 | 编辑/删除 | S12 | ✅ 覆盖 | connection-store + remotes |
-| 连接与观察 | 一键连接 | S2 | ✅ 覆盖 | transport + session-manager |
-| 连接与观察 | 多设备同屏 | S3 | ✅ 覆盖 | session-manager 多会话 |
-| 连接与观察 | 隐藏/显示窗格 | S13 | ❌ 无测试 | 纯前端交互 |
-| 连接与观察 | 多终端聚焦 | S14 | ❌ 无测试 | 纯前端交互 |
-| 手动操作 | 手动敲命令 | S4 | ✅ 覆盖 | session-manager + ws-io |
-| 手动操作 | 广播到全部 | S5 | ✅ 覆盖 | session-manager broadcast |
-| 手动操作 | 广播到部分 | S6 | ✅ 覆盖 | session-manager broadcast |
-| AI 自动化 | AI 单机 | S7 | ✅ 覆盖 | tools.spec 完整生命周期 |
-| AI 自动化 | AI 批量 | S8 | ✅ 覆盖 | tools.spec broadcast |
-| AI 自动化 | AI 读现场 | S9 | ✅ 覆盖 | tools.spec + session-manager read |
-| AI 自动化 | 人机共视 | S10 | ✅ 覆盖 | session-manager 共享会话池 |
-| 异常 | 密码错/不通/掉线 | S11 | ✅ 覆盖 | transport + session-manager + command-guard |
-
-**结论：12/14 场景有后端自动化测试；2 个纯前端 UI 场景（S13/S14）零覆盖。**
+你不需要写代码，不需要看懂 React，不需要管覆盖率百分比。
 
 ---
 
-## 二、已知缺陷（测试中发现）
+## 你现在可以敲的命令
 
-### 2.1 B3 Telnet IAC 协商实现缺陷
+```bash
+# 跑全部单元测试（84 项，约 3 秒）
+cd /d/myProject/dsh/terminal-manager
+pnpm test
 
-`src/transport/telnet.ts` 的 `stripIac` 函数存在以下问题：
-
-| # | 缺陷 | 位置 | 影响 | 严重性 |
-|---|---|---|---|---|
-| D1 | IAC 字节在 TCP 分片边界丢失 | line 37 | chunk 末尾为 0xFF 时直接 break 丢掉，不会跨 chunk 拼接 → 设备输出乱码 | 🔴 高 |
-| D2 | SB 子协商跨分片丢数据 | line 50-53 | IAC SB...IAC SE 横跨两个 TCP 包时，子协商后的数据全部丢失 | 🔴 高 |
-| D3 | 协商逻辑自相矛盾 | line 40-43 vs line 85 | 连接时发 WILL ECHO，服务端回 DO ECHO 时却回 WONT ECHO —— 自己提议自己拒绝，真实 Telnet 服务器协商失败 | 🔴 高 |
-| D4 | 末尾 IAC 无缓冲 | line 37 | 没有"残留 IAC 字节留到下一个 chunk 拼接"的机制 | 🟡 中 |
-
-**修复建议**：在 `connectTelnet` 返回的 Transport 对象上维护一个 `iacBuffer`，处理跨 chunk 拼接；修正协商逻辑为收到 DO ECHO 时回 DO（接受自己的提议）。
-
----
-
-## 三、测试方案（按优先级排序）
-
-### P0 — 阻塞发布（必须修复）
-
-#### 3.1 修复 Telnet IAC 实现 + 补回归测试
-
-**目标**：修复 D1-D4，确保 Telnet 模式在真实设备上可用。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-IAC-01 | IAC 跨 TCP 分片拼接 | 构造两个 chunk：chunk1 = `[0xFF, 0xFB, 0x01]`（WILL ECHO 截断在前两字节 + 第三字节在 chunk2 开头） → 验证不会丢失或乱码 | 输出不含 0xFF |
-| T-IAC-02 | SB 子协商跨分片 | 构造 chunk1 = `[IAC, SB, ...]`，chunk2 = `[..., IAC, SE]` + 后续文本 → 验证后续文本完整 | 后续文本完整出现在 onData |
-| T-IAC-03 | 协商一致性 | 连接后发 WILL ECHO，模拟服务端回 DO ECHO → 不应再回 WONT ECHO | 发出的响应中不含 `FF FC 01`（WONT ECHO）|
-| T-IAC-04 | 正常 Telnet 设备协商全流程 | 用 helpers.ts 起一个会发 WILL ECHO + DO ECHO 的模拟设备 → 验证连接后进入字符模式，输出无 IAC 字节 | onData 输出纯文本 |
-| T-IAC-05 | Raw 模式不受影响 | iac=true 的设备 + telnetMode='raw' → IAC 字节原样透传 | 输出含 0xFF |
-
-#### 3.2 B7a 指令通道 HTTP 路由测试
-
-**目标**：覆盖 remotes.ts 的 HTTP handler 主体（当前 39% → 目标 80%+）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-HTTP-01 | OPTIONS 预检 → 204 + CORS 头 | 对 /term-manager/connections.list 发 OPTIONS | 状态 204，含 access-control-allow-* |
-| T-HTTP-02 | GET → 405 | 对 /term-manager/connections.list 发 GET | 状态 405 |
-| T-HTTP-03 | 非法 JSON → 400 | POST 非 JSON 内容 | 状态 400，返回 bad-request |
-| T-HTTP-04 | URL 路径路由 | POST /term-manager/connections.list（body 无 method） | 按 URL 分发到 connections.list |
-| T-HTTP-05 | body method 优先 | POST /term-manager/foo（body 含 method=connections.list） | 按 body method 分发 |
-| T-HTTP-06 | StoreValidationError → RpcResult 错误分支 | connections.create 缺字段 | 返回 {ok:false, error:{code:含 VALIDATION}} |
-| T-HTTP-07 | SessionError → RpcResult 错误分支 | sessions.connect 不存在的 connId | 返回 {ok:false, error:{code:含 SESSION_NOT_FOUND}} |
-| T-HTTP-08 | CORS 响应头 | 正常 POST 请求 | 响应含 access-control-allow-origin: * |
-| T-HTTP-09 | rpcId 回传 | 发请求带 rpcId | 响应 body 含相同 rpcId |
-| T-HTTP-10 | webServer 不可用时降级 | ctx.get('webServer') 返回 undefined | registerRemotes 不调用 register，不报错 |
-
-#### 3.3 B7b 数据流通道生命周期测试
-
-**目标**：覆盖 ws-io.ts 的心跳、订阅清理、异常帧（当前 51% → 目标 80%+）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-WS-01 | 异常 JSON 帧不崩溃 | 发送非法 JSON 字符串 | TermIoConnection 不抛异常，不关闭 |
-| T-WS-02 | 未知 kind 帧忽略 | 发送 {kind: 'unknown', sessionId: 'x'} | 无错误，不调用 sessions |
-| T-WS-03 | attach 同一会话幂等 | 连续发两次 attach 同一 sessionId | 只注册一次订阅（subscribe 只调一次）|
-| T-WS-04 | detach 不存在的会话不报错 | 发 detach 给未 attach 的 sessionId | 无错误 |
-| T-WS-05 | input 到不存在的会话静默忽略 | 发 input 给不存在的 sessionId | 无错误，无异常 |
-| T-WS-06 | close 后不再推送 | 关闭连接后再触发 onData | 不调用 ws.send |
-| T-WS-07 | registerWsIo 无 webServer 降级 | ctx.get('webServer') 返回 undefined | 返回空 disposer，不报错 |
-| T-WS-08 | isLoopback 信任栅栏 | 非 loopback 请求 → socket.destroy | host 为 '10.0.0.1' 时 socket 被销毁 |
-
-#### 3.4 入口装配测试
-
-**目标**：覆盖 index.ts（当前 0% → 目标 90%+）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-IDX-01 | apply 调用所有注册函数 | mock ctx + registerTerminalTools + registerRemotes + registerWsIo | 三个函数各被调用一次 |
-| T-IDX-02 | 卸载时关闭全部会话 | 调用 ctx.effect 清理函数 | sessions.closeAll 被调用 |
-| T-IDX-03 | resolveDataDir 优先级 | 设 DSH_TERMINAL_MANAGER_DATA / DSH_HOME / 都不设 | 分别返回对应路径 |
-| T-IDX-04 | 插件元数据 | 检查 export name 和 inject | name='terminal-manager'，inject 含 tools/systemPrompt/webServer |
-
----
-
-### P1 — 提升可信度（发布前完成）
-
-#### 3.5 B6 工具层边界测试
-
-**目标**：覆盖 tools.ts 的错误分支（当前 66%/54% → 目标 80%/70%）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-TOOL-01 | tm_connect 临时连接缺 host | 调用 tm_connect({protocol:'telnet'}) | 返回 isError=true |
-| T-TOOL-02 | tm_send 会话不存在 | 调用 tm_send({sessionId:'fake', command:'x'}) | 返回 isError=true |
-| T-TOOL-03 | tm_send 超时 | tm_send + 不喂数据 + timeoutMs:500 | 返回 waitReason='timeout' |
-| T-TOOL-04 | tm_send 掉线 | tm_send + 模拟 onClose | 返回 isError=true，含 DISCONNECTED |
-| T-TOOL-05 | tm_send_all 空 sessionIds | 不传 sessionIds → 广播到全部 | 全部打开的会话都收到 |
-| T-TOOL-06 | tm_send_all 全 busy | 所有目标都在执行中 | 全部返回 outcome='busy' |
-| T-TOOL-07 | tm_read 会话不存在 | 调用 tm_read({sessionId:'fake'}) | 返回 isError=true |
-| T-TOOL-08 | tm_disconnect 已断开的会话 | 断开后再次 disconnect | 返回 isError=true |
-| T-TOOL-09 | tm_connect 重复连接返回既有 | 连两次同一 connId | 第二次返回同一 sessionId |
-| T-TOOL-10 | 工具返回格式一致 | 所有 6 个工具 | isError=false 时 value 含预期字段 |
-
-#### 3.6 B2 SSH 传输错误路径补测
-
-**目标**：覆盖 ssh.ts 的未覆盖分支（当前 62% → 目标 75%+）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-SSH-01 | 连接超时 | 起一个不握手的 TCP 服务器 + connectTimeoutMs:500 | 抛 CONN_TIMEOUT |
-| T-SSH-02 | shell() 失败 | 模拟 SSH 服务器拒绝 shell 通道 | 抛 TransportError |
-| T-SSH-03 | resize 已关闭的连接 | 关闭后调 resize | 不抛异常（静默忽略）|
-| T-SSH-04 | write 已关闭的连接 | 关闭后调 write | 不抛异常（静默忽略）|
-| T-SSH-05 | close 幂等 | 连续调两次 close | 第二次无错误 |
-
-#### 3.7 B3 Telnet 传输补测
-
-**目标**：覆盖 telnet.ts 的未覆盖行（当前 78%/59% → 目标 85%/70%）。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-TN-01 | 连接错误（error 事件）| 连接到一个立即关闭的端口 | 抛 HOST_UNREACHABLE |
-| T-TN-02 | 运行时 socket error | 连接后模拟 socket error 事件 | 触发 onClose，reason 含错误码 |
-| T-TN-03 | write 已关闭的连接 | close 后调 write | 不抛异常（静默忽略）|
-| T-TN-04 | 对端关闭 → onClose | 服务端主动关闭连接 | onClose 被调用 |
-| T-TN-05 | close 幂等 | 连续调两次 close | 第二次无错误 |
-
----
-
-### P2 — 前端测试（迭代完善）
-
-#### 3.8 客户端 ws.ts（F5 WS 客户端）
-
-**目标**：TermWs 纯 TS 类，无需 DOM，可直接测。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-WS-C01 | open → connecting → open | 注入假 WebSocket，触发 onopen | getStatus() 依次返回 connecting, open |
-| T-WS-C02 | 断线 → 自动重连 | 触发 onclose → 等待重连定时器 → 触发 onopen | 重连后重新 attach 所有会话 |
-| T-WS-C03 | 指数退避上限 | 连续断线多次 | 重连间隔不超过 10s |
-| T-WS-C04 | dispose 停止重连 | 调 dispose 后触发 onclose | 不再调度重连 |
-| T-WS-C05 | onOutput 发 attach 帧 | 订阅某会话输出 | ws.send 收到 {kind:'attach', sessionId} |
-| T-WS-C06 | input 发 input 帧 | 调 input(sid, data) | ws.send 收到 {kind:'input', sessionId, data} |
-| T-WS-C07 | resize 发 resize 帧 | 调 resize(sid, cols, rows) | ws.send 收到 {kind:'resize', ...} |
-| T-WS-C08 | 取消订阅发 detach 帧 | 调 onOutput 返回的取消函数 | ws.send 收到 {kind:'detach'} |
-| T-WS-C09 | output 帧分发到正确 handler | 收到 {kind:'output', sessionId:'a', data:'x'} | 只有 handler('a') 被调用 |
-| T-WS-C10 | status 帧分发到 statusHandler | 收到 {kind:'status', ...} | statusHandler 被调用 |
-| T-WS-C11 | 非法 JSON 帧不崩溃 | 收到 'not-json' | 无错误 |
-| T-WS-C12 | 连接未 open 时 send 缓冲 | status=closed 时调 input | 不抛异常，帧不发（也不丢 attached 记录）|
-
-#### 3.9 客户端 store.ts（F6 状态同步）
-
-**目标**：store 是模块级 observable，可脱离 React 测核心逻辑。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-STORE-01 | setWorkspaceVisible(true/false) 触发监听 | 注册 listener → toggle | listener 被调用 |
-| T-STORE-02 | toggleWorkspace 切换 | 连续调两次 | visible 回到原值 |
-| T-STORE-03 | setChatWidth 范围裁剪 | setChatWidth(100) / setChatWidth(9999) | 实际值被夹到 [300, 760] |
-| T-STORE-04 | markUnread / markRead | 标记 → 检查 Set → 取消 → 检查 Set | Set 正确增减 |
-| T-STORE-05 | markUnread 幂等 | 连续 markUnread 同一 sessionId | Set 大小不变 |
-
-#### 3.10 客户端 rpc.ts（通道①客户端）
-
-**目标**：rpc 函数是纯 fetch 封装，mock fetch 即可测。
-
-| 用例编号 | 测试内容 | 方法 | 通过条件 |
-|---|---|---|---|
-| T-RPC-01 | 正常调用 | mock fetch 返回 {ok:true, result:{ok:true, value:'x'}} | 返回 'x' |
-| T-RPC-02 | 后端错误 | mock fetch 返回 {result:{ok:false, error:{code:'E', message:'m'}}} | 抛 RpcError，code='E' |
-| T-RPC-03 | HTTP 错误 | mock fetch 返回 ok=false | 抛 RpcError，code='HTTP_xxx' |
-| T-RPC-04 | 请求格式 | 调 rpc('sessions.list') | fetch 被调用，body 含 type/rpcId/method |
-
----
-
-## 四、覆盖率目标
-
-| 阶段 | 语句 | 分支 | 函数 | 行 | 对应工作 |
-|---|---|---|---|---|---|
-| 当前基线 | 73 | 64 | 75 | 76 | — |
-| P0 完成后 | 80 | 70 | 82 | 82 | 修 Telnet bug + 补 remotes/ws-io/index 测试 |
-| P1 完成后 | 85 | 75 | 88 | 87 | 补 tools/ssh/telnet 边界 |
-| P2 完成后 | 88 | 78 | 90 | 90 | 前端 ws/store/rpc 测试 |
-
-**vitest.config.ts 门槛同步上调**：每阶段完成后更新 thresholds，让 CI 守住底线。
-
----
-
-## 五、执行计划
-
-| 阶段 | 工作内容 | 预计用例增量 | 预计耗时 |
-|---|---|---|---|
-| **P0-a** | 修 Telnet IAC 实现（D1-D4）+ 5 条回归 | +5 | 2-3h |
-| **P0-b** | 补 remotes.ts HTTP 路由测试（T-HTTP-01~10） | +10 | 1-2h |
-| **P0-c** | 补 ws-io.ts 生命周期测试（T-WS-01~08） | +8 | 1h |
-| **P0-d** | 补 index.ts 装配测试（T-IDX-01~04） | +4 | 0.5h |
-| **P1-a** | 补 tools.ts 边界（T-TOOL-01~10） | +10 | 1.5h |
-| **P1-b** | 补 SSH/Telnet 传输边界（T-SSH-01~05 + T-TN-01~05） | +10 | 1.5h |
-| **P2-a** | 客户端 ws.ts 测试（T-WS-C01~12） | +12 | 2h |
-| **P2-b** | 客户端 store.ts 测试（T-STORE-01~05） | +5 | 0.5h |
-| **P2-c** | 客户端 rpc.ts 测试（T-RPC-01~04） | +4 | 0.5h |
-| **合计** | | **+68** | **~12h** |
-
-**建议执行顺序**：P0-a → P0-d → P0-b → P0-c → P1 → P2
-
-理由：先修已知 bug（P0-a），再补最薄弱的模块（P0-d/b/c），再补边界（P1），最后前端（P2）。
-
----
-
-## 六、测试策略说明
-
-### 6.1 测试金字塔
-
-```
-        ┌──────────┐
-        │ E2E 冒烟 │  smoke-e2e.mjs（手动 → 后续接入 CI）
-       ─┼──────────┼─
-      / │ 集成测试  │ \  transport.spec（真 SSH/TCP 设备）
-     ───┼──────────┼───
-    /   │  单元测试  │ \  其余全部 spec（假传输 / mock ctx / mock ws）
-   ━━━━━┿━━━━━━━━━━┿━━━━
+# 带覆盖率的版本（看哪些文件没测到）
+pnpm vitest run --coverage
 ```
 
-当前集中在单元层，集成层有 transport 真设备测试，E2E 层有 smoke 脚本但需手起 DSH。
+**通过标准**：`pnpm test` 输出 `84 passed (84)`，没有红色报错。
 
-### 6.2 测试原则
+---
 
-1. **模拟设备不碰真设备**：所有测试用 helpers.ts 的 `createDeviceLab`（进程内 TCP/SSH 服务器）
-2. **依赖注入**：TransportFactory 可注入假实现（session-manager/tools/remotes/ws-io 测试均已用）
-3. **不改测试修代码**：测试失败修代码，不改测试（CLAUDE.md 基线规则）
-4. **错误消息不泄露凭据**：所有涉及密码/密钥的测试都断言错误消息不含凭据内容
+## 第一块：已知 Bug 修复清单（复制给 AI）
 
-### 6.3 暂不纳入测试范围
+先让 AI 把已知问题修掉，再做后面的事。
 
-| 项 | 原因 |
+---
+
+### Telnet 模式连真实设备会出现乱码/丢字
+
+**现象**：用 Telnet 模式（不是 Raw 模式）连真实网络设备，终端输出偶尔出现乱码、丢字节、或者命令回显不完整。
+
+**原因**：Telnet 的 IAC 协商代码在处理 TCP 分片时有 bug —— 如果一个协商序列被拆到两个 TCP 包里，代码会丢字节。另外协商逻辑自相矛盾（自己提出 WILL ECHO，服务端接受后又拒绝）。
+
+**影响**：Telnet 模式的设备（非 Raw 模式的）在高延迟/大输出场景下基本不可用。
+
+**复制给 AI**：
+
+> 修复 src/transport/telnet.ts 的 Telnet IAC 协商实现，有三个问题：
+>
+> 1. stripIac 函数在 chunk 末尾遇到 IAC（0xFF）时直接 break 丢掉，不会缓冲到下一个 chunk 拼接。需要在 connectTelnet 返回的 Transport 对象上维护一个 iacBuffer（Buffer），每次 data 事件把新 chunk 拼到 iacBuffer 后面再处理，处理完保留末尾未完成的 IAC 序列到下次的 chunk。
+>
+> 2. SB 子协商（IAC SB ... IAC SE）如果横跨两个 chunk，同样会丢数据。修复方法同上 —— 用 iacBuffer 跨 chunk 拼接。
+>
+> 3. 连接时发了 IAC WILL ECHO + IAC WILL SUPPRESS_GO_AHEAD（line 85），但服务端回 DO ECHO 时（line 40-43），代码却回 WONT ECHO，等于自己拒绝自己的提议。正确做法：收到 DO XXX 时，如果是我们之前 WILL 过的选项，应该不再回复（已经同意了），或者直接忽略。简化方案：对 DO ECHO 和 DO SUPPRESS_GO_AHEAD 不回复。
+>
+> 修完后在 tests/transport.spec.ts 补 3 条测试：
+> - IAC 序列跨两个 chunk 能正确拼接
+> - SB 子协商跨两个 chunk 不丢数据
+> - 模拟真实 Telnet 设备（发 WILL ECHO → 等 DO → 不再回 WONT）
+>
+> 修完后跑 pnpm test 确认全绿。
+
+---
+
+## 第二块：单元测试补全清单（复制给 AI）
+
+每个模块的测试指令独立，按顺序逐个复制给 AI。每做完一个跑 `pnpm test` 确认全绿再做下一个。
+
+---
+
+### 插件入口装配测试（当前零覆盖）
+
+**问题**：整个插件的入口文件负责把所有模块组装起来。现在完全没有测试 —— 万一装配逻辑改错了（比如漏注册了一个模块），没有任何测试能发现。
+
+**复制给 AI**：
+
+> 给 src/index.ts 补单元测试，放在 tests/index.spec.ts。
+>
+> 测试内容：
+> - 调 apply(ctx) 后，registerTerminalTools / registerRemotes / registerWsIo 都被调用了
+> - 调 apply(ctx) 后模拟卸载（调 ctx.effect 注册的清理函数），sessions.closeAll 被调用
+> - resolveDataDir 函数：设 DSH_TERMINAL_MANAGER_DATA 环境变量时用它，否则用 DSH_HOME，再否则用 ~/.dsh/terminal-manager
+> - 插件的 export name 是 'terminal-manager'，inject 包含 tools/systemPrompt/webServer
+>
+> 用 vi.mock 或 vi.spyOn 来跟踪函数调用。跑 pnpm test 确认全绿。
+
+---
+
+### HTTP 路由层测试（当前覆盖不足）
+
+**问题**：处理前端 POST 请求的 HTTP 路由 handler 大部分没测。CORS 预检（OPTIONS 返回 204）、非法 JSON（返回 400）、GET 请求（返回 405）这些边界路径都是黑的。
+
+**复制给 AI**：
+
+> 给 src/remotes.ts 的 registerRemotes 函数补 HTTP 路由测试，放在 tests/remotes-http.spec.ts。
+>
+> 不需要真的起 HTTP 服务器，直接构造假 req/res 对象测 handler 函数。可以修改 remotes.ts 把 handler 函数单独 export 出来便于测试。
+>
+> 测试内容：
+> - OPTIONS 请求 → 响应 204，含 access-control-allow-origin/methods/headers 头
+> - GET 请求 → 响应 405
+> - POST 非 JSON 内容 → 响应 400，body 含 bad-request
+> - POST 正常请求 → 响应 200，body 含 rpcId 和 result
+> - 连接存储校验失败 → result.ok=false，error.message 含 VALIDATION
+> - 会话不存在 → result.ok=false，error.message 含 SESSION_NOT_FOUND
+> - 响应含 access-control-allow-origin: * 头
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### WebSocket 数据流通道的生命周期测试
+
+**问题**：心跳探活、异常帧处理、多连接订阅互不干扰等逻辑没测到。
+
+**复制给 AI**：
+
+> 给 src/ws-io.ts 补生命周期测试，追加到 tests/ws-io.spec.ts。
+>
+> 测试内容（用现有的 fakeWs 假 WebSocket）：
+> - 发非法 JSON 字符串 → 不崩溃，不关闭连接
+> - 发未知 kind 的帧（比如 {kind:'unknown'}）→ 静默忽略
+> - 同一会话连续发两次 attach → subscribe 只被调一次（幂等）
+> - detach 未 attach 的会话 → 不报错
+> - 给不存在的会话发 input → 不报错
+> - 连接关闭后，会话输出不再推给该连接
+> - registerWsIo 在 ctx.get('webServer') 返回 undefined 时不报错，返回空 disposer
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### AI 工具层的错误路径
+
+**问题**：AI 工具的正常流程测了，但各种错误情况（会话不存在、超时、掉线、空参数）没测。
+
+**复制给 AI**：
+
+> 给 src/tools.ts 补错误路径测试，追加到 tests/tools.spec.ts。
+>
+> 测试内容：
+> - tm_connect 临时连接缺 host → 返回 isError
+> - tm_send 传不存在的 sessionId → 返回 isError
+> - tm_send 传空 command → 返回 isError
+> - tm_read 传不存在的 sessionId → 返回 isError
+> - tm_disconnect 传不存在的 sessionId → 返回 isError
+> - tm_send 超时（wait 参数 timeoutMs 很短，不喂数据）→ 返回 waitReason='timeout'
+> - tm_send 过程中会话掉线 → 返回 isError
+> - tm_connect 重复连同一个 connId → 返回同一个 sessionId
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### SSH 传输层的错误路径
+
+**问题**：SSH 连接正常流程测了，但超时、连接已关闭后操作、close 幂等性等没测。
+
+**复制给 AI**：
+
+> 给 src/transport/ssh.ts 补错误路径测试，追加到 tests/transport.spec.ts。
+>
+> 测试内容：
+> - 连接超时：起一个只监听不握手的 TCP 服务器，设 connectTimeoutMs:500，抛 CONN_TIMEOUT
+> - close 后调 write → 不抛异常（静默忽略）
+> - close 后调 resize → 不抛异常
+> - close 连续调两次 → 第二次不报错（幂等）
+>
+> 用 helpers.ts 的 createDeviceLab 或自己起 TCP 服务器。跑 pnpm test 确认全绿。
+
+---
+
+### Telnet 传输层的边界
+
+**问题**：Telnet 正常收发测了，但连接错误、运行时 socket error、对端关闭等路径没测。
+
+**复制给 AI**：
+
+> 给 src/transport/telnet.ts 补边界测试，追加到 tests/transport.spec.ts。
+>
+> 测试内容：
+> - 连接到一个立即关闭的端口 → 抛 HOST_UNREACHABLE
+> - 连接后模拟 socket error 事件 → 触发 onClose，reason 含错误信息
+> - close 后调 write → 不抛异常（静默忽略）
+> - 服务端主动关闭连接 → onClose 被调用
+> - close 连续调两次 → 第二次不报错
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### 客户端 WebSocket 客户端测试（纯 TS，不涉及 React）
+
+**问题**：前端的 WebSocket 客户端是纯 TS 类（不依赖 React），可以像后端一样测试，但目前完全没覆盖。
+
+**复制给 AI**：
+
+> 给 client/ws.ts 的 TermWs 类补单元测试，放在 tests/client-ws.spec.ts。
+>
+> TermWs 是纯 TS 类，用 webSocketCtor 参数注入假 WebSocket 构造器即可测试，不需要 jsdom。
+>
+> 测试内容：
+> - open() 后状态变成 connecting，假 WebSocket onopen 触发后变成 open
+> - 假 WebSocket onclose 触发后 → 自动重连（setTimeout 被调度）
+> - dispose() 后不再重连
+> - onOutput 订阅 → 假 WebSocket send 收到 attach 帧
+> - 取消订阅 → send 收到 detach 帧
+> - input() → send 收到 input 帧
+> - resize() → send 收到 resize 帧
+> - 收到 output 帧 → 对应 handler 被调用
+> - 收到 status 帧 → statusHandler 被调用
+> - 收到非法 JSON → 不崩溃
+> - 连接未 open 时调 input → 不抛异常
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### 客户端状态 store 测试（纯逻辑，不涉及 React）
+
+**问题**：前端的状态 store（工作区可见性、聊天宽度、未读标记）是纯逻辑模块，可以脱离 React 测。
+
+**复制给 AI**：
+
+> 给 client/store.ts 补单元测试，放在 tests/client-store.spec.ts。
+>
+> 这个模块是模块级 observable（单例），测试时注意在 beforeEach 里重置状态。
+>
+> 测试内容：
+> - setWorkspaceVisible(true) 后 listener 被调用
+> - toggleWorkspace 连续调两次 → 状态回到原值
+> - setChatWidth(100) → 实际值被夹到 300（最小值）
+> - setChatWidth(9999) → 实际值被夹到 760（最大值）
+> - markUnread(sid) → 未读集合包含 sid
+> - markRead(sid) → 未读集合不含 sid
+> - markUnread 连续调两次同一 sid → 集合大小不变（幂等）
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+### 客户端 RPC 函数测试（纯 fetch 封装）
+
+**问题**：前端的 RPC 调用函数是 fetch 封装，mock 掉全局 fetch 就能测。
+
+**复制给 AI**：
+
+> 给 client/rpc.ts 补单元测试，放在 tests/client-rpc.spec.ts。
+>
+> 用 vi.stubGlobal('fetch', ...) mock 掉 fetch。
+>
+> 测试内容：
+> - 正常调用 → 返回 result.value
+> - 后端返回 ok:false → 抛 RpcError，error.code 正确
+> - fetch 返回 HTTP 错误（ok=false）→ 抛 RpcError，code 含 HTTP_ 前缀
+> - 调用时 fetch 的参数正确（URL、method、headers、body 含 type/rpcId/method）
+>
+> 跑 pnpm test 确认全绿。
+
+---
+
+## 第三块：手工验收清单（最后做）
+
+等 Bug 修完、测试补完、全绿之后，再做手工验收。
+
+前置：先起模拟设备和 DSH。
+
+```bash
+# 终端 1：起模拟设备 A
+node scripts/mock-device.mjs 2323
+
+# 终端 2：起模拟设备 B
+node scripts/mock-device.mjs 2324
+
+# 终端 3：起 DSH
+cd ../deepseek-harness
+pnpm dsh --profile tm-dev --port 3180 --no-open
+
+# 浏览器打开 http://127.0.0.1:3180
+```
+
+然后点侧边栏底部的「🖥️ 终端管理」按钮，按下面 10 个场景逐个验。
+
+---
+
+### 新建一个 Telnet 连接
+
+**操作**：切到「连接」页签 → 协议选 Telnet → 名称填 `测试A`，地址 `127.0.0.1`，端口 `2323` → 点保存
+
+**通过**：连接卡片列表出现「测试A」
+
+---
+
+### 点连接 → 看到终端输出
+
+**操作**：点「测试A」卡片上的连接按钮
+
+**通过**：终端页签出现窗格，显示 `Mock Router` 横幅，状态条芯片变绿
+
+---
+
+### 手动敲命令
+
+**操作**：点终端窗格 → 键盘输入 `show version`，回车
+
+**通过**：终端回显命令和 `MockOS Version 1.0.4`
+
+---
+
+### 连第二台设备 → 多终端同屏
+
+**操作**：回连接页签 → 新建 `测试B`（端口 2324）→ 点连接
+
+**通过**：两个终端窗格各自独立显示，互不串扰
+
+---
+
+### 广播一条命令到两台
+
+**操作**：终端页签 → 底部广播栏输入 `show version` → 点发送
+
+**通过**：两个终端都回显版本号
+
+---
+
+### 隐藏一个终端（不断开）
+
+**操作**：点状态条上「测试A」的芯片
+
+**通过**：终端窗格消失，芯片变暗但名字还在；再点一次恢复
+
+---
+
+### 删除连接
+
+**操作**：回连接页签 → 点「测试A」的 ✕
+
+**通过**：卡片消失，对应终端窗格也消失
+
+---
+
+### 连不存在的地址 → 报错
+
+**操作**：新建连接 `不通的`（端口 9999）→ 点连接
+
+**通过**：弹出错误，含 `HOST_UNREACHABLE` 或 `CONN_TIMEOUT`，不会卡死
+
+---
+
+### SSH 密码错 → 报错且错误不含密码
+
+**操作**：先 `node scripts/mock-ssh-device.mjs 2222` → 新建 SSH 连接（端口 2222，密码 `wrong`）→ 点连接
+
+**通过**：弹出 `AUTH_FAILED`，错误信息里不出现密码明文
+
+---
+
+### AI 调工具 → 你实时看见
+
+**操作**：确保有一个已连接会话 → 在聊天窗口对 AI 说「连上 127.0.0.1:2323 跑一下 show version」
+
+**通过**：终端窗格实时显示 AI 的操作过程，AI 最终回复版本信息
+
+---
+
+### 验收完打勾记录
+
+| 场景 | 结果 |
 |---|---|
-| S13 隐藏/显示窗格 | 纯 CSS 交互，需视觉回归工具（非本次范围） |
-| S14 多终端聚焦/最大化 | 同上 |
-| 组件渲染测试 | 需要 jsdom + @testing-library/react，基础设施待搭建 |
-| 真机联调 | 需物理设备，不在自动化范围 |
-| evals 24 条场景 | 需 AI agent runner + API 预算，后续专项 |
+| 新建连接 | ☐ 通过 / ☐ 失败（备注：） |
+| 一键连接 | ☐ 通过 / ☐ 失败 |
+| 手动敲命令 | ☐ 通过 / ☐ 失败 |
+| 多终端同屏 | ☐ 通过 / ☐ 失败 |
+| 广播 | ☐ 通过 / ☐ 失败 |
+| 隐藏/显示 | ☐ 通过 / ☐ 失败 |
+| 删除连接 | ☐ 通过 / ☐ 失败 |
+| 地址不通 | ☐ 通过 / ☐ 失败 |
+| SSH 密码错 | ☐ 通过 / ☐ 失败 |
+| AI 调工具 | ☐ 通过 / ☐ 失败 |
 
 ---
 
-## 七、验收标准
+## 执行顺序
 
-### 发布门禁
+按这个顺序来，每步做完跑 `pnpm test` 确认全绿：
 
-- [ ] P0 全部通过（Telnet bug 修复 + HTTP/WS/入口测试补齐）
-- [ ] 覆盖率 ≥ 80/70/82/82
-- [ ] 84 + 27 = 111 项单测全绿
-- [ ] smoke-e2e 19 场景手动跑通一遍（附截图/日志）
-- [ ] Telnet 两种模式在模拟设备上各跑 E1-E9 场景通过
+| 顺序 | 做什么 | 谁做 |
+|---|---|---|
+| 1 | 修 Telnet IAC 的 Bug | 给 AI |
+| 2 | 补入口装配测试 | 给 AI |
+| 3 | 补 HTTP 路由层测试 | 给 AI |
+| 4 | 补 WS 生命周期测试 | 给 AI |
+| 5 | 补工具层错误路径测试 | 给 AI |
+| 6 | 补 SSH 错误路径测试 | 给 AI |
+| 7 | 补 Telnet 边界测试 | 给 AI |
+| 8 | 补客户端 ws.ts 测试 | 给 AI |
+| 9 | 补客户端 store.ts 测试 | 给 AI |
+| 10 | 补客户端 rpc.ts 测试 | 给 AI |
+| 11 | 手工验收 10 个场景 | 你自己点 |
 
-### 完整交付门禁
+每做完一步对 AI 说「跑 pnpm test，贴结果给我看」，全绿再继续。
 
-- [ ] P1 全部通过
-- [ ] 覆盖率 ≥ 85/75/88/87
-- [ ] 111 + 20 = 131 项单测全绿
-- [ ] P2 前端 ws/store/rpc 全部通过
+---
+
+## 明确不需要做的事
+
+以下这些**不要做**，避免浪费时间：
+
+- **前端 React 组件渲染测试**（ConnectionsPanel / TermView / TerminalWorkspace）—— 需要 jsdom + @testing-library/react，基础设施搭建成本高，且 UI 交互用手工验收更靠谱
+- **evals 24 条场景自动化** —— 需要 AI agent runner，是另一个专项
+- **端到端 smoke-e2e.mjs 接 CI** —— 需要手起 DSH，后续专项处理
+- **真机联调** —— 需要物理网络设备
+- **跳板机/堡垒机** —— 不在 MVP 范围
+- **串口支持** —— 不在 MVP 范围

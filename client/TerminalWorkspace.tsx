@@ -117,13 +117,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     } catch (err) { alert((err as RpcError).message) }
   }
   async function disconnect(sessionId: string): Promise<void> {
-    console.log('[TerminalWorkspace] disconnect called for', sessionId)
-    try {
-      await rpc('sessions.disconnect', { sessionId })
-      console.log('[TerminalWorkspace] disconnect RPC succeeded')
-    } catch (err) {
-      console.error('[TerminalWorkspace] disconnect RPC failed:', err)
-    }
+    try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }
   }
   async function reconnect(sessionId: string): Promise<void> {
     try {

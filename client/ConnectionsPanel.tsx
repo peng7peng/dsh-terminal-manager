@@ -103,12 +103,12 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const favConns = conns.filter(c => favorites.has(c.id))
   const otherConns = conns.filter(c => !favorites.has(c.id))
 
-  const pwdInput = (name: keyof typeof form, label: string, placeholder: string, required: boolean, errKey?: string) => (
+  const pwdInput = (name: keyof typeof form, label: string, placeholder: string, required: boolean, errKey?: string, hint?: string) => (
     <div className={'tm-fld ' + (errKey && errors[errKey] ? 'error' : '')}>
-      <label>{label} {required ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label>
+      <label title={hint}>{label} {required ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label>
       <div className="tm-pwdWrap">
         <input type={showPass ? 'text' : 'password'} value={form[name]} onChange={e => setField(name, e.target.value)} placeholder={placeholder} />
-        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)}>{showPass ? '👁' : '👁‍🗨'}</span>
+        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)} title={showPass ? '点击隐藏密码' : '点击显示密码'}>{showPass ? '👁' : '👁‍🗨'}</span>
       </div>
     </div>
   )
@@ -124,34 +124,34 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
       <div className="tm-sideHead">
         <span className="t">📡 连接</span>
         <div className="tm-ptabs" style={{ flex: 1, marginLeft: 8 }}>
-          <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')}>SSH</div>
-          <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')}>Telnet</div>
+          <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')} title="SSH：加密远程登录，需用户名+密码或私钥">SSH</div>
+          <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')} title="Telnet：明文远程登录，常用于网络设备（ESL 环境）">Telnet</div>
         </div>
       </div>
       <div className="tm-sideScroll">
         <div className="tm-secLabel">连接参数</div>
-        <div className={'tm-fld ' + (errors.label ? 'error' : '')}><label>名称 <span className="tm-req">*</span></label><input value={form.label} onChange={e => setField('label', e.target.value)} placeholder="如 web-01" /></div>
-        <div className={'tm-fld ' + (errors.host ? 'error' : '')}><label>主机 <span className="tm-req">*</span></label><input value={form.host} onChange={e => setField('host', e.target.value)} placeholder="192.168.1.10" /></div>
+        <div className={'tm-fld ' + (errors.label ? 'error' : '')}><label title="给这个连接起个名字，方便在列表里区分">名称 <span className="tm-req">*</span></label><input value={form.label} onChange={e => setField('label', e.target.value)} placeholder="如 web-01" /></div>
+        <div className={'tm-fld ' + (errors.host ? 'error' : '')}><label title="设备的 IP 地址或主机名，如 192.168.1.10 或 dev-router-01">主机 <span className="tm-req">*</span></label><input value={form.host} onChange={e => setField('host', e.target.value)} placeholder="192.168.1.10" /></div>
         <div style={{ display: 'flex', gap: 7 }}>
-          <div className="tm-fld" style={{ flex: '0 0 110px' }}><label style={{ minWidth: '42px' }}>端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
-          <div className={'tm-fld ' + (errors.user ? 'error' : '')} style={{ flex: 1 }}><label style={{ minWidth: '42px' }}>用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
+          <div className="tm-fld" style={{ flex: '0 0 110px' }}><label style={{ minWidth: '42px' }} title="SSH 默认 22，Telnet 默认 23；改了端口的设备填实际端口">端口</label><input value={form.port} onChange={e => setField('port', e.target.value)} placeholder={proto === 'ssh' ? '22' : '23'} /></div>
+          <div className={'tm-fld ' + (errors.user ? 'error' : '')} style={{ flex: 1 }}><label style={{ minWidth: '42px' }} title="登录账号名；SSH 必填，Telnet 一般留空">用户名 {proto === 'ssh' ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label><input value={form.user} onChange={e => setField('user', e.target.value)} placeholder="admin" /></div>
         </div>
         {proto === 'ssh' && (
           <>
-            <div className="tm-authSwitch"><span className={authMode === 'password' ? 'on' : ''} onClick={() => setAuthMode('password')}>密码</span><span className={authMode === 'key' ? 'on' : ''} onClick={() => setAuthMode('key')}>密钥</span></div>
-            {authMode === 'password' ? pwdInput('pass', '密码', '登录密码', true, 'pass') : (<><div className={'tm-fld ' + (errors.key ? 'error' : '')}><label>私钥 <span className="tm-req">*</span></label><input value={form.key} onChange={e => setField('key', e.target.value)} placeholder="私钥内容或路径" /></div>{pwdInput('passphrase', '口令', '口令', false)}</>)}
+            <div className="tm-authSwitch"><span className={authMode === 'password' ? 'on' : ''} onClick={() => setAuthMode('password')} title="用账号密码登录">密码</span><span className={authMode === 'key' ? 'on' : ''} onClick={() => setAuthMode('key')} title="用 SSH 私钥登录（更安全）">密钥</span></div>
+            {authMode === 'password' ? pwdInput('pass', '密码', '登录密码', true, 'pass', 'SSH 登录密码') : (<><div className={'tm-fld ' + (errors.key ? 'error' : '')}><label title="SSH 私钥的内容或文件路径；公钥需事先装到设备上">私钥 <span className="tm-req">*</span></label><input value={form.key} onChange={e => setField('key', e.target.value)} placeholder="私钥内容或路径" /></div>{pwdInput('passphrase', '口令', '口令', false, undefined, '私钥本身的口令；私钥没加密时留空')}</>)}
           </>
         )}
         {proto === 'telnet' && (
-          <div className="tm-authSwitch"><span className={telnetMode === 'raw' ? 'on' : ''} onClick={() => setTelnetMode('raw')}>Raw TCP</span><span className={telnetMode === 'telnet' ? 'on' : ''} onClick={() => setTelnetMode('telnet')}>Telnet</span></div>
+          <div className="tm-authSwitch"><span className={telnetMode === 'raw' ? 'on' : ''} onClick={() => setTelnetMode('raw')} title="裸 TCP 直连：不协商 Telnet 协议，原样收发字节">Raw TCP</span><span className={telnetMode === 'telnet' ? 'on' : ''} onClick={() => setTelnetMode('telnet')} title="按 Telnet 协议协商：自动剥离 IAC 控制字节（多数网络设备用这个）">Telnet</span></div>
         )}
-        <div className="tm-fld"><label>备注 <span className="tm-opt">选填</span></label><input value={form.note} onChange={e => setField('note', e.target.value)} placeholder="用途、位置等" /></div>
-        <div className={'tm-advToggle ' + (showAdv ? 'open' : '')} onClick={() => setShowAdv(v => !v)}><span className="arrow">▶</span> 连接选项</div>
+        <div className="tm-fld"><label title="随手记，不影响连接；可写用途、机房位置等">备注 <span className="tm-opt">选填</span></label><input value={form.note} onChange={e => setField('note', e.target.value)} placeholder="用途、位置等" /></div>
+        <div className={'tm-advToggle ' + (showAdv ? 'open' : '')} onClick={() => setShowAdv(v => !v)} title="展开/收起高级连接参数"><span className="arrow">▶</span> 连接选项</div>
         <div className={'tm-advBody ' + (showAdv ? 'open' : '')}>
-          {proto === 'ssh' && <div className="tm-fld"><label>握手超时</label><select value={handshakeTimeout} onChange={e => setHandshakeTimeout(Number(e.target.value))}><option value={15}>15 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option><option value={120}>120 秒</option><option value={180}>180 秒</option></select></div>}
+          {proto === 'ssh' && <div className="tm-fld"><label title="SSH 握手超时；网络慢或设备响应慢时调大，默认 15 秒">握手超时</label><select value={handshakeTimeout} onChange={e => setHandshakeTimeout(Number(e.target.value))}><option value={15}>15 秒</option><option value={30}>30 秒</option><option value={60}>60 秒</option><option value={120}>120 秒</option><option value={180}>180 秒</option></select></div>}
           <div style={{ display: 'flex', gap: 7 }}>
-            <div className="tm-fld" style={{ flex: 1 }}><label>换行</label><select value={newline} onChange={e => setNewline(e.target.value as 'lf' | 'cr' | 'crlf')}><option value="lf">LF (\n)</option><option value="cr">CR (\r)</option><option value="crlf">CRLF (\r\n)</option></select></div>
-            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
+            <div className="tm-fld" style={{ flex: 1 }}><label title="发送命令时每行末尾追加的换行符；多数网络设备用 CRLF（\r\n），部分设备用 LF">换行</label><select value={newline} onChange={e => setNewline(e.target.value as 'lf' | 'cr' | 'crlf')}><option value="lf">LF (\n)</option><option value="cr">CR (\r)</option><option value="crlf">CRLF (\r\n)</option></select></div>
+            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button className="tm-btn primary" onClick={save}>保存</button><button className="tm-btn" onClick={quickConnect}>连接</button>{editing !== null && <button className="tm-btn" onClick={resetForm}>取消</button>}</div>

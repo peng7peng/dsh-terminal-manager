@@ -151,15 +151,19 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           ))}
         </div>
         <div className="tm-bcast">
-          <span className="lb">📢 广播到</span>
-          <div className="tm-bchips">
-            <span className={`tm-bchip ${allOn ? 'on' : ''}`} onClick={toggleAll}>全部</span>
-            {visibleSessions.map(s => (
-              <span key={s.sessionId} className={`tm-bchip ${broadcastChips.has(s.sessionId) ? 'on' : ''}`} onClick={() => toggleChip(s.sessionId)}>{s.label}</span>
-            ))}
+          <div className="tm-brow">
+            <span className="lb">📢 广播到</span>
+            <div className="tm-bchips">
+              <span className={`tm-bchip ${allOn ? 'on' : ''}`} onClick={toggleAll}>全部</span>
+              {visibleSessions.map(s => (
+                <span key={s.sessionId} className={`tm-bchip ${broadcastChips.has(s.sessionId) ? 'on' : ''}`} onClick={() => toggleChip(s.sessionId)}>{s.label}</span>
+              ))}
+            </div>
           </div>
-          <input value={bcCmd} onChange={e => setBcCmd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') broadcast() }} placeholder="命令…" />
-          <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
+          <div className="tm-brow">
+            <input value={bcCmd} onChange={e => setBcCmd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') broadcast() }} placeholder="输入要广播到所选会话的命令…" />
+            <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
+          </div>
         </div>
       </div>
       <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />

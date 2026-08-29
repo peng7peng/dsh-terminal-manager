@@ -30,9 +30,9 @@ export const WORKSPACE_CSS = `
 .tm-col-select select { border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); background:transparent; color:var(--dsw-alias-label-primary, #333); border-radius:4px; padding:2px 6px; font-size:12px; cursor:pointer; }
 
 /* 终端网格：1fr 填满——单个窗格填满整个模块，多个窗格也填满（自动换列/换行），无任何空隙 */
-.tm-grid { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:6px; display:grid; gap:6px; background:var(--dsw-alias-bg-base, #fff); }
-.tm-grid > div { min-height:150px; min-width:0; /* 防止 grid item 溢出 */ }
-.tm-pane { display:flex; flex-direction:column; min-height:180px; border:1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.16)); border-radius:6px; overflow:hidden; box-sizing:border-box; margin:2px; }
+.tm-grid { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:6px; display:grid; gap:6px; grid-auto-rows:minmax(300px, 1fr); background:var(--dsw-alias-bg-base, #fff); }
+.tm-grid > div { min-height:0; min-width:0; /* 防止 grid item 溢出；高度由 grid-auto-rows 控制 */ }
+.tm-pane { display:flex; flex-direction:column; height:100%; border:1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.16)); border-radius:6px; overflow:hidden; box-sizing:border-box; margin:2px; }
 .tm-paneBar { flex:none; display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--dsw-alias-bg-layer-2, #161b22); border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); font-size:11.5px; color:var(--dsw-alias-label-secondary, #8a91a5); }
 .tm-paneBar .dot { width:7px; height:7px; border-radius:50%; background:var(--dsw-static-green-500, #22c55e); }
 .tm-paneBar .nm { font-weight:600; font-family:var(--dsw-font-code, monospace); color:var(--dsw-alias-label-primary, #fff); }

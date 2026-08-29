@@ -196,15 +196,19 @@ export class SessionManager {
     let effectiveConnId = connId
     if (effectiveConnId === undefined && this.store !== undefined) {
       await this.store.ensureLoaded()
+      // 将 ConnectTarget 的扁平凭据字段转换为 ConnectionConfig 的 auth 嵌套格式
+      const auth = target.password !== undefined
+        ? { kind: 'password' as const, password: target.password }
+        : target.privateKey !== undefined
+          ? { kind: 'key' as const, privateKey: target.privateKey, ...(target.passphrase !== undefined ? { passphrase: target.passphrase } : {}) }
+          : undefined
       const autoConn = await this.store.create({
         protocol: target.protocol,
         host: target.host,
         port: target.port,
         label: target.label ?? target.host,
         ...(target.username !== undefined ? { username: target.username } : {}),
-        ...(target.password !== undefined ? { password: target.password } : {}),
-        ...(target.privateKey !== undefined ? { privateKey: target.privateKey } : {}),
-        ...(target.passphrase !== undefined ? { passphrase: target.passphrase } : {}),
+        ...(auth !== undefined ? { auth } : {}),
       })
       effectiveConnId = autoConn.id
     }

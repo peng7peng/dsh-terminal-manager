@@ -123,19 +123,6 @@ if (-not $SkipDsh) {
     Write-Info "跳过 DSH 初始化"
 }
 
-# 检查 Profile
-$ProfileDir = Join-Path $DshHome "profiles\$Profile"
-Write-Info "Profile: $Profile -> $ProfileDir"
-if (-not (Test-Path $ProfileDir)) {
-    Write-Error "Profile 不存在: $ProfileDir"
-    Write-Warn "可用 Profiles:"
-    Get-ChildItem (Join-Path $DshHome "profiles") -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }
-    Write-Host ""
-    Write-Host "请指定正确的 profile，例如："
-    Write-Host "  .\install.ps1 -Profile web"
-    exit 1
-}
-
 # ==================== 获取插件 ====================
 
 if ([string]::IsNullOrEmpty($PluginPath)) {
@@ -172,59 +159,30 @@ if ([string]::IsNullOrEmpty($PluginPath)) {
 
 # ==================== 安装插件 ====================
 
-Write-Info "安装插件到 Profile..."
-Push-Location $ProfileDir
+Write-Info "安装插件..."
+
+# 检查 pnpm
 try {
-    # 检查并移除旧版本
-    if (Test-Path "package.json") {
-        $pkgContent = Get-Content "package.json" -Raw
-        if ($pkgContent -match '"dsh-terminal-manager"') {
-            Write-Info "移除旧版本..."
-            pnpm remove dsh-terminal-manager 2>$null
-        }
-    }
-
-    # 安装 pnpm（如果没有）
-    try {
-        $null = pnpm --version
-    } catch {
-        Write-Info "安装 pnpm..."
-        npm install -g pnpm
-    }
-
-    # 安装新版本
-    Write-Info "执行: pnpm add $PluginPath"
-    pnpm add $PluginPath
-    Write-Success "插件已安装"
-
-    # 更新 package.json 的 bundles
-    Write-Info "更新 bundles 配置..."
-    $pkgJson = Get-Content "package.json" -Raw | ConvertFrom-Json
-
-    if (-not $pkgJson.dsh) {
-        $pkgJson | Add-Member -NotePropertyName "dsh" -NotePropertyValue @{ profile = @{ bundles = @() } }
-    }
-    if (-not $pkgJson.dsh.profile) {
-        $pkgJson.dsh | Add-Member -NotePropertyName "profile" -NotePropertyValue @{ bundles = @() }
-    }
-    if (-not $pkgJson.dsh.profile.bundles) {
-        $pkgJson.dsh.profile | Add-Member -NotePropertyName "bundles" -NotePropertyValue @()
-    }
-
-    $bundles = [System.Collections.ArrayList]@($pkgJson.dsh.profile.bundles)
-    if (-not $bundles.Contains("dsh-terminal-manager")) {
-        $bundles.Add("dsh-terminal-manager") | Out-Null
-        $pkgJson.dsh.profile.bundles = $bundles.ToArray()
-
-        # 写回 package.json
-        $pkgJson | ConvertTo-Json -Depth 10 | Set-Content "package.json" -Encoding UTF8
-        Write-Success "已添加 dsh-terminal-manager 到 bundles"
-    } else {
-        Write-Info "dsh-terminal-manager 已在 bundles 中"
-    }
-} finally {
-    Pop-Location
+    $null = pnpm --version
+} catch {
+    Write-Info "安装 pnpm..."
+    npm install -g pnpm
 }
+
+# 使用 dsh plugin 命令安装（会自动处理 bundles 注册）
+Write-Info "执行: npx @deepseek-ai/dsh plugin --profile $Profile add $PluginPath"
+$dshResult = Start-Process -FilePath "npx" -ArgumentList "@deepseek-ai/dsh plugin --profile $Profile add `"$PluginPath`"" -Wait -PassThru -NoNewWindow
+
+if ($dshResult.ExitCode -ne 0) {
+    Write-Error "插件安装失败"
+    Write-Host ""
+    Write-Host "请手动安装："
+    Write-Host "  cd ~/.dsh/profiles/$Profile"
+    Write-Host "  pnpm add $PluginPath"
+    exit 1
+}
+
+Write-Success "插件已安装并注册"
 
 # ==================== 完成 ====================
 

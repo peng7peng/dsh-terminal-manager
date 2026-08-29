@@ -145,21 +145,6 @@ else
     info "跳过 DSH 初始化"
 fi
 
-# 检查 Profile
-PROFILE_DIR="$DSH_HOME/profiles/$PROFILE"
-info "Profile: $PROFILE -> $PROFILE_DIR"
-if [ ! -d "$PROFILE_DIR" ]; then
-    error "Profile 不存在: $PROFILE_DIR"
-    warn "可用 Profiles:"
-    ls -1 "$DSH_HOME/profiles" 2>/dev/null | while read -r dir; do
-        [ -d "$DSH_HOME/profiles/$dir" ] && echo "  - $dir"
-    done
-    echo ""
-    echo "请指定正确的 profile，例如："
-    echo "  ./install.sh --profile web"
-    exit 1
-fi
-
 # ==================== 获取插件 ====================
 
 if [ -z "$PLUGIN_PATH" ]; then
@@ -207,43 +192,29 @@ fi
 
 # ==================== 安装插件 ====================
 
-info "安装插件到 Profile..."
-cd "$PROFILE_DIR"
+info "安装插件..."
 
-# 检查并移除旧版本
-if [ -f "package.json" ]; then
-    if grep -q '"dsh-terminal-manager"' package.json 2>/dev/null; then
-        info "移除旧版本..."
-        pnpm remove dsh-terminal-manager 2>/dev/null || true
-    fi
-fi
-
-# 安装新版本（需要 pnpm）
+# 检查 pnpm
 if ! command -v pnpm &> /dev/null; then
     info "安装 pnpm..."
     npm install -g pnpm
 fi
 
-info "执行: pnpm add $PLUGIN_PATH"
-pnpm add "$PLUGIN_PATH"
-success "插件已安装"
+# 使用 dsh plugin 命令安装（会自动处理 bundles 注册）
+info "执行: npx @deepseek-ai/dsh plugin --profile $PROFILE add $PLUGIN_PATH"
+npx @deepseek-ai/dsh plugin --profile "$PROFILE" add "$PLUGIN_PATH"
+DSH_EXIT=$?
 
-# 更新 package.json 的 bundles
-info "更新 bundles 配置..."
-node -e "
-const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-if (!pkg.dsh) pkg.dsh = {};
-if (!pkg.dsh.profile) pkg.dsh.profile = {};
-if (!pkg.dsh.profile.bundles) pkg.dsh.profile.bundles = [];
-if (!pkg.dsh.profile.bundles.includes('dsh-terminal-manager')) {
-    pkg.dsh.profile.bundles.push('dsh-terminal-manager');
-    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-    console.log('  已添加 dsh-terminal-manager 到 bundles');
-} else {
-    console.log('  dsh-terminal-manager 已在 bundles 中');
-}
-"
+if [ $DSH_EXIT -ne 0 ]; then
+    error "插件安装失败"
+    echo ""
+    echo "请手动安装："
+    echo "  cd ~/.dsh/profiles/$PROFILE"
+    echo "  pnpm add $PLUGIN_PATH"
+    exit 1
+fi
+
+success "插件已安装并注册"
 
 # ==================== 完成 ====================
 

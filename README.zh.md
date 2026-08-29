@@ -39,13 +39,10 @@ curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/i
 # 1. 下载 tgz
 wget https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
 
-# 2. 安装到 DSH profile
-cd ~/.dsh/profiles/web
-pnpm add ./dsh-terminal-manager-0.0.1.tgz
+# 2. 使用 dsh plugin 命令安装（自动注册到 bundles）
+npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.0.1.tgz
 
-# 3. 编辑 package.json，在 dsh.profile.bundles 中添加 "dsh-terminal-manager"
-
-# 4. 启动
+# 3. 启动
 npx @deepseek-ai/dsh web
 ```
 

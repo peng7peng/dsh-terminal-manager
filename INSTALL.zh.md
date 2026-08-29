@@ -89,55 +89,22 @@ pnpm pack
 
 ### 第二步：安装到 DSH Profile
 
-DSH 使用 Profile 来管理插件组合。你可以安装到已有的 Profile 或创建新的。
-
-#### 2.1 查看现有 Profile
+使用 DSH 内置的插件管理命令：
 
 ```bash
-ls ~/.dsh/profiles/
-# 常见 profile: web, tm-dev 等
+# 安装插件（会自动注册到 bundles）
+npx @deepseek-ai/dsh plugin --profile web add /path/to/dsh-terminal-manager-0.0.1.tgz
 ```
 
-#### 2.2 安装插件
-
-```bash
-cd ~/.dsh/profiles/web  # 或你想安装到的 profile
-
-# 方式一：从 tgz 安装
-pnpm add /path/to/dsh-terminal-manager-0.0.1.tgz
-
-# 方式二：从本地源码目录安装（开发模式）
-pnpm add /path/to/dsh-terminal-manager
-```
-
-#### 2.3 注册插件到 Profile Bundle
-
-编辑 `~/.dsh/profiles/web/package.json`，确保 `dsh-terminal-manager` 在 `bundles` 列表中：
-
-```json
-{
-  "name": "dsh-profile-web",
-  "private": true,
-  "dependencies": {
-    "dsh-terminal-manager": "file:../dsh-terminal-manager-0.0.1.tgz"
-  },
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "dsh-terminal-manager"
-      ]
-    }
-  }
-}
-```
+这个命令会：
+1. 初始化 profile（如果不存在）
+2. 运行 `pnpm add` 安装插件
+3. 自动将插件添加到 `dsh.profile.bundles`
 
 ### 第三步：启动 DSH
 
 ```bash
-cd /path/to/deepseek-harness
-pnpm dsh --profile web
+npx @deepseek-ai/dsh web
 ```
 
 启动后，你应该能在左侧边栏看到「终端」入口。
@@ -148,7 +115,7 @@ pnpm dsh --profile web
 
 1. **启动 DSH**：
    ```bash
-   pnpm dsh --profile web --port 3000
+   npx @deepseek-ai/dsh web --port 3000
    ```
 
 2. **打开浏览器**：访问 `http://localhost:3000`
@@ -249,9 +216,8 @@ pnpm dsh --profile web
 ### 方式一：覆盖安装
 
 ```bash
-cd ~/.dsh/profiles/web
-pnpm remove dsh-terminal-manager
-pnpm add /path/to/new/dsh-terminal-manager-0.0.2.tgz
+npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
+npx @deepseek-ai/dsh plugin --profile web add /path/to/new/dsh-terminal-manager-0.0.2.tgz
 ```
 
 ### 方式二：从 Git 更新
@@ -269,15 +235,10 @@ pnpm pack
 ## 🗑️ 卸载插件
 
 ```bash
-cd ~/.dsh/profiles/web
-
-# 1. 从依赖中移除
-pnpm remove dsh-terminal-manager
-
-# 2. 编辑 package.json，从 bundles 中移除 "dsh-terminal-manager"
-
-# 3. 重启 DSH
+npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
 ```
+
+然后重启 DSH。
 
 ---
 

@@ -1,113 +1,92 @@
 # DSH Terminal Manager 安装指南
 
 > 🖥️ SSH/Telnet 多会话终端管理器 —— DSH 插件
-> 
+>
 > **仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
 
 ---
 
 ## 📋 前提条件
 
-在开始安装之前，请确保你的环境满足以下要求：
-
 | 依赖 | 版本要求 | 说明 |
 |------|----------|------|
-| Node.js | ≥ 22.19.0 或 ≥ 24.0.0 | 运行时环境 |
-| pnpm | ≥ 11.7.0 | 包管理器 |
-| DSH (deepseek-harness) | 最新版本 | 插件宿主框架 |
+| Node.js | ≥ 22.19.0 或 ≥ 24.0.0 | [下载](https://nodejs.org/) |
 
-### 检查版本
-
+检查版本：
 ```bash
 node --version    # 应显示 v22.x 或 v24.x
-pnpm --version    # 应显示 11.x
 ```
 
 ---
 
-## 🚀 快速安装（一键脚本）
+## 🚀 快速安装（推荐）
 
-**脚本会自动完成以下操作：**
-1. 检查 Node.js 环境
-2. 初始化 DSH（首次运行时）
-3. 下载插件
-4. 安装并注册到 Profile
+一键脚本会自动完成所有配置：
 
 ### Windows (PowerShell)
 
 ```powershell
-# 一键安装（自动下载 DSH + 插件）
 irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 ```
 
-或手动下载脚本后执行：
-
-```powershell
-# 从本地 tgz 安装
-.\scripts\install.ps1 -PluginPath ".\dsh-terminal-manager-0.0.1.tgz"
-
-# DSH 已装好，只装插件
-.\scripts\install.ps1 -SkipDsh
-```
-
-### Linux / macOS (Bash)
+### Linux / macOS
 
 ```bash
-# 一键安装（自动下载 DSH + 插件）
 curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
-或手动下载脚本后执行：
-
-```bash
-# 从本地 tgz 安装
-./scripts/install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz
-
-# DSH 已装好，只装插件
-./scripts/install.sh --skip-dsh
-```
+脚本会：
+1. 检查 Node.js 环境
+2. 首次运行时自动初始化 DSH
+3. 下载并安装插件
+4. 自动注册到插件列表
 
 ---
 
 ## 🔧 手动安装
 
-### 第一步：下载插件
+### 第 1 步：下载插件
 
-从 GitCode 下载最新版本的 tgz 包：
+**浏览器下载**：
+
+访问 https://gitcode.com/pengpengR/dsh-terminal-manager/releases ，下载 `dsh-terminal-manager-0.0.1.tgz`
+
+**命令行下载**：
 
 ```bash
-# 方式一：直接下载 tgz
-wget https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
-
-# 方式二：git clone 后本地打包
-git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
-cd dsh-terminal-manager
-pnpm install
-pnpm build
-pnpm pack
+# Linux / macOS
+curl -L -o dsh-terminal-manager-0.0.1.tgz \
+  https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
 ```
 
-### 第二步：安装到 DSH Profile
+```powershell
+# Windows PowerShell
+Invoke-WebRequest -Uri "https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz" `
+  -OutFile "dsh-terminal-manager-0.0.1.tgz"
+```
 
-使用 DSH 内置的插件管理命令：
+### 第 2 步：安装插件
 
 ```bash
-# 安装插件（会自动注册到 bundles）
-npx @deepseek-ai/dsh plugin --profile web add /path/to/dsh-terminal-manager-0.0.1.tgz
+npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.0.1.tgz
 ```
 
 这个命令会：
-1. 初始化 profile（如果不存在）
-2. 运行 `pnpm add` 安装插件
-3. 自动将插件添加到 `dsh.profile.bundles`
+- 首次运行时自动初始化 DSH 环境（创建 `~/.dsh` 目录）
+- 安装插件到 `web` profile
+- 自动注册到插件列表（无需手动编辑配置文件）
 
-### 第三步：启动 DSH
+### 第 3 步：启动 DSH
 
 ```bash
 npx @deepseek-ai/dsh web
 ```
 
-启动后，你应该能在左侧边栏看到「终端」入口。
+浏览器会自动打开 http://127.0.0.1:3080
+
+### 第 4 步：开始使用
+
+左侧边栏底部会出现「🖥️ 终端」按钮，点击即可使用。
 
 ---
 
@@ -115,20 +94,14 @@ npx @deepseek-ai/dsh web
 
 1. **启动 DSH**：
    ```bash
-   npx @deepseek-ai/dsh web --port 3000
+   npx @deepseek-ai/dsh web
    ```
 
-2. **打开浏览器**：访问 `http://localhost:3000`
+2. **打开浏览器**：访问 http://127.0.0.1:3080
 
 3. **检查插件加载**：
    - 左侧边栏应出现「🖥️ 终端」按钮
    - 点击后右侧应展开终端工作区
-
-4. **检查客户端资源**：
-   ```bash
-   curl -I http://localhost:3000/plugins/dsh-terminal-manager/client.js
-   # 应返回 HTTP 200
-   ```
 
 ---
 
@@ -163,13 +136,31 @@ npx @deepseek-ai/dsh web
 
 ---
 
+## 🔄 更新插件
+
+```bash
+# 下载新版本 tgz 后
+npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
+npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.0.2.tgz
+```
+
+---
+
+## 🗑️ 卸载插件
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
+```
+
+---
+
 ## 🐛 常见问题
 
 ### Q: 启动后看不到终端按钮？
 
 **A:** 检查以下几点：
-1. Profile 的 `package.json` 是否正确配置了 `dsh.profile.bundles`
-2. 浏览器控制台是否有报错（F12 打开开发者工具）
+1. 浏览器控制台是否有报错（F12 打开开发者工具）
+2. 确认插件安装成功：`ls ~/.dsh/profiles/web/node_modules/` 应有 `dsh-terminal-manager`
 3. 重启 DSH 服务
 
 ### Q: 连接失败提示 "Session not found"？
@@ -181,64 +172,18 @@ npx @deepseek-ai/dsh web
 
 ### Q: SSH 连接超时？
 
-**A:** 
+**A:**
 1. 检查 SSH 服务是否运行
 2. 确认用户名/密码/密钥正确
 3. 尝试增加超时时间（高级设置里配置）
 
-### Q: 浏览器显示空白或加载失败？
+### Q: 提示 profile "xxx" does not exist？
 
-**A:**
-1. 清除浏览器缓存
-2. 检查 `~/.dsh/profiles/<profile>/node_modules/dsh-terminal-manager` 是否存在
-3. 重新运行 `pnpm install` 在 profile 目录
-
----
-
-## 📁 目录结构说明
-
-```
-~/.dsh/                          # DSH 用户数据根目录
-├── profiles/                    # Profile 目录
-│   └── web/                     # web profile
-│       ├── package.json         # Profile 配置（bundles 在这里）
-│       ├── cordis.yml           # Cordis 配置（通常为空）
-│       ├── cordis.patch.yml     # 补丁配置
-│       └── node_modules/        # 安装的插件
-│           └── dsh-terminal-manager/
-└── sessions/                    # 会话数据
-```
-
----
-
-## 🔄 更新插件
-
-### 方式一：覆盖安装
-
+**A:** 使用默认 profile：
 ```bash
-npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
-npx @deepseek-ai/dsh plugin --profile web add /path/to/new/dsh-terminal-manager-0.0.2.tgz
+npx @deepseek-ai/dsh web
 ```
-
-### 方式二：从 Git 更新
-
-```bash
-cd /path/to/dsh-terminal-manager
-git pull
-pnpm build
-pnpm pack
-# 然后重新安装 tgz
-```
-
----
-
-## 🗑️ 卸载插件
-
-```bash
-npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
-```
-
-然后重启 DSH。
+不要用 `--profile tm-dev` 或其他自定义 profile，除非你已创建。
 
 ---
 
@@ -251,4 +196,4 @@ npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
 
 ## 📄 许可证
 
-MIT License
+MIT

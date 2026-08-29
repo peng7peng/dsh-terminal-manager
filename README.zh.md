@@ -13,13 +13,15 @@
 - 广播：一条命令发多台，逐台独立出结果；
 - 纯本地运行，不依赖 MCP。
 
-## 安装
+## 前提条件
 
-详细安装指南请查看 **[INSTALL.zh.md](./INSTALL.zh.md)**。
+- **Node.js** 22+ 或 24+（[下载](https://nodejs.org/)）
+
+## 安装
 
 ### 一键安装（推荐）
 
-脚本会自动安装 DSH 和插件：
+脚本会自动完成所有配置：
 
 **Windows (PowerShell):**
 ```powershell
@@ -33,40 +35,83 @@ curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/i
 
 ### 手动安装
 
-如果你已经安装了 DSH，也可以手动安装：
+**第 1 步：下载插件**
+
+从浏览器下载：https://gitcode.com/pengpengR/dsh-terminal-manager/releases
+
+或命令行下载：
+```bash
+# Linux / macOS
+curl -L -o dsh-terminal-manager-0.0.1.tgz https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
+
+# Windows PowerShell
+Invoke-WebRequest -Uri "https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz" -OutFile "dsh-terminal-manager-0.0.1.tgz"
+```
+
+**第 2 步：安装插件**
 
 ```bash
-# 1. 下载 tgz
-wget https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
-
-# 2. 使用 dsh plugin 命令安装（自动注册到 bundles）
 npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.0.1.tgz
+```
 
-# 3. 启动
+这个命令会：
+- 首次运行时自动初始化 DSH 环境
+- 安装插件到 `web` profile
+- 自动注册到插件列表
+
+**第 3 步：启动**
+
+```bash
 npx @deepseek-ai/dsh web
 ```
 
-装好后侧边栏底部出现「🖥️ 终端管理」按钮。
+浏览器会自动打开 http://127.0.0.1:3080
+
+**第 4 步：使用**
+
+左侧边栏底部会出现「🖥️ 终端」按钮，点击即可使用。
 
 ## 开发
 
+> 以下内容面向插件开发者，普通用户无需关注。
+
 ```sh
+# 克隆仓库
 git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
 cd dsh-terminal-manager
-pnpm install          # 依赖用 link: 指向相邻 deepseek-harness 检出
+
+# 安装依赖（需要相邻目录有 deepseek-harness 检出）
+pnpm install
+
+# 构建
 pnpm build            # 产出 lib/index.js（host 半）+ lib/client.js（浏览器半）
+
+# 测试
 pnpm test             # 165 项 vitest（模拟设备，不碰真设备）
 ```
 
-运行验证（相邻 deepseek-harness 检出）：
+### 本地调试
+
+需要相邻目录有 deepseek-harness 检出：
 
 ```sh
-cd ../deepseek-harness
-pnpm dsh --profile tm-dev --port 3180 --no-open   # profile 在 ~/.dsh/profiles/tm-dev
+# 结构要求
+D:/myProject/dsh/
+├── deepseek-harness/    # DSH 源码
+└── terminal-manager/    # 本插件
+
+# 创建开发用 profile（只需一次）
+cd deepseek-harness
+pnpm dsh plugin --profile tm-dev add ../terminal-manager
+
+# 启动调试
+pnpm dsh --profile tm-dev --port 3180 --no-open
 # 浏览器开 http://127.0.0.1:3180
 ```
 
-本地联调模拟设备（无需真设备）：
+### 模拟设备
+
+本地联调无需真实设备：
 
 ```sh
 node scripts/mock-device.mjs 2323   # 起一台模拟路由器 CLI

@@ -98,17 +98,19 @@ pnpm test             # 165 项 vitest（模拟设备，不碰真设备）
 # 结构要求
 D:/myProject/dsh/
 ├── deepseek-harness/        # DSH 源码
-└── dsh-terminal-manager/    # 本插件
+└── dsh-terminal-manager/    # 本插件（目录名必须与包名一致）
 
 # 创建开发用 profile（只需一次）
 cd deepseek-harness
 # 注意：必须用 dsh-terminal-manager@link: 指定正确的包名
-pnpm dsh plugin --profile tm-dev add "dsh-terminal-manager@link:../terminal-manager"
+pnpm dsh plugin --profile tm-dev add "dsh-terminal-manager@link:../dsh-terminal-manager"
 
 # 启动调试
 pnpm dsh --profile tm-dev --port 3180 --no-open
 # 浏览器开 http://127.0.0.1:3180
 ```
+
+> **⚠️ 重命名目录后**：必须在插件目录重新执行 `pnpm install`，否则 `node_modules` 里的符号链接会指向旧路径，导致 `ssh2` 等依赖找不到。
 
 ### 模拟设备
 

@@ -136,7 +136,10 @@ export class SessionManager {
   }
 
   list(): SessionSnapshot[] {
-    return [...this.sessions.values()].map(r => this.snapshot(r))
+    // 过滤掉 connecting 状态的会话，避免前端在连接过程中拿到未完成的会话
+    return [...this.sessions.values()]
+      .filter(r => r.status !== 'connecting')
+      .map(r => this.snapshot(r))
   }
 
   get(sessionId: string): SessionSnapshot | undefined {

@@ -84,7 +84,11 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     ws.onReconnect(() => {
       setSessions([])
       void (async () => {
-        try { setSessions(await rpc<SessionSnap[]>('sessions.list')) } catch { /* ignore */ }
+        try {
+          const list = await rpc<SessionSnap[]>('sessions.list')
+          // 防御性过滤：排除 connecting 状态的会话
+          setSessions(list.filter(s => s.status !== 'connecting'))
+        } catch { /* ignore */ }
       })()
     })
     ws.open()
@@ -95,7 +99,11 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   useEffect(() => {
     if (!visible) return
     void (async () => {
-      try { setSessions(await rpc<SessionSnap[]>('sessions.list')) } catch { /* ignore */ }
+      try {
+        const list = await rpc<SessionSnap[]>('sessions.list')
+        // 防御性过滤：排除 connecting 状态的会话
+        setSessions(list.filter(s => s.status !== 'connecting'))
+      } catch { /* ignore */ }
     })()
   }, [visible])
 

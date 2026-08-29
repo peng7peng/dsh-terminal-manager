@@ -10,7 +10,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout terminal-manager
+      - name: Checkout dsh-terminal-manager
         uses: actions/checkout@v4
 
       # link: 依赖指向 ../deepseek-harness，先把这个（public）源仓库放在相邻目录
@@ -35,7 +35,7 @@ jobs:
         working-directory: ../deepseek-harness
         run: pnpm install
 
-      - name: Install terminal-manager deps
+      - name: Install dsh-terminal-manager deps
         run: pnpm install
 
       - name: Build (tsdown host + browser halves)

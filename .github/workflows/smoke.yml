@@ -6,7 +6,7 @@
 #
 # 关键点：
 #  - deepseek-harness 检出为兄弟目录（../deepseek-harness），与本地开发布局一致，
-#    terminal-manager 的 devDependencies 用 `link:` 指向它。
+#  - dsh-terminal-manager 的 devDependencies 用 `link:` 指向它。
 #  - dsh CLI 用仓库内的 `node --import tsx/esm apps/cli/src/bin.ts`（tsx 随 install 装好）。
 #  - GH Actions 的 run 步骤结束时 bash 退出：后台服务一律 `nohup ... &` + `disown`，
 #    用 `curl --retry-connrefused --retry 30 --retry-delay 1` 等在起服务的那一步里。
@@ -36,7 +36,7 @@ jobs:
         shell: bash
 
     steps:
-      - name: 检出 terminal-manager
+      - name: 检出 dsh-terminal-manager
         uses: actions/checkout@v4
 
       - name: 检出 deepseek-harness（兄弟目录）
@@ -57,7 +57,7 @@ jobs:
         working-directory: ../deepseek-harness
         run: pnpm install
 
-      - name: 安装并构建 terminal-manager
+      - name: 安装并构建 dsh-terminal-manager
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
@@ -84,9 +84,8 @@ jobs:
           run_dsh --version
 
           # ── 2) 初始化 tm-ci profile + link 安装本插件 ──
-          # 用绝对路径（等价于从终端管理插件检出根运行 `add ./terminal-manager`：
-          # CLI 会把相对路径锚定到调用目录，绝对路径不会歧义）。
-          run_dsh plugin --profile tm-ci add "$GITHUB_WORKSPACE"
+          # 显式指定包名（pnpm 在 Windows 上可能用目录名做别名，导致 dsh.bundle 检测失败）。
+          run_dsh plugin --profile tm-ci add "dsh-terminal-manager@link:$GITHUB_WORKSPACE"
 
           # ── 3) 把 profile 的 bundles 固化为冒烟三件套 ──
           node -e '

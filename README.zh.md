@@ -17,7 +17,9 @@
 
 详细安装指南请查看 **[INSTALL.zh.md](./INSTALL.zh.md)**。
 
-### 快速安装（一键脚本）
+### 一键安装（推荐）
+
+脚本会自动安装 DSH 和插件：
 
 **Windows (PowerShell):**
 ```powershell
@@ -31,15 +33,23 @@ curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/i
 
 ### 手动安装
 
-```bash
-# 从 tgz 安装
-cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-terminal-manager-0.0.1.tgz
+如果你已经安装了 DSH，也可以手动安装：
 
-# 编辑 package.json，在 dsh.profile.bundles 中添加 "dsh-terminal-manager"
+```bash
+# 1. 下载 tgz
+wget https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
+
+# 2. 安装到 DSH profile
+cd ~/.dsh/profiles/web
+pnpm add ./dsh-terminal-manager-0.0.1.tgz
+
+# 3. 编辑 package.json，在 dsh.profile.bundles 中添加 "dsh-terminal-manager"
+
+# 4. 启动
+npx @deepseek-ai/dsh web
 ```
 
-需 DSH 已安装。装好后侧边栏底部出现「🖥️ 终端管理」按钮。
+装好后侧边栏底部出现「🖥️ 终端管理」按钮。
 
 ## 开发
 

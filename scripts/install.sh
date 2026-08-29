@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DSH Terminal Manager 一键安装脚本 (Linux/macOS)
-# 用法: ./install.sh [--plugin <路径>] [--profile <名称>] [--dsh-home <路径>]
+# 用法: ./install.sh [--plugin <路径>] [--profile <名称>]
 
 set -e
 
@@ -18,21 +18,21 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 show_help() {
     cat << 'EOF'
-DSH Terminal Manager 安装脚本 (Linux/macOS)
+DSH Terminal Manager 一键安装脚本 (Linux/macOS)
 
 用法:
     ./install.sh [选项]
 
 选项:
-    --plugin <路径>      插件 tgz 文件路径（默认：当前目录下的 dsh-terminal-manager-*.tgz）
+    --plugin <路径>      插件 tgz 文件路径（默认：从 GitCode 下载最新版）
     --profile <名称>     DSH Profile 名称（默认：web）
-    --dsh-home <路径>    DSH 用户数据目录（默认：~/.dsh）
+    --skip-dsh           跳过 DSH 初始化（如果已安装）
     --help               显示此帮助信息
 
 示例:
-    ./install.sh
-    ./install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz
-    ./install.sh --profile tm-dev --dsh-home ~/.dsh
+    ./install.sh                                    # 完整安装（DSH + 插件）
+    ./install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz  # 从本地 tgz 安装
+    ./install.sh --skip-dsh                         # DSH 已装好，只装插件
 
 EOF
     exit 0
@@ -41,6 +41,7 @@ EOF
 # 解析参数
 PLUGIN_PATH=""
 PROFILE="web"
+SKIP_DSH=false
 DSH_HOME="${HOME}/.dsh"
 
 while [[ $# -gt 0 ]]; do
@@ -53,9 +54,9 @@ while [[ $# -gt 0 ]]; do
             PROFILE="$2"
             shift 2
             ;;
-        --dsh-home)
-            DSH_HOME="$2"
-            shift 2
+        --skip-dsh)
+            SKIP_DSH=true
+            shift
             ;;
         --help)
             show_help
@@ -69,36 +70,79 @@ done
 
 echo ""
 echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}  DSH Terminal Manager 安装脚本${NC}"
+echo -e "${CYAN}  DSH Terminal Manager 一键安装脚本${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
+
+# ==================== 环境检查 ====================
 
 # 检查 Node.js
 info "检查 Node.js..."
 if ! command -v node &> /dev/null; then
-    error "未找到 Node.js，请先安装 Node.js 22+ 或 24+"
-    echo "下载: https://nodejs.org/"
+    error "未找到 Node.js"
+    echo ""
+    echo "请先安装 Node.js 22+ 或 24+："
+    echo "  - 官网下载: https://nodejs.org/"
+    echo "  - 或使用 nvm: nvm install 22"
     exit 1
 fi
 NODE_VERSION=$(node --version)
+NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v\([0-9]*\).*/\1/')
+if [ "$NODE_MAJOR" -lt 22 ]; then
+    warn "Node.js 版本过低: $NODE_VERSION（需要 22+）"
+fi
 success "Node.js $NODE_VERSION"
 
-# 检查 pnpm
-info "检查 pnpm..."
-if ! command -v pnpm &> /dev/null; then
-    error "未找到 pnpm，请先安装 pnpm 11+"
-    echo "安装: npm install -g pnpm"
+# 检查 npm（用于 npx）
+info "检查 npm..."
+if ! command -v npm &> /dev/null; then
+    error "未找到 npm"
     exit 1
 fi
-PNPM_VERSION=$(pnpm --version)
-success "pnpm $PNPM_VERSION"
+success "npm $(npm --version)"
 
-# 检查 DSH Home
-info "DSH Home: $DSH_HOME"
-if [ ! -d "$DSH_HOME" ]; then
-    error "DSH Home 不存在: $DSH_HOME"
-    warn "请先安装 DSH (deepseek-harness)"
-    exit 1
+# ==================== DSH 初始化 ====================
+
+if [ "$SKIP_DSH" = false ]; then
+    if [ ! -d "$DSH_HOME" ]; then
+        info "初始化 DSH 环境..."
+        echo ""
+        echo "首次运行 DSH 以初始化用户目录..."
+        echo "（这会创建 ~/.dsh 目录和默认 profile）"
+        echo ""
+
+        # 运行 DSH 初始化（会创建 ~/.dsh）
+        # 使用 timeout 避免阻塞，或者用户按 Ctrl+C 停止
+        echo "正在启动 DSH，启动后请按 Ctrl+C 继续安装..."
+        npx @deepseek-ai/dsh web --no-open &
+        DSH_PID=$!
+
+        # 等待 DSH 初始化（最多 30 秒）
+        for i in {1..30}; do
+            if [ -d "$DSH_HOME/profiles/web" ]; then
+                sleep 2
+                kill $DSH_PID 2>/dev/null || true
+                wait $DSH_PID 2>/dev/null || true
+                success "DSH 初始化完成"
+                break
+            fi
+            sleep 1
+        done
+
+        if [ ! -d "$DSH_HOME/profiles/web" ]; then
+            kill $DSH_PID 2>/dev/null || true
+            error "DSH 初始化超时"
+            echo ""
+            echo "请手动运行以下命令初始化 DSH："
+            echo "  npx @deepseek-ai/dsh web"
+            echo "启动后按 Ctrl+C 停止，然后重新运行此脚本（加 --skip-dsh）"
+            exit 1
+        fi
+    else
+        success "DSH 已安装: $DSH_HOME"
+    fi
+else
+    info "跳过 DSH 初始化"
 fi
 
 # 检查 Profile
@@ -110,32 +154,59 @@ if [ ! -d "$PROFILE_DIR" ]; then
     ls -1 "$DSH_HOME/profiles" 2>/dev/null | while read -r dir; do
         [ -d "$DSH_HOME/profiles/$dir" ] && echo "  - $dir"
     done
+    echo ""
+    echo "请指定正确的 profile，例如："
+    echo "  ./install.sh --profile web"
     exit 1
 fi
 
-# 查找插件文件
+# ==================== 获取插件 ====================
+
 if [ -z "$PLUGIN_PATH" ]; then
-    # 在当前目录查找 tgz
+    # 尝试从当前目录查找 tgz
     TGZ_FILE=$(ls dsh-terminal-manager-*.tgz 2>/dev/null | head -n 1)
-    if [ -z "$TGZ_FILE" ]; then
-        error "未找到插件 tgz 文件"
-        echo ""
-        echo "请用 --plugin 指定插件文件路径，例如："
-        echo "    ./install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz"
-        exit 1
+    if [ -n "$TGZ_FILE" ]; then
+        PLUGIN_PATH="$(pwd)/$TGZ_FILE"
+        info "找到本地插件: $PLUGIN_PATH"
+    else
+        # 从 GitCode 下载最新版
+        info "从 GitCode 下载插件..."
+        DOWNLOAD_URL="https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz"
+
+        if command -v curl &> /dev/null; then
+            curl -L -o dsh-terminal-manager-0.0.1.tgz "$DOWNLOAD_URL"
+        elif command -v wget &> /dev/null; then
+            wget -O dsh-terminal-manager-0.0.1.tgz "$DOWNLOAD_URL"
+        else
+            error "需要 curl 或 wget 来下载插件"
+            echo ""
+            echo "请手动下载插件："
+            echo "  $DOWNLOAD_URL"
+            echo "然后使用 --plugin 参数指定路径"
+            exit 1
+        fi
+
+        if [ ! -f "dsh-terminal-manager-0.0.1.tgz" ]; then
+            error "下载失败"
+            echo ""
+            echo "请手动下载插件："
+            echo "  $DOWNLOAD_URL"
+            exit 1
+        fi
+
+        PLUGIN_PATH="$(pwd)/dsh-terminal-manager-0.0.1.tgz"
+        success "插件已下载: $PLUGIN_PATH"
     fi
-    PLUGIN_PATH="$(pwd)/$TGZ_FILE"
-    info "找到插件: $PLUGIN_PATH"
 else
     if [ ! -f "$PLUGIN_PATH" ]; then
         error "插件文件不存在: $PLUGIN_PATH"
         exit 1
     fi
-    # 转为绝对路径
     PLUGIN_PATH="$(cd "$(dirname "$PLUGIN_PATH")" && pwd)/$(basename "$PLUGIN_PATH")"
 fi
 
-# 安装插件
+# ==================== 安装插件 ====================
+
 info "安装插件到 Profile..."
 cd "$PROFILE_DIR"
 
@@ -147,15 +218,19 @@ if [ -f "package.json" ]; then
     fi
 fi
 
-# 安装新版本
+# 安装新版本（需要 pnpm）
+if ! command -v pnpm &> /dev/null; then
+    info "安装 pnpm..."
+    npm install -g pnpm
+fi
+
 info "执行: pnpm add $PLUGIN_PATH"
 pnpm add "$PLUGIN_PATH"
 success "插件已安装"
 
 # 更新 package.json 的 bundles
 info "更新 bundles 配置..."
-if command -v node &> /dev/null; then
-    node -e "
+node -e "
 const fs = require('fs');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 if (!pkg.dsh) pkg.dsh = {};
@@ -164,27 +239,28 @@ if (!pkg.dsh.profile.bundles) pkg.dsh.profile.bundles = [];
 if (!pkg.dsh.profile.bundles.includes('dsh-terminal-manager')) {
     pkg.dsh.profile.bundles.push('dsh-terminal-manager');
     fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-    console.log('已添加 dsh-terminal-manager 到 bundles');
+    console.log('  已添加 dsh-terminal-manager 到 bundles');
 } else {
-    console.log('dsh-terminal-manager 已在 bundles 中');
+    console.log('  dsh-terminal-manager 已在 bundles 中');
 }
 "
-else
-    warn "无法自动更新 bundles，请手动编辑 package.json"
-    warn "确保 dsh.profile.bundles 包含 \"dsh-terminal-manager\""
-fi
+
+# ==================== 完成 ====================
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  安装完成！${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-echo -e "${CYAN}下一步：${NC}"
-echo "  1. 启动 DSH:"
-echo "     cd <deepseek-harness 目录>"
-echo "     pnpm dsh --profile $PROFILE"
+echo -e "${CYAN}启动 DSH：${NC}"
 echo ""
-echo "  2. 打开浏览器访问 DSH 界面"
-echo "  3. 点击左侧边栏的「🖥️ 终端」按钮"
+echo "  npx @deepseek-ai/dsh $PROFILE"
 echo ""
-echo -e "${YELLOW}如遇到问题，请查看: INSTALL.zh.md${NC}"
+echo -e "${CYAN}然后：${NC}"
+echo "  1. 打开浏览器访问 DSH 界面（默认 http://127.0.0.1:3080）"
+echo "  2. 点击左侧边栏的「🖥️ 终端」按钮"
+echo ""
+echo -e "${YELLOW}遇到问题？${NC}"
+echo "  - 文档: https://gitcode.com/pengpengR/dsh-terminal-manager"
+echo "  - Issues: https://gitcode.com/pengpengR/dsh-terminal-manager/issues"
+echo ""

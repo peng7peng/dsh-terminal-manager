@@ -27,32 +27,44 @@ pnpm --version    # 应显示 11.x
 
 ## 🚀 快速安装（一键脚本）
 
+**脚本会自动完成以下操作：**
+1. 检查 Node.js 环境
+2. 初始化 DSH（首次运行时）
+3. 下载插件
+4. 安装并注册到 Profile
+
 ### Windows (PowerShell)
 
 ```powershell
-# 下载并运行安装脚本
+# 一键安装（自动下载 DSH + 插件）
 irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 ```
 
 或手动下载脚本后执行：
 
 ```powershell
-# 下载 tgz 文件后
-.\scripts\install.ps1 -PluginPath ".\dsh-terminal-manager-0.0.1.tgz" -Profile "web"
+# 从本地 tgz 安装
+.\scripts\install.ps1 -PluginPath ".\dsh-terminal-manager-0.0.1.tgz"
+
+# DSH 已装好，只装插件
+.\scripts\install.ps1 -SkipDsh
 ```
 
 ### Linux / macOS (Bash)
 
 ```bash
-# 下载并运行安装脚本
+# 一键安装（自动下载 DSH + 插件）
 curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
 或手动下载脚本后执行：
 
 ```bash
-chmod +x scripts/install.sh
-./scripts/install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz --profile web
+# 从本地 tgz 安装
+./scripts/install.sh --plugin ./dsh-terminal-manager-0.0.1.tgz
+
+# DSH 已装好，只装插件
+./scripts/install.sh --skip-dsh
 ```
 
 ---

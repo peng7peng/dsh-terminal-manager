@@ -47,6 +47,7 @@ export function connectSsh(
   return new Promise<Transport>((resolve, reject) => {
     const conn = new Client()
     let settled = false
+    let connected = false // 连接是否成功建立
     let closed = false
     let stream: ClientChannel | undefined
 
@@ -58,7 +59,9 @@ export function connectSsh(
     }
 
     const finishClose = (reason: string): void => {
-      if (closed) return
+      // 只有在连接成功建立后才调用 onClose
+      // 避免连接失败时触发 handleClose 导致幽灵会话
+      if (closed || !connected) return
       closed = true
       callbacks.onClose(reason)
     }
@@ -67,6 +70,7 @@ export function connectSsh(
     conn.on('close', () => finishClose('SSH 连接关闭'))
 
     conn.once('ready', () => {
+      connected = true // 标记连接已成功建立
       conn.shell(
         { term: 'xterm-256color', cols: terminal.cols, rows: terminal.rows },
         (err, channel) => {

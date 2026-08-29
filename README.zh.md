@@ -2,6 +2,8 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 装的终端管理插件：人与 AI **共用同一批远程终端**（SSH / Telnet），AI 能在对话里直接操作设备终端。
 
+**仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
+
 ## 能力
 
 - **SSH / Telnet** 连接（密码 + 密钥；Telnet 裸 TCP）；
@@ -19,12 +21,12 @@
 
 **Windows (PowerShell):**
 ```powershell
-irm https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
+irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 ```
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
 ### 手动安装
@@ -42,8 +44,8 @@ pnpm add /path/to/dsh-terminal-manager-0.0.1.tgz
 ## 开发
 
 ```sh
-git clone <本仓库>
-cd terminal-manager
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+cd dsh-terminal-manager
 pnpm install          # 依赖用 link: 指向相邻 deepseek-harness 检出
 pnpm build            # 产出 lib/index.js（host 半）+ lib/client.js（浏览器半）
 pnpm test             # 165 项 vitest（模拟设备，不碰真设备）

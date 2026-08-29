@@ -1,6 +1,8 @@
 # DSH Terminal Manager 安装指南
 
 > 🖥️ SSH/Telnet 多会话终端管理器 —— DSH 插件
+> 
+> **仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
 
 ---
 
@@ -29,7 +31,7 @@ pnpm --version    # 应显示 11.x
 
 ```powershell
 # 下载并运行安装脚本
-irm https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
+irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 ```
 
 或手动下载脚本后执行：
@@ -43,7 +45,7 @@ irm https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/inst
 
 ```bash
 # 下载并运行安装脚本
-curl -fsSL https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
 或手动下载脚本后执行：
@@ -63,10 +65,10 @@ chmod +x scripts/install.sh
 
 ```bash
 # 方式一：直接下载 tgz
-wget https://gitcode.com/your-username/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
+wget https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
 
 # 方式二：git clone 后本地打包
-git clone https://gitcode.com/your-username/dsh-terminal-manager.git
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
 cd dsh-terminal-manager
 pnpm install
 pnpm build
@@ -269,8 +271,8 @@ pnpm remove dsh-terminal-manager
 
 ## 📞 获取帮助
 
-- **问题反馈**：[GitCode Issues](https://gitcode.com/your-username/dsh-terminal-manager/issues)
-- **讨论区**：[GitCode Discussions](https://gitcode.com/your-username/dsh-terminal-manager/discussions)
+- **问题反馈**：[GitCode Issues](https://gitcode.com/pengpengR/dsh-terminal-manager/issues)
+- **讨论区**：[GitCode Discussions](https://gitcode.com/pengpengR/dsh-terminal-manager/discussions)
 
 ---
 

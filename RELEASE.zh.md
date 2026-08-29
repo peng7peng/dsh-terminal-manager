@@ -25,13 +25,15 @@
    - **不要勾选**「初始化仓库」（README/LICENSE 等）
 4. 点击 **「创建」**
 
+> **注意**：仓库已创建在 https://gitcode.com/pengpengR/dsh-terminal-manager
+
 ### 第二步：配置远程仓库并推送
 
 ```bash
 cd D:/myProject/dsh/terminal-manager
 
-# 添加 GitCode 远程仓库（替换为你的用户名）
-git remote add origin https://gitcode.com/<你的用户名>/dsh-terminal-manager.git
+# 添加 GitCode 远程仓库
+git remote add origin https://gitcode.com/pengpengR/dsh-terminal-manager.git
 
 # 推送代码
 git push -u origin main
@@ -43,7 +45,7 @@ git push origin v0.0.1
 ### 第三步：创建 Release 并上传 tgz
 
 1. 在 GitCode 仓库页面，点击 **「发布」→「新建发布」**
-2. 或访问：`https://gitcode.com/<你的用户名>/dsh-terminal-manager/releases/new`
+2. 或访问：`https://gitcode.com/pengpengR/dsh-terminal-manager/releases/new`
 3. 填写信息：
    - **标签**：选择 `v0.0.1`
    - **标题**：`v0.0.1 - 首个发布版本`
@@ -63,10 +65,10 @@ git push origin v0.0.1
      ### 一键脚本安装
      ```bash
      # Windows PowerShell
-     irm https://gitcode.com/<用户名>/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
+     irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
      
      # Linux/macOS
-     curl -fsSL https://gitcode.com/<用户名>/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+     curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
      ```
      
      ### 手动安装
@@ -84,14 +86,14 @@ git push origin v0.0.1
 ### README.zh.md
 ```markdown
 # Windows 一键安装
-irm https://gitcode.com/<用户名>/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
+irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 
 # Linux/macOS 一键安装
-curl -fsSL https://gitcode.com/<用户名>/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
 ### INSTALL.zh.md
-更新所有 `https://gitcode.com/your-username/...` 为实际 URL。
+更新所有 `https://gitcode.com/pengpengR/...` 为实际 URL。
 
 ---
 
@@ -102,7 +104,7 @@ curl -fsSL https://gitcode.com/<用户名>/dsh-terminal-manager/raw/main/scripts
 cd D:/myProject/dsh/terminal-manager
 
 # 2. 添加远程仓库
-git remote add origin https://gitcode.com/<你的用户名>/dsh-terminal-manager.git
+git remote add origin https://gitcode.com/pengpengR/dsh-terminal-manager.git
 
 # 3. 推送代码和标签
 git push -u origin main
@@ -135,7 +137,7 @@ pnpm pack
 
 ### 方式三：从源码安装
 ```bash
-git clone https://gitcode.com/<用户名>/dsh-terminal-manager.git
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
 cd dsh-terminal-manager
 pnpm install
 pnpm build

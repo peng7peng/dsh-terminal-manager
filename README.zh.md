@@ -102,7 +102,8 @@ D:/myProject/dsh/
 
 # 创建开发用 profile（只需一次）
 cd deepseek-harness
-pnpm dsh plugin --profile tm-dev add ../terminal-manager
+# 注意：必须用 dsh-terminal-manager@link: 指定正确的包名
+pnpm dsh plugin --profile tm-dev add "dsh-terminal-manager@link:../terminal-manager"
 
 # 启动调试
 pnpm dsh --profile tm-dev --port 3180 --no-open

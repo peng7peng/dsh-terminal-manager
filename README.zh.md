@@ -13,13 +13,31 @@
 
 ## 安装
 
-```sh
-dsh plugin add ./terminal-manager   # 本地目录
-# 或
-dsh plugin add ./terminal-manager-0.0.1.tgz   # tarball
+详细安装指南请查看 **[INSTALL.zh.md](./INSTALL.zh.md)**。
+
+### 快速安装（一键脚本）
+
+**Windows (PowerShell):**
+```powershell
+irm https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 ```
 
-需 DSH 已安装（`npx @deepseek-ai/dsh`）。装好后侧边栏底部出现「🖥️ 终端管理」按钮。
+**Linux / macOS:**
+```bash
+curl -fsSL https://gitcode.com/your-username/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+```
+
+### 手动安装
+
+```bash
+# 从 tgz 安装
+cd ~/.dsh/profiles/web
+pnpm add /path/to/dsh-terminal-manager-0.0.1.tgz
+
+# 编辑 package.json，在 dsh.profile.bundles 中添加 "dsh-terminal-manager"
+```
+
+需 DSH 已安装。装好后侧边栏底部出现「🖥️ 终端管理」按钮。
 
 ## 开发
 

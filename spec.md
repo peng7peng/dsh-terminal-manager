@@ -107,7 +107,7 @@
 **D4：打包为「双半包」单一 npm 包。**
 一个包同时声明 `dsh.bundle`（host 半：`cordis.patch.yml` 插入插件行）与 `dsh.client`（浏览器半：`inject` 声明 + `platform: web`）。开发与分发路径遵循官方 `docs/user/develop/basic/`：
 - 开发：在 deepseek-harness 源码检出上 `pnpm dsh --profile tm-dev --port 3180`（link 安装）；验证一律用 3180（3080 被用户自己的 DSH 占用）；
-- 分发：`dsh plugin add ./terminal-manager-<ver>.tgz`（tarball）；后续可发布 npm。
+- 分发：`dsh plugin add ./dsh-terminal-manager-<ver>.tgz`（tarball）；后续可发布 npm。
 - 构建产物：`tsdown` → `lib/index.js`（host 半）+ `lib/client.js`（浏览器半惰性工厂包）；外部分依赖用 `deps: { neverBundle, alwaysBundle }`（`@deepseek-ai/*` 走 link: 基线模块，其余打包内联）。
 
 **D5：GUI 布局 = `shell.overlay` 全屏覆盖层工作区 + 「终端 | 连接面板」左右并排（不是 details 栏，也不是双页签）。**
@@ -372,7 +372,7 @@ interface ConnectionConfig {
 ## 仓库结构
 
 ```
-terminal-manager/
+dsh-terminal-manager/
 ├── package.json               # dsh.bundle（cordis.patch.yml）+ dsh.client 双 manifest
 ├── cordis.patch.yml           # host 半插件插入行
 ├── tsdown.config.ts           # lib/index.js（host 半）+ lib/client.js（浏览器半工厂包）

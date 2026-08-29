@@ -97,8 +97,8 @@ pnpm test             # 165 项 vitest（模拟设备，不碰真设备）
 ```sh
 # 结构要求
 D:/myProject/dsh/
-├── deepseek-harness/    # DSH 源码
-└── terminal-manager/    # 本插件
+├── deepseek-harness/        # DSH 源码
+└── dsh-terminal-manager/    # 本插件
 
 # 创建开发用 profile（只需一次）
 cd deepseek-harness

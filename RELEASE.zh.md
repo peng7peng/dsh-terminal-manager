@@ -30,7 +30,7 @@
 ### 第二步：配置远程仓库并推送
 
 ```bash
-cd D:/myProject/dsh/terminal-manager
+cd D:/myProject/dsh/dsh-terminal-manager
 
 # 添加 GitCode 远程仓库
 git remote add origin https://gitcode.com/pengpengR/dsh-terminal-manager.git
@@ -101,7 +101,7 @@ curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/i
 
 ```bash
 # 1. 进入项目目录
-cd D:/myProject/dsh/terminal-manager
+cd D:/myProject/dsh/dsh-terminal-manager
 
 # 2. 添加远程仓库
 git remote add origin https://gitcode.com/pengpengR/dsh-terminal-manager.git

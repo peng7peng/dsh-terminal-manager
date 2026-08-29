@@ -6,7 +6,7 @@
 
 ```sh
 # 1. 起两台模拟设备
-cd /d/myProject/dsh/terminal-manager
+cd /d/myProject/dsh/dsh-terminal-manager
 node scripts/mock-device.mjs 2323 &
 node scripts/mock-device.mjs 2324 &
 

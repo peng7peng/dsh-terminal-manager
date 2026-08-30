@@ -68,9 +68,13 @@ ok "打包完成: $TGZ_PATH"
 info "安装到 DSH profile: $PROFILE"
 
 # 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
+# 关键：allowBuilds 的 key 必须是 `包名@file:相对路径` 完整形式
+# （参考 deepseek-harness 的 pnpm-workspace.yaml）
 PROFILE_DIR="$HOME/.dsh/profiles/$PROFILE"
 if [ -d "$PROFILE_DIR" ]; then
     WS_FILE="$PROFILE_DIR/pnpm-workspace.yaml"
+    # tgz 相对 profile 目录的路径（固定结构：.dsh/profiles/<name> vs .dsh/plugins/<name>）
+    TZX_REL_PATH="../../plugins/dsh-terminal-manager/dsh-terminal-manager-0.1.0.tgz"
     if [ -f "$WS_FILE" ]; then
         # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置
         if ! grep -q "^allowBuilds:" "$WS_FILE"; then
@@ -79,16 +83,16 @@ if [ -d "$PROFILE_DIR" ]; then
                 echo "allowBuilds:"
                 echo "  ssh2: true"
                 echo "  cpu-features: true"
-                echo "  dsh-terminal-manager: true"
+                echo "  'dsh-terminal-manager@file:$TZX_REL_PATH': true"
             } >> "$WS_FILE"
         fi
     else
         # 文件不存在，新建
-        cat > "$WS_FILE" << 'EOF'
+        cat > "$WS_FILE" << EOF
 allowBuilds:
   ssh2: true
   cpu-features: true
-  dsh-terminal-manager: true
+  'dsh-terminal-manager@file:$TZX_REL_PATH': true
 EOF
     fi
     info "已配置 allowBuilds: $WS_FILE"

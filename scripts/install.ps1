@@ -98,14 +98,18 @@ Write-Ok "打包完成: $tgzPath"
 Write-Info "安装到 DSH profile: $Profile"
 
 # 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
+# 关键：allowBuilds 的 key 必须是 `包名@file:相对路径` 完整形式
+# （参考 deepseek-harness 的 pnpm-workspace.yaml）
 $profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
 if (Test-Path $profileDir) {
     $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
+    # tgz 相对 profile 目录的路径（固定结构：.dsh/profiles/<name> vs .dsh/plugins/<name>）
+    $tgzRelPath = "..\..\plugins\dsh-terminal-manager\dsh-terminal-manager-0.1.0.tgz"
     $allowBuildsContent = @"
 allowBuilds:
   ssh2: true
   cpu-features: true
-  dsh-terminal-manager: true
+  'dsh-terminal-manager@file:$tgzRelPath': true
 "@
     if (Test-Path $wsFile) {
         # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置

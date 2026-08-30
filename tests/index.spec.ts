@@ -6,6 +6,7 @@ function mockRegisterRemotesImpl() { return () => {} }
 const mockRegisterRemotes = vi.fn(mockRegisterRemotesImpl)
 function mockRegisterWsIoImpl() { return () => {} }
 const mockRegisterWsIo = vi.fn(mockRegisterWsIoImpl)
+const mockRegisterAmbiguity = vi.fn()
 
 vi.mock('../src/tools.ts', () => ({
   registerTerminalTools: mockRegisterTools,
@@ -15,6 +16,9 @@ vi.mock('../src/remotes.ts', () => ({
 }))
 vi.mock('../src/ws-io.ts', () => ({
   registerWsIo: mockRegisterWsIo,
+}))
+vi.mock('../src/ambiguity.ts', () => ({
+  registerAmbiguityHandling: mockRegisterAmbiguity,
 }))
 
 /** Mock SessionManager，跟踪 closeAll 调用 */
@@ -92,13 +96,14 @@ describe('resolveDataDir', () => {
 })
 
 describe('apply(ctx) 装配', () => {
-  it('调用了 registerTerminalTools、registerRemotes、registerWsIo', async () => {
+  it('调用了 registerTerminalTools、registerRemotes、registerWsIo、registerAmbiguityHandling', async () => {
     const { apply } = await import('../src/index.ts')
     const { ctx } = fakeCtx()
     apply(ctx as never)
     expect(mockRegisterTools).toHaveBeenCalledTimes(1)
     expect(mockRegisterRemotes).toHaveBeenCalledTimes(1)
     expect(mockRegisterWsIo).toHaveBeenCalledTimes(1)
+    expect(mockRegisterAmbiguity).toHaveBeenCalledTimes(1)
   })
 
   it('registerRemotes 收到 { sessions, store }', async () => {

@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionStore } from './connection-store.ts'
+import { registerAmbiguityHandling } from './ambiguity.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
@@ -35,6 +36,7 @@ export function apply(ctx: Context): void {
   const sessions = new SessionManager(store)
 
   registerTerminalTools(ctx, sessions)
+  registerAmbiguityHandling(ctx, sessions)
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
   // 不能再把它们的返回值传给 ctx.effect（那会立即调用清理、删掉刚注册的路由）

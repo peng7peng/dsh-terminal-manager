@@ -7,26 +7,14 @@ param(
     [switch]$Help
 )
 
-# 不用 Stop，因为 pnpm/node 的 stderr 输出会触发 NativeCommandError
-$ErrorActionPreference = "Continue"
+# 全局静默：pnpm/node 往 stderr 写进度信息，会被 PowerShell 当成错误显示
+# 真正的错误通过 $LASTEXITCODE 检查
+$ErrorActionPreference = "SilentlyContinue"
 
 function Write-Info($m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
 function Write-Ok($m)   { Write-Host "[OK] $m" -ForegroundColor Green }
 function Write-Err($m)  { Write-Host "[ERROR] $m" -ForegroundColor Red }
 function Write-Warn($m) { Write-Host "[WARN] $m" -ForegroundColor Yellow }
-
-# 运行外部命令并隐藏 stderr 噪音（pnpm/node 往 stderr 写进度信息）
-function Run-Cmd {
-    param([scriptblock]$cmd)
-    $prevEAP = $ErrorActionPreference
-    $ErrorActionPreference = "SilentlyContinue"
-    $result = & $cmd 2>&1
-    $exitCode = $LASTEXITCODE
-    $ErrorActionPreference = $prevEAP
-    # 只输出 stdout 行
-    $result | Where-Object { $_ -is [string] -or $_.GetType().Name -ne 'ErrorRecord' } | ForEach-Object { $_ }
-    return $exitCode
-}
 
 if ($Help) {
     Write-Host @"
@@ -89,9 +77,9 @@ Write-Ok "仓库就绪"
 # 4. 构建
 Write-Info "安装依赖并构建..."
 Push-Location $PluginDir
-$null = pnpm install 2>&1
+pnpm install | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Err "pnpm install 失败"; Pop-Location; exit 1 }
-$null = pnpm build 2>&1
+pnpm build | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Err "pnpm build 失败"; Pop-Location; exit 1 }
 Pop-Location
 Write-Ok "构建完成"
@@ -99,7 +87,7 @@ Write-Ok "构建完成"
 # 5. 打包 tgz
 Write-Info "打包插件..."
 Push-Location $PluginDir
-$null = pnpm pack 2>&1
+pnpm pack | Out-Null
 $tgzFile = Get-ChildItem -Path $PluginDir -Filter "dsh-terminal-manager-*.tgz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $tgzPath = $tgzFile.FullName
 Pop-Location

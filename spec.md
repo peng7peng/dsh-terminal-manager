@@ -214,11 +214,11 @@ interface ConnectionConfig {
 
 内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。
 
-- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。`readyTimeout` = `connectTimeoutMs`（来自连接级 `handshakeTimeoutSec`，默认 15s，UI 可选 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。
+- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。`readyTimeout` = `connectTimeoutMs`（来自连接级 `handshakeTimeoutSec`，默认 15s，UI 可选 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
 - **TelnetTransport**（`telnet.ts`）：`net.connect`。`telnetMode: 'telnet' | 'raw'`：
-  - `raw`（默认）：裸 TCP 透传字节（`chunk.toString('utf8')`），适合串口服务器/ESL。
-  - `telnet`：对设备发来的 IAC 协商**只剥离不回发响应**（`stripIac`，Buffer 级操作，处理 IAC/IAC 转义、WILL/WONT/DO/DONT、SB…SE 子协商；支持跨 chunk 拼接，未完成序列留 `leftover` 与下个 chunk 合并）——不回发 WONT/DONT 响应以避免 echo server 回环。不做主动 IAC。
-  - `resize` 无操作；连接关闭 = 会话关闭。
+  - `telnet`（默认）：**完整 IAC 协商**——连接时主动发送 WILL ECHO + WILL SGA + DO SGA + DO ECHO；响应服务器的 DO/WILL 请求（DO SGA → WILL SGA, DO ECHO → WILL ECHO, DO TTYPE → WILL TTYPE 等）；支持子协商（TTYPE 响应发送 "xterm"，NAWS 在 resize 时发送窗口尺寸）；状态机解析器处理 IAC 序列，支持跨 chunk 拼接。
+  - `raw`：裸 TCP 透传字节（`chunk.toString('utf8')`），不做任何协议处理，适合串口服务器/ESL。
+  - `resize` 在 telnet 模式下发送 NAWS 子协商；raw 模式无操作。
 
 #### B5 WaitPolicy（`src/wait-policy.ts`）
 

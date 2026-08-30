@@ -1,4 +1,4 @@
-# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
+﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
 # 用法: irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
 #   或: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 

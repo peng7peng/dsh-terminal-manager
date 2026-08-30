@@ -1,6 +1,5 @@
-﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
-# 用法: irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
-#   或: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
+﻿﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
+# 用法: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 
 param(
     [string]$Profile = "web",
@@ -24,7 +23,7 @@ DSH Terminal Manager 一键安装 (Windows)
 
 选项:
     -Profile       DSH Profile 名称（默认：web）
-    -InstallDir    插件安装目录（默认：~\.dsh\plugins）
+    -InstallDir    插件克隆目录（默认：~\.dsh\plugins）
 
 "@
     exit 0
@@ -81,9 +80,22 @@ pnpm build
 Pop-Location
 Write-Ok "构建完成"
 
-# 5. 安装到 DSH profile
+# 5. 打包 tgz
+Write-Info "打包插件..."
+Push-Location $PluginDir
+$tgz = pnpm pack 2>$null | Where-Object { $_ -match '\.tgz$' } | Select-Object -Last 1
+$tgzPath = Join-Path $PluginDir $tgz
+Pop-Location
+if (-not (Test-Path $tgzPath)) {
+    # Fallback: 查找 tgz 文件
+    $tgzPath = Get-ChildItem -Path $PluginDir -Filter "dsh-terminal-manager-*.tgz" | Select-Object -First 1
+    $tgzPath = $tgzPath.FullName
+}
+Write-Ok "打包完成: $tgzPath"
+
+# 6. 安装到 DSH profile（用 tgz，避免 link: 依赖问题）
 Write-Info "安装到 DSH profile: $Profile"
-npx @deepseek-ai/dsh plugin --profile $Profile add "dsh-terminal-manager@link:$PluginDir"
+npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath
 Write-Ok "安装完成"
 
 Write-Host ""
@@ -100,5 +112,5 @@ Write-Host "左侧边栏底部出现「终端」按钮"
 Write-Host ""
 Write-Host "更新插件：" -ForegroundColor Cyan
 Write-Host "  cd $PluginDir; git pull; pnpm install; pnpm build"
-Write-Host "  然后重启 DSH"
+Write-Host "  然后重新运行此脚本"
 Write-Host ""

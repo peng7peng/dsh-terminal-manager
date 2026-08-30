@@ -1,9 +1,9 @@
 /**
- * B3 Telnet 传输 —— 支持 Telnet 协议协商和裸 TCP 两种模式。
+ * B3 Telnet 传输 —— 完整的 Telnet 协议协商支持。
  *
- * - telnetMode='raw'（默认）：裸 TCP 透传，不做协议协商（适合串口服务器/ESL）。
- * - telnetMode='telnet'：处理 IAC 协商——对 WILL/WONT/DO/DONT 回 WONT/DONT（拒绝所有选项），
- *   并发送 IAC WILL ECHO + IAC SUPPRESS_GO_AHEAD 促成字符模式；IAC 序列从数据流中剔除。
+ * - telnetMode='telnet'（默认）：完整 IAC 协商——响应 WILL/WONT/DO/DONT，
+ *   发送 WILL ECHO + DO SGA 实现字符模式（不回显本地输入，由服务器回显）。
+ * - telnetMode='raw'：裸 TCP 透传，不做协议协商（适合串口服务器/ESL）。
  * @module dsh-terminal-manager/transport/telnet
  */
 
@@ -16,7 +16,7 @@ import {
   type TransportConnectOptions,
 } from './types.ts'
 
-// Telnet IAC 控制字节
+// Telnet 协议常量
 const IAC = 0xff // 255
 const DONT = 0xfe // 254
 const DO = 0xfd // 253
@@ -24,57 +24,40 @@ const WONT = 0xfc // 252
 const WILL = 0xfb // 251
 const SB = 0xfa // 250
 const SE = 0xf0 // 240
-const ECHO = 1
-const SUPPRESS_GO_AHEAD = 3
 
-/** 从数据流中剥离 IAC 协商序列，返回纯文本。不回发响应（避免 echo server 回环）。
- *  真网络设备会处理 IAC 协商；对 echo server/裸设备，不响应不会出问题。
- *  支持跨 chunk 拼接：返回 { text, leftover } —— leftover 是末尾未完成的 IAC 序列，
- *  需要和下一个 chunk 拼起来再处理。 */
-function stripIac(input: Buffer): { text: string; leftover: Buffer } {
-  let out = Buffer.alloc(0)
-  let i = 0
-  while (i < input.length) {
-    const b = input[i]
-    if (b !== IAC) { out = Buffer.concat([out, input.subarray(i, i + 1)]); i++; continue }
-    // 遇到 IAC，检查后续字节是否完整
-    if (i + 1 >= input.length) {
-      // IAC 是最后一个字节，留到下个 chunk
-      return { text: out.toString('utf8'), leftover: input.subarray(i) }
-    }
-    const cmd = input[i + 1]
-    if (cmd === IAC) { out = Buffer.concat([out, Buffer.from([IAC])]); i += 2; continue }
-    if (cmd === DO || cmd === DONT || cmd === WILL || cmd === WONT) {
-      // 3 字节序列：IAC + cmd + option
-      if (i + 2 >= input.length) {
-        // 不完整，留到下个 chunk
-        return { text: out.toString('utf8'), leftover: input.subarray(i) }
-      }
-      i += 3; continue
-    }
-    if (cmd === SB) {
-      // SB 子协商：IAC SB ... IAC SE，找终止符
-      let j = i + 2
-      while (j < input.length && !(input[j] === IAC && j + 1 < input.length && input[j + 1] === SE)) j++
-      if (j >= input.length || j + 1 >= input.length) {
-        // SB 序列未完成，留到下个 chunk
-        return { text: out.toString('utf8'), leftover: input.subarray(i) }
-      }
-      i = j + 2; continue
-    }
-    // 其他未知 IAC 序列，跳过 2 字节
-    i += 2
-  }
-  return { text: out.toString('utf8'), leftover: Buffer.alloc(0) }
+// Telnet 选项
+const ECHO = 1 // 回显
+const SGA = 3 // Suppress Go Ahead（抑制继续进行）
+const TTYPE = 24 // Terminal Type
+const NAWS = 31 // Negotiate Window Size
+
+/**
+ * 构建 IAC 响应序列
+ */
+function iacResponse(cmd: number, option: number): Buffer {
+  return Buffer.from([IAC, cmd, option])
 }
 
-/** 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。 */
+/**
+ * 构建 IAC SB 子协商序列
+ */
+function iacSubneg(option: number, data: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from([IAC, SB, option]),
+    data,
+    Buffer.from([IAC, SE]),
+  ])
+}
+
+/**
+ * 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。
+ */
 export function connectTelnet(
   options: TransportConnectOptions,
   callbacks: TransportCallbacks,
 ): Promise<Transport> {
   const timeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
-  const useIac = (options as { telnetMode?: string }).telnetMode === 'telnet'
+  const useTelnet = (options as { telnetMode?: string }).telnetMode !== 'raw'
   return new Promise<Transport>((resolve, reject) => {
     let settled = false
     const socket = net.connect({ host: options.host, port: options.port })
@@ -91,33 +74,207 @@ export function connectTelnet(
       if (settled) return
       settled = true
 
-      // Telnet 模式：不主动发 IAC（避免 echo server 回环）；只剥离收到的 IAC
       let closed = false
-      let iacLeftover = Buffer.alloc(0) // 跨 chunk 拼接：未完成的 IAC 序列
       const finishClose = (reason: string): void => {
         if (closed) return
         closed = true
         callbacks.onClose(reason)
       }
+
+      // 跨 chunk 的 IAC 解析状态
+      type IacState = 'data' | 'iac' | 'cmd' | 'sb' | 'sb-data' | 'sb-iac'
+      let iacState: IacState = 'data'
+      let iacCmd = 0
+      let sbOption = 0
+
+      /**
+       * 处理 Telnet 协商并发送响应
+       */
+      const handleNegotiation = (cmd: number, option: number): void => {
+        if (!useTelnet) return // raw 模式不处理协商
+
+        let response: Buffer | null = null
+
+        if (cmd === DO) {
+          // 服务器请求我们做某事
+          if (option === SGA) {
+            // 同意抑制 Go Ahead（字符模式）
+            response = iacResponse(WILL, SGA)
+          } else if (option === ECHO) {
+            // 同意让服务器回显（我们不在本地回显）
+            response = iacResponse(WILL, ECHO)
+          } else if (option === TTYPE) {
+            // 同意发送终端类型
+            response = iacResponse(WILL, TTYPE)
+          } else if (option === NAWS) {
+            // 同意发送窗口大小
+            response = iacResponse(WILL, NAWS)
+          } else {
+            // 拒绝其他请求
+            response = iacResponse(WONT, option)
+          }
+        } else if (cmd === WILL) {
+          // 服务器表示它要做某事
+          if (option === ECHO) {
+            // 同意服务器回显
+            response = iacResponse(DO, ECHO)
+          } else if (option === SGA) {
+            // 同意服务器抑制 Go Ahead
+            response = iacResponse(DO, SGA)
+          } else {
+            // 拒绝其他
+            response = iacResponse(DONT, option)
+          }
+        }
+        // DONT 和 WONT 不需要响应
+
+        if (response) {
+          socket.write(response)
+        }
+      }
+
+      /**
+       * 发送终端类型子协商
+       */
+      const sendTerminalType = (): void => {
+        if (!useTelnet) return
+        // IS (0) + "xterm"
+        const ttypeData = Buffer.concat([Buffer.from([0]), Buffer.from('xterm', 'ascii')])
+        socket.write(iacSubneg(TTYPE, ttypeData))
+      }
+
+      /**
+       * 发送窗口大小子协商
+       */
+      const sendWindowSize = (cols: number, rows: number): void => {
+        if (!useTelnet) return
+        // NAWS 子协商：宽度 2 字节 + 高度 2 字节（大端序）
+        const nawsData = Buffer.alloc(4)
+        nawsData.writeUInt16BE(cols, 0)
+        nawsData.writeUInt16BE(rows, 2)
+        socket.write(iacSubneg(NAWS, nawsData))
+      }
+
+      // Telnet 模式：发送初始协商
+      if (useTelnet) {
+        // 主动请求服务器回显和抑制 Go Ahead
+        socket.write(iacResponse(WILL, SGA))
+        socket.write(iacResponse(WILL, ECHO))
+        socket.write(iacResponse(DO, SGA))
+        socket.write(iacResponse(DO, ECHO))
+      }
+
+      /**
+       * 处理接收到的数据，解析 IAC 序列
+       */
+      const processData = (chunk: Buffer): string => {
+        const output: number[] = []
+
+        for (let i = 0; i < chunk.length; i++) {
+          const byte = chunk[i]
+
+          switch (iacState) {
+            case 'data':
+              if (byte === IAC) {
+                iacState = 'iac'
+              } else {
+                output.push(byte)
+              }
+              break
+
+            case 'iac':
+              // 刚收到 IAC
+              if (byte === IAC) {
+                // IAC IAC = 数据字节 255
+                output.push(0xff)
+                iacState = 'data'
+              } else if (byte === SB) {
+                // 子协商开始
+                iacState = 'sb'
+              } else if (byte === WILL || byte === WONT || byte === DO || byte === DONT) {
+                iacCmd = byte
+                iacState = 'cmd'
+              } else {
+                // 未知命令，忽略
+                iacState = 'data'
+              }
+              break
+
+            case 'cmd':
+              // 收到命令后的选项字节
+              handleNegotiation(iacCmd, byte)
+              iacState = 'data'
+              break
+
+            case 'sb':
+              // 子协商的选项字节
+              sbOption = byte
+              iacState = 'sb-data'
+              break
+
+            case 'sb-data':
+              if (byte === IAC) {
+                iacState = 'sb-iac'
+              }
+              // 其他字节都是子协商数据，忽略
+              break
+
+            case 'sb-iac':
+              if (byte === SE) {
+                // 子协商结束
+                if (sbOption === TTYPE) {
+                  // 服务器请求终端类型
+                  sendTerminalType()
+                }
+                iacState = 'data'
+              } else if (byte === IAC) {
+                // IAC IAC in SB = 数据字节 255，忽略
+                iacState = 'sb-data'
+              } else {
+                // 错误，重置
+                iacState = 'data'
+              }
+              break
+          }
+        }
+
+        return output.length > 0 ? Buffer.from(output).toString('utf8') : ''
+      }
+
       socket.on('data', (chunk: Buffer) => {
-        if (useIac) {
-          // 把上一个 chunk 的 leftover 拼到前面
-          const full = iacLeftover.length > 0 ? Buffer.concat([iacLeftover, chunk]) : chunk
-          const { text, leftover } = stripIac(full)
-          iacLeftover = leftover
-          if (text.length > 0) callbacks.onData(text)
+        if (useTelnet) {
+          const text = processData(chunk)
+          if (text.length > 0) {
+            callbacks.onData(text)
+          }
         } else {
+          // raw 模式直接输出
           callbacks.onData(chunk.toString('utf8'))
         }
       })
+
       socket.on('error', (error) => {
         finishClose(`连接错误: ${(error as NodeJS.ErrnoException).code ?? error.message}`)
         socket.destroy()
       })
+
       socket.on('close', () => finishClose('对端关闭或连接断开'))
+
       resolve({
-        write: (data: string) => { if (!closed) socket.write(data) },
-        close: async () => { finishClose('本端主动断开'); socket.destroy() },
+        write: (data: string) => {
+          if (!closed) {
+            socket.write(data)
+          }
+        },
+        resize: (cols: number, rows: number) => {
+          if (!closed && useTelnet) {
+            sendWindowSize(cols, rows)
+          }
+        },
+        close: async () => {
+          finishClose('本端主动断开')
+          socket.destroy()
+        },
       })
     })
 

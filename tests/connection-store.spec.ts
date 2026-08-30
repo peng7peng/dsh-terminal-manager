@@ -99,4 +99,36 @@ describe('ConnectionStore', () => {
     await store.load()
     expect(store.list()).toHaveLength(0)
   })
+
+  it('新建连接默认 favorited=true', async () => {
+    const store = new ConnectionStore(join(dir, 'fav.json'))
+    await store.load()
+    const cfg = await store.create({ label: 'f', protocol: 'telnet', host: 'h' })
+    expect(cfg.favorited).toBe(true)
+  })
+
+  it('可以把 favorited 切换为 false 并持久化', async () => {
+    const store = new ConnectionStore(join(dir, 'fav2.json'))
+    await store.load()
+    const cfg = await store.create({ label: 'f', protocol: 'telnet', host: 'h' })
+    const updated = await store.update(cfg.id, { favorited: false })
+    expect(updated.favorited).toBe(false)
+    // 新实例读回，favorited 仍是 false
+    const fresh = new ConnectionStore(join(dir, 'fav2.json'))
+    await fresh.load()
+    expect(fresh.get(cfg.id)?.favorited).toBe(false)
+  })
+
+  it('旧数据缺 favorited 字段时，读取不报错（向后兼容）', async () => {
+    const p = join(dir, 'legacy.json')
+    await import('node:fs/promises').then(fs => fs.writeFile(p, JSON.stringify({
+      version: 1,
+      connections: [{ id: 'legacy-1', label: 'old', protocol: 'telnet', host: 'h', port: 23 }],
+    })))
+    const store = new ConnectionStore(p)
+    await store.load()
+    // 旧数据缺字段不报错，前端按"未显式 false = 在收藏"处理
+    expect(store.get('legacy-1')?.favorited).toBeUndefined()
+    expect(store.list()).toHaveLength(1)
+  })
 })

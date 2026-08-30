@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 
-export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string }
+export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
 export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string }
 
@@ -56,7 +56,6 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [renameVal, setRenameVal] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; type: 'session' | 'conn'; id: string } | null>(null)
   const [favCollapse, setFavCollapse] = useState(false)
-  const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
@@ -66,8 +65,6 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (ctxMenu !== null) { document.addEventListener('click', close); return () => document.removeEventListener('click', close) }
     return () => {}
   }, [ctxMenu])
-  useEffect(() => { try { const s = localStorage.getItem('tm-favorites'); if (s) setFavorites(new Set(JSON.parse(s))) } catch { /* */ } }, [])
-  useEffect(() => { try { localStorage.setItem('tm-favorites', JSON.stringify([...favorites])) } catch { /* */ } }, [favorites])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
   function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
@@ -83,7 +80,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
     const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { handshakeTimeoutSec: handshakeTimeout } : {}), newline, localEcho }
-    try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else { const created = await rpc<ConnectionCfg>('connections.create', base); setFavorites(prev => { const n = new Set(prev); n.add(created.id); return n }) } await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
+    try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
     if (!validate()) return
@@ -98,16 +95,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
     const username = proto === 'ssh' ? form.user.trim() : undefined
     if (!host) return false
-
-    return conns.some(c => {
-      // 只检查收藏的连接
-      if (!favorites.has(c.id)) return false
-      // 匹配 protocol + host + port
-      if (c.protocol !== proto || c.host !== host || c.port !== port) return false
-      // SSH 还需要匹配 username
-      if (proto === 'ssh' && c.username !== username) return false
-      return true
-    })
+    return conns.some(c => c.favorited !== false && c.protocol === proto && c.host === host && c.port === port && (proto === 'ssh' ? c.username === username : true))
   }
 
   // 查找会话：先按 connId 精确匹配，再按目标（protocol:host:port）模糊匹配
@@ -125,15 +113,20 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   function togglePin(sid: string): void { setPinned(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n }); setCtxMenu(null) }
   function startRename(sid: string, label: string): void { setRenameId(sid); setRenameVal(label); setCtxMenu(null) }
   function commitRename(): void { setRenameId(null); setRenameVal('') }
-  function toggleFavorite(connId: string): void { setFavorites(prev => { const n = new Set(prev); n.has(connId) ? n.delete(connId) : n.add(connId); return n }); setCtxMenu(null) }
+  async function toggleFavorite(connId: string): Promise<void> {
+    const c = conns.find(x => x.id === connId)
+    if (!c) return
+    try { await rpc('connections.update', { id: connId, patch: { ...c, favorited: !c.favorited } }); await refresh() } catch { /* */ }
+    setCtxMenu(null)
+  }
   function onSessionContext(e: React.MouseEvent, s: SessionSnap): void { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'session', id: s.sessionId }) }
   function onConnContext(e: React.MouseEvent, c: ConnectionCfg): void { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'conn', id: c.id }) }
   function onDragStart(idx: number): void { setDragIdx(idx) }
   function onDragOver(e: React.DragEvent): void { e.preventDefault() }
   function onDrop(idx: number): void { if (dragIdx === null || dragIdx === idx) return; const newOrder = [...sortedSessions.map(s => s.sessionId)]; const [moved] = newOrder.splice(dragIdx, 1); newOrder.splice(idx, 0, moved); onReorder(newOrder); setDragIdx(null) }
 
-  const favConns = conns.filter(c => favorites.has(c.id))
-  const otherConns = conns.filter(c => !favorites.has(c.id)).slice(0, 7) // 最近连接最多保留 7 个
+  const favConns = conns.filter(c => c.favorited !== false)
+  const otherConns = conns.filter(c => c.favorited === false).slice(0, 7) // 最近连接最多保留 7 个
 
   const pwdInput = (name: keyof typeof form, label: string, placeholder: string, required: boolean, errKey?: string, hint?: string) => (
     <div className={'tm-fld ' + (errKey && errors[errKey] ? 'error' : '')}>
@@ -267,7 +260,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           })()}
           {ctxMenu.type === 'conn' && (
             <>
-              <div className="tm-ctxItem" onClick={() => toggleFavorite(ctxMenu.id)}>{favorites.has(ctxMenu.id) ? '取消收藏' : '收藏'}</div>
+              <div className="tm-ctxItem" onClick={() => toggleFavorite(ctxMenu.id)}>{(conns.find(c => c.id === ctxMenu.id)?.favorited !== false) ? '取消收藏' : '收藏'}</div>
               <div className="tm-ctxItem" onClick={() => { const c = conns.find(x => x.id === ctxMenu.id); if (c) loadConn(c); setCtxMenu(null) }}>编辑</div>
               <div className="tm-ctxSep" />
               <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { void delConn(ctxMenu.id); setCtxMenu(null) }}>删除</div>

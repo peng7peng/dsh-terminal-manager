@@ -41,6 +41,7 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 6. **`ctx.effect(fn)` 的 fn 是 setup、返回值是清理函数**——别把清理函数本身当 fn 传（那会立即执行清理、删掉刚注册的路由，请求 405）。正解：`ctx.effect(() => webServer.register(route))`（register 是 setup，返回的 disposer 才是 cleanup）。
 7. **xterm.css / 第三方 CSS 用虚拟模块内联**（`tm:xterm-css` 插件），别用 `?raw`/`?inline`（tsdown 默认不认，会留成 external require → "missed the module table"）。
 8. **浏览器 POST `application/json` 会先发 OPTIONS 预检**——自建路由必须处理 OPTIONS（返回 204+CORS 头），否则预检 405 卡住。
+9. **用户数据（连接/收藏等）存后端不存浏览器 localStorage**——localStorage 跟着浏览器走，DSH 重启/换浏览器/清缓存就丢。后端落盘到 `~/.dsh/terminal-manager/connections.json`（`ConnectionConfig` 字段）。向后兼容：旧数据缺字段按"未显式 false = 默认在收藏"处理（`c.favorited !== false`）。
 
 ## 钩子（Hooks）
 

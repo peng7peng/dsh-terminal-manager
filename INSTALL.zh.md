@@ -69,9 +69,9 @@ pnpm build
 
 # 3. 安装到 DSH profile
 #    Linux / macOS:
-npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
+dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
 #    Windows PowerShell:
-npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
+dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
 ```
 
 > **为什么用 `@link:` 语法？** 这告诉 pnpm 用符号链接指向你的本地目录，这样你更新代码后 DSH 会自动使用最新版本。
@@ -79,7 +79,7 @@ npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
 ### 方式三：npm 安装（待发布后可用）
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
+dsh plugin --profile web add dsh-terminal-manager
 ```
 
 > 这是最简单的方式——一行命令，无需 clone。发布到 npm 后即可使用。
@@ -89,7 +89,7 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
 从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) **在浏览器中**下载 `.tgz` 文件（GitCode 附件下载需要登录）：
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
+dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 ```
 
 ---
@@ -97,7 +97,7 @@ npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 ## ▶️ 启动
 
 ```bash
-npx @deepseek-ai/dsh web
+dsh web
 ```
 
 浏览器自动打开 http://127.0.0.1:3080
@@ -110,7 +110,7 @@ npx @deepseek-ai/dsh web
 
 1. **启动 DSH**：
    ```bash
-   npx @deepseek-ai/dsh web
+   dsh web
    ```
 
 2. **打开浏览器**：访问 http://127.0.0.1:3080
@@ -138,7 +138,7 @@ pnpm build
 
 如果通过 npm 安装：
 ```bash
-npx @deepseek-ai/dsh plugin --profile web update dsh-terminal-manager
+dsh plugin --profile web update dsh-terminal-manager
 ```
 
 ---
@@ -146,7 +146,7 @@ npx @deepseek-ai/dsh plugin --profile web update dsh-terminal-manager
 ## 🗑️ 卸载插件
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
+dsh plugin --profile web remove dsh-terminal-manager
 ```
 
 ---
@@ -209,7 +209,7 @@ npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
 
 **A:** 使用默认 profile：
 ```bash
-npx @deepseek-ai/dsh web
+dsh web
 ```
 不要用 `--profile tm-dev` 或其他自定义 profile，除非你已创建。
 

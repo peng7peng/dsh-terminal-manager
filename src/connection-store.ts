@@ -41,6 +41,8 @@ export interface ConnectionConfig {
   newline?: 'lf' | 'cr' | 'crlf'
   /** 本地回显开关（默认 false） */
   localEcho?: boolean
+  /** 是否收藏（默认 true；收藏状态跟连接配置一起落盘，不再存浏览器 localStorage） */
+  favorited?: boolean
   note?: string
 }
 
@@ -137,6 +139,7 @@ export class ConnectionStore {
       ...input,
       id: randomUUID(),
       port: input.port ?? DEFAULT_PORTS[input.protocol],
+      favorited: input.favorited ?? true,
     }
     validate(cfg)
     this.connections.set(cfg.id, cfg)

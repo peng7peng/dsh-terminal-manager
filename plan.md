@@ -99,8 +99,16 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 - **真机联调**：Telnet 协商、SSH 跳板机。
 - **OSC 52**：远程 vim/tmux 经 SSH 操控本地剪贴板。
 
+## 手工验收后续修正（2026-08-30）
+
+| # | 问题 | 优先级 | 状态 |
+|---|---|---|---|
+| 16 | 收藏状态存浏览器 localStorage，DSH 重启/换浏览器/清缓存后收藏消失 | 高 | ✅ |
+
+**修法**：`ConnectionConfig` 加 `favorited?: boolean` 字段，跟连接配置一起落盘到 `~/.dsh/terminal-manager/connections.json`。前端不再用 localStorage 存收藏 ID 集合，改读 `c.favorited`。向后兼容：旧数据缺字段按"未显式 false = 在收藏"处理（`c.favorited !== false`），无需迁移脚本。新建默认 `favorited: true`。
+
 ## 证据
 
-- `tests/` 165 项全绿；`pnpm build` 产出 host + client 双半包；覆盖率阈值 72/72/60/74。
+- `tests/` 167 项全绿；`pnpm build` 产出 host + client 双半包；覆盖率阈值 72/72/60/74。
 - 真实启动冒烟：DSH profile tm-dev，`/plugins/dsh-terminal-manager/client.js` 200 + 首页含 `dsh-terminal-manager` 行。
 - `scripts/smoke-e2e.mjs` 19 场景对活服务。

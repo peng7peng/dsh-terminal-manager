@@ -108,7 +108,7 @@ Write-Ok "打包完成: $tgzPath"
 
 # 6. 安装到 DSH profile
 Write-Info "安装到 DSH profile: $Profile"
-npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath
+dsh plugin --profile $Profile add $tgzPath
 if ($LASTEXITCODE -ne 0) { Write-Err "安装失败"; exit 1 }
 Write-Ok "安装完成"
 
@@ -119,7 +119,7 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "启动 DSH：" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  npx @deepseek-ai/dsh $Profile"
+Write-Host "  dsh $Profile"
 Write-Host ""
 Write-Host "浏览器自动打开 http://127.0.0.1:3080"
 Write-Host "左侧边栏底部出现「终端」按钮"

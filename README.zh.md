@@ -55,15 +55,15 @@ pnpm install
 pnpm build
 
 # 2. 安装到 DSH profile（路径替换为你的实际目录）
-npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
+dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
 # Windows PowerShell:
-# npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
+# dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
 ```
 
 ### 方式三：npm 安装（待发布后可用）
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
+dsh plugin --profile web add dsh-terminal-manager
 ```
 
 > 发布到 npm 后即可使用，一行命令搞定。
@@ -73,13 +73,13 @@ npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
 从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) **在浏览器中**下载 `.tgz` 文件（GitCode 附件下载需要登录），然后：
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
+dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 ```
 
 ### 安装后
 
 ```bash
-npx @deepseek-ai/dsh web
+dsh web
 ```
 
 浏览器自动打开 http://127.0.0.1:3080，左侧边栏底部出现「🖥️ 终端」按钮。

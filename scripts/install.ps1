@@ -96,8 +96,40 @@ Write-Ok "打包完成: $tgzPath"
 
 # 6. 安装到 DSH profile
 Write-Info "安装到 DSH profile: $Profile"
-dsh plugin --profile $Profile add $tgzPath
-if ($LASTEXITCODE -ne 0) { Write-Err "安装失败"; exit 1 }
+
+$installed = $false
+
+# 方式 A：全局安装了 dsh
+if (Get-Command dsh -ErrorAction SilentlyContinue) {
+    Write-Info "使用全局 dsh 命令"
+    dsh plugin --profile $Profile add $tgzPath
+    $installed = ($LASTEXITCODE -eq 0)
+}
+
+# 方式 B：检查相邻目录是否有 deepseek-harness 源码
+if (-not $installed) {
+    $parentDir = Split-Path (Split-Path $PluginDir -Parent) -Parent
+    $harnessDir = Join-Path $parentDir "deepseek-harness"
+    if (Test-Path (Join-Path $harnessDir "package.json")) {
+        Write-Info "检测到相邻 DSH 源码: $harnessDir"
+        Push-Location $harnessDir
+        pnpm dsh plugin --profile $Profile add $tgzPath
+        $installed = ($LASTEXITCODE -eq 0)
+        Pop-Location
+    }
+}
+
+# 方式 C：用 npx
+if (-not $installed -and (Get-Command npx -ErrorAction SilentlyContinue)) {
+    Write-Info "使用 npx @deepseek-ai/dsh（首次需下载）"
+    npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath
+    $installed = ($LASTEXITCODE -eq 0)
+}
+
+if (-not $installed) {
+    Write-Err "安装失败。请确保已安装 DSH：npm install -g @deepseek-ai/dsh"
+    exit 1
+}
 Write-Ok "安装完成"
 
 Write-Host ""

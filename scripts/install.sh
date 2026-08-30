@@ -64,9 +64,32 @@ TGZ=$(pnpm pack 2>/dev/null | grep '\.tgz$' | tail -1)
 TGZ_PATH="$PLUGIN_DIR/$TGZ"
 ok "打包完成: $TGZ_PATH"
 
-# 6. 安装到 DSH profile（tgz 方式，确保模块解析正确）
+# 6. 安装到 DSH profile（自动检测 dsh / pnpm dsh / npx）
 info "安装到 DSH profile: $PROFILE"
-dsh plugin --profile "$PROFILE" add "$TGZ_PATH"
+installed=false
+
+if command -v dsh &>/dev/null; then
+    info "使用全局 dsh 命令"
+    dsh plugin --profile "$PROFILE" add "$TGZ_PATH" && installed=true
+fi
+
+if [ "$installed" = false ]; then
+    HARNESS_DIR="$(dirname "$INSTALL_DIR")/deepseek-harness"
+    if [ -f "$HARNESS_DIR/package.json" ]; then
+        info "检测到相邻 DSH 源码: $HARNESS_DIR"
+        (cd "$HARNESS_DIR" && pnpm dsh plugin --profile "$PROFILE" add "$TGZ_PATH") && installed=true
+    fi
+fi
+
+if [ "$installed" = false ] && command -v npx &>/dev/null; then
+    info "使用 npx @deepseek-ai/dsh（首次需下载）"
+    npx @deepseek-ai/dsh plugin --profile "$PROFILE" add "$TGZ_PATH" && installed=true
+fi
+
+if [ "$installed" = false ]; then
+    err "安装失败。请确保已安装 DSH：npm install -g @deepseek-ai/dsh"
+    exit 1
+fi
 ok "安装完成"
 
 echo ""

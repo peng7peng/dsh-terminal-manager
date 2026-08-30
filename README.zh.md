@@ -16,13 +16,13 @@
 
 ## 前提条件
 
-- **Node.js** 22+ 或 24+（[下载](https://nodejs.org/)）
+- **Node.js** 22+（[下载](https://nodejs.org/)）
 
 ## 安装
 
-### 一键安装（推荐）
+### 方式一：一键安装脚本（推荐）
 
-脚本会自动完成所有配置：
+脚本自动下载插件并安装到 DSH：
 
 **Windows (PowerShell):**
 ```powershell
@@ -34,43 +34,44 @@ irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.
 curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
 ```
 
-### 手动安装
+> 也可先 clone 仓库，然后本地执行：`./scripts/install.sh` 或 `.\scripts\install.ps1`
 
-**第 1 步：下载插件**
-
-从浏览器下载：https://gitcode.com/pengpengR/dsh-terminal-manager/releases
-
-或命令行下载：
-```bash
-# Linux / macOS
-curl -L -o dsh-terminal-manager-0.0.1.tgz https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.0.1/dsh-terminal-manager-0.0.1.tgz" -OutFile "dsh-terminal-manager-0.0.1.tgz"
-```
-
-**第 2 步：安装插件**
+### 方式二：npm 安装（待发布后可用）
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.0.1.tgz
+npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
 ```
 
-这个命令会：
-- 首次运行时自动初始化 DSH 环境
-- 安装插件到 `web` profile
-- 自动注册到插件列表
+> 这是最简单的方式，只需一行命令。发布到 npm 后即可使用。
 
-**第 3 步：启动**
+### 方式三：从 GitCode 直接安装
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add git+https://gitcode.com/pengpengR/dsh-terminal-manager.git
+```
+
+> **注意**：首次 git 安装时 pnpm 会阻止构建脚本。请按 `dsh` 的提示，在 profile 的 `pnpm-workspace.yaml` 中添加：
+> ```yaml
+> allowBuilds:
+>   dsh-terminal-manager: true
+> ```
+> 然后重新执行安装命令。
+
+### 方式四：手动 tgz 安装
+
+从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) 下载 `.tgz` 文件，然后：
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
+```
+
+### 安装后
 
 ```bash
 npx @deepseek-ai/dsh web
 ```
 
-浏览器会自动打开 http://127.0.0.1:3080
-
-**第 4 步：使用**
-
-左侧边栏底部会出现「🖥️ 终端」按钮，点击即可使用。
+浏览器会自动打开 http://127.0.0.1:3080，左侧边栏底部会出现「🖥️ 终端」按钮。
 
 ## 开发
 
@@ -90,7 +91,7 @@ npx @deepseek-ai/dsh web
 └── dsh-terminal-manager/    # git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
 ```
 
-> **⚠️ 目录名必须是 `dsh-terminal-manager`**（与 package.json 的 `name` 一致）。pnpm 在某些平台上会用目录名作为包别名，名字不对会导致 `dsh.bundle` 检测失败。
+> **⚠️ 目录名必须是 `dsh-terminal-manager`**（与 package.json 的 `name` 一致）。pnpm 在某些平台上会用目录名做包别名，名字不对会导致 `dsh.bundle` 检测失败。
 
 ### 安装与构建
 
@@ -150,4 +151,4 @@ node scripts/mock-device.mjs 2324   # 第二台（测多会话/广播）
 
 ## 许可证
 
-MIT。
+[MIT](LICENSE)。

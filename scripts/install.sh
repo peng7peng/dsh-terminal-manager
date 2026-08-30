@@ -94,6 +94,17 @@ EOF
     info "已配置 allowBuilds: $WS_FILE"
 fi
 
+# 设置 ignore-scripts=true，避免安装 tgz 时触发脚本（tgz 已包含构建产物）
+NPMRC_FILE="$PROFILE_DIR/.npmrc"
+if [ -f "$NPMRC_FILE" ]; then
+    if ! grep -q "ignore-scripts" "$NPMRC_FILE"; then
+        echo "ignore-scripts=true" >> "$NPMRC_FILE"
+    fi
+else
+    echo "ignore-scripts=true" > "$NPMRC_FILE"
+fi
+info "已配置 ignore-scripts: $NPMRC_FILE"
+
 installed=false
 
 if command -v dsh &>/dev/null; then

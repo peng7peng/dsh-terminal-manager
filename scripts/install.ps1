@@ -121,6 +121,18 @@ allowBuilds:
     Write-Info "已配置 allowBuilds: $wsFile"
 }
 
+# 设置 ignore-scripts=true，避免安装 tgz 时触发脚本（tgz 已包含构建产物）
+$npmrcFile = Join-Path $profileDir ".npmrc"
+if (Test-Path $npmrcFile) {
+    $npmrcContent = Get-Content $npmrcFile -Raw
+    if (-not ($npmrcContent -match "ignore-scripts")) {
+        Add-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
+    }
+} else {
+    Set-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
+}
+Write-Info "已配置 ignore-scripts: $npmrcFile"
+
 $installed = $false
 
 # 方式 A：全局安装了 dsh

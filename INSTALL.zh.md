@@ -11,89 +11,86 @@
 | 依赖 | 版本要求 | 说明 |
 |------|----------|------|
 | Node.js | ≥ 22 | [下载](https://nodejs.org/) |
+| pnpm | ≥ 11 | `npm install -g pnpm` |
+| Git | 任意版本 | 用于克隆仓库 |
 
 检查版本：
 ```bash
 node --version    # 应显示 v22.x 或更高
+pnpm --version    # 应显示 11.x 或更高
 ```
 
 ---
 
 ## 🚀 安装方式
 
-提供四种安装方式，按推荐顺序排列。
-
 ### 方式一：一键脚本（推荐）
 
-脚本自动下载插件并安装到 DSH，无需手动操作：
+先 clone 仓库，然后运行安装脚本。脚本自动完成所有步骤：
 
-**Windows (PowerShell):**
-```powershell
-irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
-```
-
-**Linux / macOS:**
 ```bash
-curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
-```
+# 1. 克隆仓库
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+cd dsh-terminal-manager
 
-> 也可先 clone 仓库到本地，然后执行 `./scripts/install.sh` 或 `.\scripts\install.ps1`。
+# 2. 运行安装脚本
+#    Windows PowerShell:
+.\scripts\install.ps1
+
+#    Linux / macOS:
+./scripts/install.sh
+```
 
 脚本会自动完成：
-1. 检查 Node.js 环境
-2. 下载插件 tgz（或改用 git 安装）
-3. 执行 `dsh plugin add` 安装到 `web` profile
-4. 自动注册到插件列表
+1. 检查 Node.js 和 pnpm
+2. 安装依赖 (`pnpm install`)
+3. 构建插件 (`pnpm build`)
+4. 注册到 DSH `web` profile
 
-### 方式二：npm 安装（待发布后可用）
+可选参数：
+```bash
+./scripts/install.sh --profile my-profile    # 指定 profile
+./scripts/install.sh --dir /opt/dsh-plugins  # 指定安装目录
+.\scripts\install.ps1 -Profile my-profile     # Windows
+```
+
+### 方式二：手动安装
+
+如果你想完全控制安装过程：
+
+```bash
+# 1. 克隆仓库
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+cd dsh-terminal-manager
+
+# 2. 安装依赖并构建
+pnpm install
+pnpm build
+
+# 3. 安装到 DSH profile
+#    Linux / macOS:
+npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
+#    Windows PowerShell:
+npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
+```
+
+> **为什么用 `@link:` 语法？** 这告诉 pnpm 用符号链接指向你的本地目录，这样你更新代码后 DSH 会自动使用最新版本。
+
+### 方式三：npm 安装（待发布后可用）
 
 ```bash
 npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
 ```
 
-这是最简单的方式——一行命令，无需下载。发布到 npm 后即可使用。
+> 这是最简单的方式——一行命令，无需 clone。发布到 npm 后即可使用。
 
-### 方式三：从 GitCode 直接安装
+### 方式四：tgz 手动安装
 
-```bash
-npx @deepseek-ai/dsh plugin --profile web add git+https://gitcode.com/pengpengR/dsh-terminal-manager.git
-```
-
-> **注意**：首次 git 安装时 pnpm ≥10 会阻止构建脚本。请按 `dsh` 的提示，在 profile 的 `pnpm-workspace.yaml`（位于 `~/.dsh/profiles/web/`）中添加：
-> ```yaml
-> allowBuilds:
->   dsh-terminal-manager: true
-> ```
-> 然后重新执行安装命令。
-
-### 方式四：手动 tgz 安装
-
-**第 1 步：下载插件**
-
-从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) 下载 `dsh-terminal-manager-0.1.0.tgz`，或命令行下载：
-
-```bash
-# Linux / macOS
-curl -L -o dsh-terminal-manager-0.1.0.tgz \
-  https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.1.0/dsh-terminal-manager-0.1.0.tgz
-```
-
-```powershell
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.1.0/dsh-terminal-manager-0.1.0.tgz" `
-  -OutFile "dsh-terminal-manager-0.1.0.tgz"
-```
-
-**第 2 步：安装插件**
+从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) 下载 `.tgz` 文件：
 
 ```bash
 npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 ```
-
-这个命令会：
-- 首次运行时自动初始化 DSH 环境（创建 `~/.dsh` 目录）
-- 安装插件到 `web` profile
-- 自动注册到插件列表（无需手动编辑配置文件）
 
 ---
 
@@ -103,9 +100,9 @@ npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 npx @deepseek-ai/dsh web
 ```
 
-浏览器会自动打开 http://127.0.0.1:3080
+浏览器自动打开 http://127.0.0.1:3080
 
-左侧边栏底部会出现「🖥️ 终端」按钮，点击即可使用。
+左侧边栏底部出现「🖥️ 终端」按钮，点击即可使用。
 
 ---
 
@@ -121,6 +118,36 @@ npx @deepseek-ai/dsh web
 3. **检查插件加载**：
    - 左侧边栏应出现「🖥️ 终端」按钮
    - 点击后右侧应展开终端工作区
+
+4. **尝试连接**：
+   - 点击「连接」面板的 + 号
+   - 填写 SSH/Telnet 连接信息
+   - 点击「连接」
+
+---
+
+## 🔄 更新插件
+
+```bash
+cd <插件安装目录>   # 默认 ~/.dsh/plugins/dsh-terminal-manager
+git pull
+pnpm install
+pnpm build
+# 然后重启 DSH
+```
+
+如果通过 npm 安装：
+```bash
+npx @deepseek-ai/dsh plugin --profile web update dsh-terminal-manager
+```
+
+---
+
+## 🗑️ 卸载插件
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
+```
 
 ---
 
@@ -155,29 +182,6 @@ npx @deepseek-ai/dsh web
 
 ---
 
-## 🔄 更新插件
-
-```bash
-# 下载新版本 tgz 后
-npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
-npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.2.0.tgz
-```
-
-如果通过 npm 安装：
-```bash
-npx @deepseek-ai/dsh plugin --profile web update dsh-terminal-manager
-```
-
----
-
-## 🗑️ 卸载插件
-
-```bash
-npx @deepseek-ai/dsh plugin --profile web remove dsh-terminal-manager
-```
-
----
-
 ## 🐛 常见问题
 
 ### Q: 启动后看不到终端按钮？
@@ -209,14 +213,12 @@ npx @deepseek-ai/dsh web
 ```
 不要用 `--profile tm-dev` 或其他自定义 profile，除非你已创建。
 
-### Q: git 安装时报 allowBuilds 错误？
+### Q: 安装脚本报错 "pnpm not found"？
 
-**A:** 编辑 `~/.dsh/profiles/web/pnpm-workspace.yaml`，添加：
-```yaml
-allowBuilds:
-  dsh-terminal-manager: true
+**A:** 安装 pnpm：
+```bash
+npm install -g pnpm
 ```
-然后重新执行安装命令。
 
 ---
 

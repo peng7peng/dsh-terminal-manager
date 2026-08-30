@@ -1,9 +1,10 @@
 # DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
 # 用法: irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
-#   或: .\install.ps1 [-Profile <名称>]
+#   或: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 
 param(
     [string]$Profile = "web",
+    [string]$InstallDir = "",
     [switch]$Help
 )
 
@@ -19,10 +20,11 @@ if ($Help) {
 DSH Terminal Manager 一键安装 (Windows)
 
 用法:
-    .\install.ps1 [-Profile <名称>]
+    .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 
 选项:
-    -Profile    DSH Profile 名称（默认：web）
+    -Profile       DSH Profile 名称（默认：web）
+    -InstallDir    插件安装目录（默认：~\.dsh\plugins）
 
 "@
     exit 0
@@ -34,7 +36,9 @@ Write-Host "  DSH Terminal Manager 一键安装" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查 Node.js
+if (-not $InstallDir) { $InstallDir = Join-Path $env:USERPROFILE ".dsh\plugins" }
+
+# 1. 检查 Node.js
 Write-Info "检查 Node.js..."
 try {
     $nv = node --version
@@ -48,45 +52,39 @@ try {
     exit 1
 }
 
-# 检查 npx
-try { $null = npx --version } catch { Write-Err "未找到 npx"; exit 1 }
-
-# 获取插件 tgz
-$PluginPath = ""
-$TgzUrl = "https://gitcode.com/pengpengR/dsh-terminal-manager/releases/download/v0.1.0/dsh-terminal-manager-0.1.0.tgz"
-
-# 优先检查本地 tgz
-$localTgz = Get-ChildItem -Path "." -Filter "dsh-terminal-manager-*.tgz" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($localTgz) {
-    $PluginPath = (Resolve-Path $localTgz.FullName).Path
-    Write-Info "使用本地插件: $PluginPath"
-} else {
-    Write-Info "下载插件..."
-    $tmpDir = Join-Path $env:TEMP "dsh-tm-install-$(Get-Random)"
-    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-    $PluginPath = Join-Path $tmpDir "dsh-terminal-manager-0.1.0.tgz"
-    try {
-        Invoke-WebRequest -Uri $TgzUrl -OutFile $PluginPath -UseBasicParsing
-        Write-Ok "下载完成"
-    } catch {
-        Write-Info "Release 未发布，改用 git 直接安装..."
-        $PluginPath = ""
-    }
+# 2. 检查 pnpm
+Write-Info "检查 pnpm..."
+try { $null = pnpm --version } catch {
+    Write-Info "安装 pnpm..."
+    npm install -g pnpm
 }
+Write-Ok "pnpm $(pnpm --version)"
 
-# 安装
-if ($PluginPath) {
-    Write-Info "安装: npx @deepseek-ai/dsh plugin --profile $Profile add $PluginPath"
-    npx @deepseek-ai/dsh plugin --profile $Profile add $PluginPath
+# 3. Clone 仓库
+$PluginDir = Join-Path $InstallDir "dsh-terminal-manager"
+if (Test-Path $PluginDir) {
+    Write-Info "插件目录已存在: $PluginDir"
+    Write-Info "更新中..."
+    Push-Location $PluginDir; git pull; Pop-Location
 } else {
-    Write-Info "安装: npx @deepseek-ai/dsh plugin --profile $Profile add git+https://gitcode.com/pengpengR/dsh-terminal-manager.git"
-    npx @deepseek-ai/dsh plugin --profile $Profile add "git+https://gitcode.com/pengpengR/dsh-terminal-manager.git"
-    Write-Host ""
-    Write-Warn "git 安装需要在 profile 的 pnpm-workspace.yaml 中添加 allowBuilds："
-    Write-Host "  allowBuilds:"
-    Write-Host "    dsh-terminal-manager: true"
-    Write-Host "如果安装失败，请按提示配置后重试。"
+    Write-Info "克隆仓库到 $PluginDir ..."
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git $PluginDir
 }
+Write-Ok "仓库就绪"
+
+# 4. 构建
+Write-Info "安装依赖并构建..."
+Push-Location $PluginDir
+pnpm install
+pnpm build
+Pop-Location
+Write-Ok "构建完成"
+
+# 5. 安装到 DSH profile
+Write-Info "安装到 DSH profile: $Profile"
+npx @deepseek-ai/dsh plugin --profile $Profile add "dsh-terminal-manager@link:$PluginDir"
+Write-Ok "安装完成"
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -97,6 +95,10 @@ Write-Host "启动 DSH：" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  npx @deepseek-ai/dsh $Profile"
 Write-Host ""
-Write-Host "浏览器会自动打开 http://127.0.0.1:3080"
-Write-Host "左侧边栏底部会出现「终端」按钮"
+Write-Host "浏览器自动打开 http://127.0.0.1:3080"
+Write-Host "左侧边栏底部出现「终端」按钮"
+Write-Host ""
+Write-Host "更新插件：" -ForegroundColor Cyan
+Write-Host "  cd $PluginDir; git pull; pnpm install; pnpm build"
+Write-Host "  然后重启 DSH"
 Write-Host ""

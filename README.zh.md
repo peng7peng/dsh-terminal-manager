@@ -17,47 +17,58 @@
 ## 前提条件
 
 - **Node.js** 22+（[下载](https://nodejs.org/)）
+- **pnpm** 11+（`npm install -g pnpm`）
 
 ## 安装
 
-### 方式一：一键安装脚本（推荐）
+### 方式一：一键脚本安装（推荐）
 
-脚本自动下载插件并安装到 DSH：
+先 clone 仓库，然后运行安装脚本：
 
-**Windows (PowerShell):**
-```powershell
-irm https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.ps1 | iex
-```
-
-**Linux / macOS:**
 ```bash
-curl -fsSL https://gitcode.com/pengpengR/dsh-terminal-manager/raw/main/scripts/install.sh | bash
+# 克隆仓库
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+cd dsh-terminal-manager
+
+# Windows PowerShell
+.\scripts\install.ps1
+
+# Linux / macOS
+./scripts/install.sh
 ```
 
-> 也可先 clone 仓库，然后本地执行：`./scripts/install.sh` 或 `.\scripts\install.ps1`
+脚本自动完成：检查环境 → 安装依赖 → 构建 → 注册到 DSH `web` profile。
 
-### 方式二：npm 安装（待发布后可用）
+可选参数：
+```bash
+./scripts/install.sh --profile my-profile      # 指定 profile
+.\scripts\install.ps1 -Profile my-profile       # Windows
+```
+
+### 方式二：手动安装
+
+```bash
+# 1. 克隆并构建
+git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+cd dsh-terminal-manager
+pnpm install
+pnpm build
+
+# 2. 安装到 DSH profile（路径替换为你的实际目录）
+npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
+# Windows PowerShell:
+# npx @deepseek-ai/dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
+```
+
+### 方式三：npm 安装（待发布后可用）
 
 ```bash
 npx @deepseek-ai/dsh plugin --profile web add dsh-terminal-manager
 ```
 
-> 这是最简单的方式，只需一行命令。发布到 npm 后即可使用。
+> 发布到 npm 后即可使用，一行命令搞定。
 
-### 方式三：从 GitCode 直接安装
-
-```bash
-npx @deepseek-ai/dsh plugin --profile web add git+https://gitcode.com/pengpengR/dsh-terminal-manager.git
-```
-
-> **注意**：首次 git 安装时 pnpm 会阻止构建脚本。请按 `dsh` 的提示，在 profile 的 `pnpm-workspace.yaml` 中添加：
-> ```yaml
-> allowBuilds:
->   dsh-terminal-manager: true
-> ```
-> 然后重新执行安装命令。
-
-### 方式四：手动 tgz 安装
+### 方式四：tgz 手动安装
 
 从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) 下载 `.tgz` 文件，然后：
 
@@ -71,7 +82,17 @@ npx @deepseek-ai/dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
 npx @deepseek-ai/dsh web
 ```
 
-浏览器会自动打开 http://127.0.0.1:3080，左侧边栏底部会出现「🖥️ 终端」按钮。
+浏览器自动打开 http://127.0.0.1:3080，左侧边栏底部出现「🖥️ 终端」按钮。
+
+## 更新插件
+
+```bash
+cd <插件安装目录>
+git pull
+pnpm install
+pnpm build
+# 然后重启 DSH
+```
 
 ## 开发
 

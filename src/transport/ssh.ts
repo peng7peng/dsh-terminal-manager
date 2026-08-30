@@ -66,7 +66,16 @@ export function connectSsh(
       callbacks.onClose(reason)
     }
 
-    conn.once('error', fail)
+    // 用 on 而不是 once：连接建立后的错误（如断线）也需要捕获，
+    // 否则 Node.js 会因 unhandled 'error' event 崩溃进程
+    conn.on('error', (err: unknown) => {
+      if (!settled) {
+        // 连接阶段：reject promise
+        fail(err)
+      }
+      // 连接已建立后：finishClose 处理（不调 onClose 因为 connected 检查）
+      // 错误被捕获即可，不需要额外操作
+    })
     conn.on('close', () => finishClose('SSH 连接关闭'))
 
     conn.once('ready', () => {

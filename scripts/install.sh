@@ -66,6 +66,19 @@ ok "打包完成: $TGZ_PATH"
 
 # 6. 安装到 DSH profile（自动检测 dsh / pnpm dsh / npx）
 info "安装到 DSH profile: $PROFILE"
+
+# 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
+PROFILE_DIR="$HOME/.dsh/profiles/$PROFILE"
+if [ -d "$PROFILE_DIR" ]; then
+    cat > "$PROFILE_DIR/pnpm-workspace.yaml" << 'EOF'
+allowBuilds:
+  ssh2: true
+  cpu-features: true
+  dsh-terminal-manager: true
+EOF
+    info "已配置 allowBuilds: $PROFILE_DIR/pnpm-workspace.yaml"
+fi
+
 installed=false
 
 if command -v dsh &>/dev/null; then

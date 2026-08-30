@@ -97,6 +97,15 @@ Write-Ok "打包完成: $tgzPath"
 # 6. 安装到 DSH profile
 Write-Info "安装到 DSH profile: $Profile"
 
+# 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
+$profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
+if (Test-Path $profileDir) {
+    $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
+    $wsContent = "allowBuilds:`n  ssh2: true`n  cpu-features: true`n  dsh-terminal-manager: true`n"
+    Set-Content -Path $wsFile -Value $wsContent -Encoding UTF8
+    Write-Info "已配置 allowBuilds: $wsFile"
+}
+
 $installed = $false
 
 # 方式 A：全局安装了 dsh

@@ -154,6 +154,17 @@ describe('SessionManager 发送与完成判定', () => {
     expect(rec.written[0]).toBe('show version\r')
   })
 
+  it('临时连接（无 connId，含 AI 工具路径）自动入「最近连接」而非「收藏」', async () => {
+    const isolated = new ConnectionStore(join(dir, 'fav-auto.json'))
+    await isolated.load()
+    const { factory } = fakeFactory()
+    const sm = new SessionManager(isolated, factory)
+    await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 9, label: 'ai-tmp' })
+    const conns = isolated.list()
+    expect(conns).toHaveLength(1)
+    expect(conns[0].favorited).toBe(false)
+  })
+
   it('换行：调用参数覆盖连接配置', async () => {
     const { rec, factory } = fakeFactory()
     const lfConn = await store.create({ label: 'dev-lf2', protocol: 'telnet', host: '127.0.0.1', port: 9, quietMs: 100, newline: 'lf' })

@@ -4,7 +4,7 @@
  * @module dsh-terminal-manager/client/ConnectionsPanel
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean }
@@ -60,6 +60,12 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
   useEffect(() => { void refresh() }, [refresh])
+  // 当会话列表增加时（AI 工具或其他方式新建了会话），重拉连接列表
+  const prevSessionCount = useRef(sessions.length)
+  useEffect(() => {
+    if (sessions.length > prevSessionCount.current) void refresh()
+    prevSessionCount.current = sessions.length
+  }, [sessions.length, refresh])
   useEffect(() => {
     const close = (): void => setCtxMenu(null)
     if (ctxMenu !== null) { document.addEventListener('click', close); return () => document.removeEventListener('click', close) }

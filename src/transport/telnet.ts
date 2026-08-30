@@ -162,6 +162,9 @@ export function connectTelnet(
         socket.write(iacResponse(WILL, ECHO))
         socket.write(iacResponse(DO, SGA))
         socket.write(iacResponse(DO, ECHO))
+        // 主动发送默认窗口大小（80x24）
+        // 某些服务器在收到 DO NAWS 后会等子协商数据，超时不发送会导致断开
+        sendWindowSize(80, 24)
       }
 
       /**

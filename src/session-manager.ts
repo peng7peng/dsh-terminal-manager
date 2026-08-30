@@ -207,6 +207,7 @@ export class SessionManager {
         host: target.host,
         port: target.port,
         label: target.label ?? target.host,
+        favorited: false, // 临时连接（含 AI 工具创建的）入「最近连接」而非「收藏」
         ...(target.username !== undefined ? { username: target.username } : {}),
         ...(auth !== undefined ? { auth } : {}),
       })

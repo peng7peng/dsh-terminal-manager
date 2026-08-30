@@ -17,7 +17,6 @@
   },
   "scripts": {
     "build": "tsdown",
-    "prepare": "tsdown",
     "test": "vitest run"
   },
   "dsh": {

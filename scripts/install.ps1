@@ -101,8 +101,23 @@ Write-Info "安装到 DSH profile: $Profile"
 $profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
 if (Test-Path $profileDir) {
     $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
-    $wsContent = "allowBuilds:`n  ssh2: true`n  cpu-features: true`n  dsh-terminal-manager: true`n"
-    Set-Content -Path $wsFile -Value $wsContent -Encoding UTF8
+    $allowBuildsContent = @"
+allowBuilds:
+  ssh2: true
+  cpu-features: true
+  dsh-terminal-manager: true
+"@
+    if (Test-Path $wsFile) {
+        # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置
+        $existing = Get-Content $wsFile -Raw
+        if (-not ($existing -match "allowBuilds:")) {
+            Add-Content -Path $wsFile -Value "" -Encoding UTF8
+            Add-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
+        }
+    } else {
+        # 文件不存在，新建
+        Set-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
+    }
     Write-Info "已配置 allowBuilds: $wsFile"
 }
 

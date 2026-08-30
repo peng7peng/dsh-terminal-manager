@@ -70,13 +70,28 @@ info "安装到 DSH profile: $PROFILE"
 # 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
 PROFILE_DIR="$HOME/.dsh/profiles/$PROFILE"
 if [ -d "$PROFILE_DIR" ]; then
-    cat > "$PROFILE_DIR/pnpm-workspace.yaml" << 'EOF'
+    WS_FILE="$PROFILE_DIR/pnpm-workspace.yaml"
+    if [ -f "$WS_FILE" ]; then
+        # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置
+        if ! grep -q "^allowBuilds:" "$WS_FILE"; then
+            {
+                echo ""
+                echo "allowBuilds:"
+                echo "  ssh2: true"
+                echo "  cpu-features: true"
+                echo "  dsh-terminal-manager: true"
+            } >> "$WS_FILE"
+        fi
+    else
+        # 文件不存在，新建
+        cat > "$WS_FILE" << 'EOF'
 allowBuilds:
   ssh2: true
   cpu-features: true
   dsh-terminal-manager: true
 EOF
-    info "已配置 allowBuilds: $PROFILE_DIR/pnpm-workspace.yaml"
+    fi
+    info "已配置 allowBuilds: $WS_FILE"
 fi
 
 installed=false

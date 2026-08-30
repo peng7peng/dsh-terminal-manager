@@ -67,11 +67,12 @@ TGZ_PATH="$PLUGIN_DIR/$TGZ"
 EXTRACT_DIR=$(mktemp -d)
 (cd "$EXTRACT_DIR" && tar -xzf "$TGZ_PATH" 2>/dev/null)
 if [ -f "$EXTRACT_DIR/package/package.json" ]; then
-    node -e "
+    EXTRACT_DIR="$EXTRACT_DIR" node -e "
 const fs = require('fs');
-const p = JSON.parse(fs.readFileSync('$EXTRACT_DIR/package/package.json', 'utf8'));
+const path = process.env.EXTRACT_DIR + '/package/package.json';
+const p = JSON.parse(fs.readFileSync(path, 'utf8'));
 delete p.devDependencies;
-fs.writeFileSync('$EXTRACT_DIR/package/package.json', JSON.stringify(p, null, 2));
+fs.writeFileSync(path, JSON.stringify(p, null, 2));
 "
     rm -f "$TGZ_PATH"
     tar -czf "$TGZ_PATH" -C "$EXTRACT_DIR" package

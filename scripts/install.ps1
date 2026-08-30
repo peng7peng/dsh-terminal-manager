@@ -115,20 +115,34 @@ if (Get-Command dsh -ErrorAction SilentlyContinue) {
     $installed = ($LASTEXITCODE -eq 0)
 }
 
-# 方式 B：检查相邻目录是否有 deepseek-harness 源码
+# 方式 B：查找 deepseek-harness 源码（多处搜索）
 if (-not $installed) {
-    $parentDir = Split-Path (Split-Path $PluginDir -Parent) -Parent
-    $harnessDir = Join-Path $parentDir "deepseek-harness"
-    if (Test-Path (Join-Path $harnessDir "package.json")) {
-        Write-Info "检测到相邻 DSH 源码: $harnessDir"
-        Push-Location $harnessDir
-        pnpm dsh plugin --profile $Profile add $tgzPath
-        $installed = ($LASTEXITCODE -eq 0)
-        Pop-Location
+    $searchPaths = @(
+        # 脚本所在目录的相邻目录（从源码 clone 运行时）
+        (Join-Path (Split-Path $PSScriptRoot -Parent) "deepseek-harness"),
+        # 当前工作目录的相邻目录
+        (Join-Path (Split-Path (Get-Location) -Parent) "deepseek-harness"),
+        # 插件安装目录的相邻目录
+        (Join-Path (Split-Path (Split-Path $PluginDir -Parent) -Parent) "deepseek-harness"),
+        # 常见位置
+        "D:\dsh\deepseek-harness",
+        "D:\myproject\dsh\deepseek-harness",
+        "$env:USERPROFILE\deepseek-harness"
+    ) | Select-Object -Unique
+
+    foreach ($path in $searchPaths) {
+        if (Test-Path (Join-Path $path "package.json")) {
+            Write-Info "检测到 DSH 源码: $path"
+            Push-Location $path
+            pnpm dsh plugin --profile $Profile add $tgzPath
+            $installed = ($LASTEXITCODE -eq 0)
+            Pop-Location
+            break
+        }
     }
 }
 
-# 方式 C：用 npx
+# 方式 C：用 npx（兜底）
 if (-not $installed -and (Get-Command npx -ErrorAction SilentlyContinue)) {
     Write-Info "使用 npx @deepseek-ai/dsh（首次需下载）"
     npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath

@@ -87,11 +87,22 @@ if command -v dsh &>/dev/null; then
 fi
 
 if [ "$installed" = false ]; then
-    HARNESS_DIR="$(dirname "$INSTALL_DIR")/deepseek-harness"
-    if [ -f "$HARNESS_DIR/package.json" ]; then
-        info "检测到相邻 DSH 源码: $HARNESS_DIR"
-        (cd "$HARNESS_DIR" && pnpm dsh plugin --profile "$PROFILE" add "$TGZ_PATH") && installed=true
-    fi
+    # 搜索 deepseek-harness 源码
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    SEARCH_PATHS=(
+        "$SCRIPT_DIR/../deepseek-harness"
+        "$(pwd)/../deepseek-harness"
+        "$(dirname "$INSTALL_DIR")/../deepseek-harness"
+        "$HOME/deepseek-harness"
+    )
+    for path in "${SEARCH_PATHS[@]}"; do
+        path="$(realpath "$path" 2>/dev/null || echo "$path")"
+        if [ -f "$path/package.json" ]; then
+            info "检测到 DSH 源码: $path"
+            (cd "$path" && pnpm dsh plugin --profile "$PROFILE" add "$TGZ_PATH") && installed=true
+            break
+        fi
+    done
 fi
 
 if [ "$installed" = false ] && command -v npx &>/dev/null; then

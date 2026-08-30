@@ -1,4 +1,4 @@
-﻿﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
+﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
 # 用法: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 
 param(

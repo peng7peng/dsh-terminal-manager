@@ -62,6 +62,23 @@ ok "构建完成"
 info "打包插件..."
 TGZ=$(pnpm pack 2>/dev/null | grep '\.tgz$' | tail -1)
 TGZ_PATH="$PLUGIN_DIR/$TGZ"
+
+# 从 tgz 中剥离 devDependencies（link: 路径在 profile 环境不可用，且会触发 symlink 失败）
+EXTRACT_DIR=$(mktemp -d)
+(cd "$EXTRACT_DIR" && tar -xzf "$TGZ_PATH" 2>/dev/null)
+if [ -f "$EXTRACT_DIR/package/package.json" ]; then
+    node -e "
+const fs = require('fs');
+const p = JSON.parse(fs.readFileSync('$EXTRACT_DIR/package/package.json', 'utf8'));
+delete p.devDependencies;
+fs.writeFileSync('$EXTRACT_DIR/package/package.json', JSON.stringify(p, null, 2));
+"
+    rm -f "$TGZ_PATH"
+    tar -czf "$TGZ_PATH" -C "$EXTRACT_DIR" package
+    info "已剥离 devDependencies"
+fi
+rm -rf "$EXTRACT_DIR"
+
 ok "打包完成: $TGZ_PATH"
 
 # 6. 安装到 DSH profile（自动检测 dsh / pnpm dsh / npx）

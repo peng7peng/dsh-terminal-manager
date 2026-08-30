@@ -92,6 +92,25 @@ $tgzFile = Get-ChildItem -Path $PluginDir -Filter "dsh-terminal-manager-*.tgz" |
 $tgzPath = $tgzFile.FullName
 Pop-Location
 if (-not $tgzPath) { Write-Err "打包失败，未找到 tgz"; exit 1 }
+
+# 从 tgz 中剥离 devDependencies（link: 路径在 profile 环境不可用，且会触发 symlink 失败）
+$extractDir = Join-Path $env:TEMP "dsh-tm-pack-$(Get-Random)"
+New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+Push-Location $extractDir
+tar -xzf $tgzPath 2>$null
+$pkgJsonPath = Join-Path $extractDir "package\package.json"
+if (Test-Path $pkgJsonPath) {
+    $pkgJson = Get-Content $pkgJsonPath -Raw | ConvertFrom-Json
+    $pkgJson.PSObject.Properties.Remove('devDependencies')
+    $pkgJson | ConvertTo-Json -Depth 10 | Set-Content $pkgJsonPath -Encoding UTF8
+    # 重新打包
+    Remove-Item $tgzPath -Force
+    tar -czf $tgzPath -C $extractDir package
+    Write-Info "已剥离 devDependencies"
+}
+Pop-Location
+Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+
 Write-Ok "打包完成: $tgzPath"
 
 # 6. 安装到 DSH profile

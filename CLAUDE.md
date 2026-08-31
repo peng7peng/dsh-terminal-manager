@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**167 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**171 项全绿是基线**，改挂必须修绿再提交）
 - 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（19 场景，对活服务）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 72/72/60/74，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
@@ -20,7 +20,7 @@
 
 ## 约定
 
-- TypeScript strict；React 18 + CSS Modules（无组件库），与 DSH `packages/client` 一致。
+- TypeScript strict；React 18 + 全局 `.tm-` 前缀 CSS（无 CSS Modules，无组件库），样式集中在 `client/styles.ts`。
 - 插件是「双半包」：host 半（Cordis 模块）+ 浏览器半（slot 组件），参考 `extensions/ui-cordis`。
 - **会话不用 `ctx.terminals`**（那是 AI 私有本机 PTY）；本插件自持 `SessionManager` 公共会话池——人机共用是核心需求。
 - 工具注册遵循 `../deepseek-harness/docs/cookbook/adding-a-tool.md`。

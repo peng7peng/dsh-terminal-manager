@@ -137,11 +137,12 @@ interface ConnectionConfig {
   quietMs?: number              // 完成判定①（可选，默认 500）
   timeoutMs?: number            // 完成判定③（可选，默认 30000）
   guardWhitelist?: string[]     // 命令守卫白名单（正则源列表，按连接豁免）
-  telnetMode?: 'telnet' | 'raw' // Telnet 模式（默认 raw：裸 TCP）
+  telnetMode?: 'telnet' | 'raw' // Telnet 模式（默认 telnet：完整 IAC 协商）
   handshakeTimeoutSec?: number  // SSH 握手超时秒数（默认 15；可选 15/30/60/120/180）
   newline?: 'lf' | 'cr' | 'crlf'// 行尾换行（默认 'crlf'）
   localEcho?: boolean           // 本地回显开关（默认 false；字段已保存后端）
   note?: string                 // 备注（选填）
+  favorited?: boolean           // 收藏标记（UI 置顶显示）
 }
 ```
 
@@ -251,7 +252,7 @@ interface ConnectionConfig {
   - POST → 解析 `{ type: 'client-request', rpcId, method, payload }`，endpoint 取 body.method 或 URL 路径，经纯函数 `dispatch(endpoint, payload, deps, signal)` 调度，返回 `{ type: 'server-response', rpcId, result }`。
 - 端点：
   - `connections.list` / `connections.create` / `connections.update({id, patch})` / `connections.remove({id})`
-  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`）/ `sessions.disconnect({sessionId})` / `sessions.read({sessionId, count?})`
+  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
 - 错误折叠：领域异常 → `RpcResult.error`，其中 HTTP 层 `code` 统一为 `internal`、领域 code 编进 message（`{ code, message }` 格式，message 永不含凭据）；`AbortSignal` 已中止 → `cancelled`；未知端点 → `internal`（message 带端点名）。
 
 #### B7b 数据面数据流通道（`src/ws-io.ts`）——/term-io WebSocket
@@ -404,7 +405,7 @@ dsh-terminal-manager/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 167 项 vitest（14 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 171 项 vitest（14 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
 ├── docs/
 │   └── archive/
@@ -454,7 +455,7 @@ dsh-terminal-manager/
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，165 项基线）**
+**构建期测试（`pnpm test` = vitest，171 项基线）**
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
 - 工具层：经测试上下文调用六个 `tm_*`，断言 schema 与返回（含 `presentCall` 卡片）。
@@ -476,4 +477,4 @@ dsh-terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（165 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（171 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

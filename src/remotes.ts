@@ -1,10 +1,9 @@
 /**
  * B7a 指令通道 —— 前端控制面 RPC。
  *
- * 前端经通道①（HTTP）调用这些方法：连接配置增删改查、会话连接/断开/列表/读缓冲。
- * 调度逻辑是纯函数（dispatch），便于直接测试；registerRemotes 负责挂到 ctx.connection.rpc。
- * 挂载方式定案：ctx.connection.rpc.handle('/term-manager', handler, { authority: 'trusted-host' })
- * （参考 packages/client/connection/src/rpc-host.ts；typert remotes 留作后续升级）。
+ * 前端经通道①（HTTP）调用这些方法：连接配置增删改查、会话连接/断开/重连/列表/读缓冲。
+ * 调度逻辑是纯函数（dispatch），便于直接测试；registerRemotes 负责挂到 ctx.webServer。
+ * 挂载方式：ctx.webServer.register({ kind: 'prefix', prefix: '/term-manager' })
  * @module dsh-terminal-manager/remotes
  */
 

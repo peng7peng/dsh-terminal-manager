@@ -1,6 +1,6 @@
 /**
- * 浏览器侧指令通道客户端 —— 往 /api/term-manager.<method> POST（DSH 标准 ClientRequest 封包）。
- * host 端 connection.rpc.intercept 拦截并解封，调度到 remotes.dispatch。
+ * 浏览器侧指令通道客户端 —— 往 /term-manager/<method> POST。
+ * host 端 webServer.register 拦截前缀路由，调度到 remotes.dispatch。
  * @module dsh-terminal-manager/client/rpc
  */
 

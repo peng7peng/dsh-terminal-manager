@@ -23,8 +23,9 @@ const SESSION_SNAPSHOT_SCHEMA = {
     label: { type: 'string', required: true },
     target: { type: 'string', required: true },
     protocol: { type: 'string', required: true, enum: ['ssh', 'telnet'] },
-    status: { type: 'string', required: true, enum: ['connecting', 'open', 'closed'] },
+    status: { type: 'string', required: true, enum: ['connecting', 'open', 'closed', 'removed'] },
     openedAtMs: { type: 'number' },
+    closeReason: { type: 'string' },
   },
 } as const
 

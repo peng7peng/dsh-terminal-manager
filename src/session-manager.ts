@@ -25,6 +25,7 @@ export interface SessionSnapshot {
   protocol: 'ssh' | 'telnet'
   status: SessionStatus
   openedAtMs?: number
+  closeReason?: string
 }
 
 export interface SendResult {
@@ -40,7 +41,7 @@ export interface BroadcastEntry {
   code?: string
 }
 
-export type SessionErrorCode = 'SESSION_NOT_FOUND' | 'SESSION_BUSY' | 'DISCONNECTED' | 'COMMAND_BLOCKED'
+export type SessionErrorCode = 'SESSION_NOT_FOUND' | 'SESSION_BUSY' | 'DISCONNECTED' | 'COMMAND_BLOCKED' | 'SESSION_NOT_DISCONNECTED'
 
 export class SessionError extends Error {
   constructor(
@@ -100,6 +101,7 @@ interface SessionRecord {
   buffer: string
   subscribers: Set<(chunk: string) => void>
   busy: boolean
+  closeReason?: string
   /** 连接级换行（来自 ConnectTarget / 连接配置），sendAndWait/sendImmediate 缺省时回退到此值 */
   newline?: 'lf' | 'cr' | 'crlf'
 }
@@ -261,9 +263,7 @@ export class SessionManager {
 
   /** 重连已断开的会话（被动断开后恢复）。 */
   async reconnect(sessionId: string): Promise<SessionSnapshot> {
-    console.log('[session-manager] reconnect called for', sessionId)
     const record = this.requireRecord(sessionId)
-    console.log('[session-manager] record status:', record.status)
     if (record.status !== 'closed') {
       throw new SessionError('SESSION_NOT_DISCONNECTED', '会话未处于断开状态')
     }
@@ -274,12 +274,12 @@ export class SessionManager {
     }
     // 重新建立连接
     record.status = 'connecting'
+    record.closeReason = undefined
     this.notify(record)
     try {
       const conn = record.connId !== undefined && this.store !== undefined
         ? this.store.get(record.connId)
         : undefined
-      console.log('[session-manager] conn found:', conn !== undefined)
       if (conn === undefined) {
         throw new SessionError('SESSION_NOT_FOUND', '无法获取连接配置')
       }
@@ -301,10 +301,8 @@ export class SessionManager {
       record.status = 'open'
       record.openedAtMs = Date.now()
       this.notify(record)
-      console.log('[session-manager] reconnect successful')
       return this.snapshot(record)
     } catch (error) {
-      console.error('[session-manager] reconnect failed:', error)
       record.status = 'closed'
       this.notify(record)
       throw error
@@ -483,8 +481,9 @@ export class SessionManager {
   private handleClose(record: SessionRecord, reason: string): void {
     if (record.status === 'closed' || record.status === 'removed') return
     record.status = 'closed'
+    record.closeReason = reason
     // 被动断开：保留在列表中（不删除），前端显示「已断开」状态
-    this.notify(record, reason)
+    this.notify(record)
   }
 
   private requireRecord(sessionId: string): SessionRecord {
@@ -508,10 +507,11 @@ export class SessionManager {
       protocol: record.protocol,
       status: record.status,
       ...(record.openedAtMs !== undefined ? { openedAtMs: record.openedAtMs } : {}),
+      ...(record.closeReason !== undefined ? { closeReason: record.closeReason } : {}),
     }
   }
 
-  private notify(record: SessionRecord, _reason?: string): void {
+  private notify(record: SessionRecord): void {
     const snap = this.snapshot(record)
     for (const listener of [...this.statusListeners]) listener(snap)
   }

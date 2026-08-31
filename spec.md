@@ -24,7 +24,7 @@
 ### 非功能性
 
 - **性能**：10 个并发会话下，设备输出到屏幕显示延迟 < 100ms（本机回环）；单会话输出环形缓冲上限 1 MiB（`session-manager.ts` 的 `BUFFER_CAP_BYTES`），总内存占用可控。
-- **可靠性**：设备断连自动标记会话状态并即时推送 `status` 帧；重连是显式动作，不做静默自动重连；WS 通道断线自动重连（指数退避，重连后重新附着所有可见会话）。
+- **可靠性**：设备断连自动标记会话状态并即时推送 `status` 帧；重连是显式动作，不做静默自动重连；WS 通道断线自动重连（指数退避，重连后由前端重建终端状态）。
 - **安全**：
   - 数据面 WebSocket（`/term-io`）MVP 信任栅栏 = **仅 loopback**（`127.0.0.1` / `localhost` / `[::1]`，见 `ws-io.ts` 的 `isLoopback`）；trustedHosts 白名单列为后续项。
   - 凭据本地明文保存（产品负责人已接受的风险）；落盘 `connections.json` 权限尽力 0600（Windows 平滑降级）；错误消息/日志/工具返回值**永不含密码或密钥内容**；文档明示该风险。
@@ -281,7 +281,7 @@ interface ConnectionConfig {
 
 **F4 终端组件（`TermView.tsx`）**：单窗格 = 标题条（状态点 + 名称 + 目标 + ✕断开）+ xterm（`@xterm/xterm` + `@xterm/addon-fit`，scrollback 5000，配色低饱和、随 DSH 明暗主题 `data-ds-dark-theme` 动态切换）。键盘经 `ws.onData → ws.input` 直达设备；Ctrl+C（有选区→复制/无选区→透传 SIGINT）+ Ctrl+Shift+C/V + Cmd+C/V + 右键（有选区→复制/无选区→粘贴，PuTTY 式）+ `execCommand` 降级。挂载时 `loadHistory`：经 `sessions.read` 拉缓冲尾部文本回放（`truncated` 时追加「[历史已截断]」）。`ResizeObserver` 触发 `fit.fit()` + `ws.resize`；窗格隐藏时新输出标记未读。
 
-**F5 WS 客户端（`ws.ts`）**：`TermWs` 维持单条 `/term-io` 连接，按 `sessionId` 分发帧；断线指数退避重连（基础 1s、上限 10s），重连后重新 attach 所有已附着会话。纯 TS 可注入 ws-like 构造器直测。
+**F5 WS 客户端（`ws.ts`）**：`TermWs` 维持单条 `/term-io` 连接，按 `sessionId` 分发帧；断线指数退避重连（基础 1s、上限 10s）。**设计偏离**：重连后不再由 ws.ts 自动 re-attach 旧会话，而是清空附着列表并通知前端回调 `reconnectHandler()`，由前端重新拉取会话列表并重建终端窗格（`TerminalWorkspace.tsx` 的 `onReconnect`）。最终效果等价——断线后终端自动恢复，后端环形缓冲保留输出历史。
 
 **F6 状态同步 + 布局 + 未读（`store.ts`）**：
 - 可见性：模块级 `useSyncExternalStore`；`setWorkspaceVisible` **同步** capture/restore 原始 frame grid（不依赖 React effect 时序）。
@@ -328,7 +328,7 @@ interface ConnectionConfig {
 
 清理规则：
 1. **页面关闭 / 面板收起** → 浏览器与后端的字符管道（WS）断开 → 后端把挂在这条管道上的所有订阅**随管道一起清掉**。管道是订阅的唯一载体。
-2. **管道假死**（断网等无通知场景）→ 后端每 30s 发心跳（`ws.ping`），`onclose` 触发后同样清理；浏览器侧 `TermWs` 指数退避自动重连并重新 attach。
+2. **管道假死**（断网等无通知场景）→ 后端每 30s 发心跳（`ws.ping`），`onclose` 触发后同样清理；浏览器侧 `TermWs` 指数退避自动重连，重连后前端重建终端状态。
 3. **AI 调用结束 ≠ 停流**：AI 的一次 `tm_send` 是「一问一答」的短等待器，条件满足即自动注销；设备输出流属于会话本身，持续存在，谁要看谁订阅。
 4. **零订阅的会话继续活着**（有意设计）；会话的终结只有三种：显式断开、设备掉线、插件卸载（`ctx.effect` 清理全部连接与管道）。
 5. **会话列表状态传播**：状态变化（connecting/open/closed）时 `notify` → `/term-io` 推 `status` 帧 → 客户端更新列表/徽标。前端只保留 `open` 会话条目（`connecting` 跳过避免连接失败时幽灵条目，`closed` 移除）。

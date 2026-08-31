@@ -49,7 +49,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [showAdv, setShowAdv] = useState(false)
   const [newline, setNewline] = useState<'lf' | 'cr' | 'crlf'>('crlf')
   const [localEcho, setLocalEcho] = useState(false)
-  const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('raw')
+  const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('telnet')
   const [handshakeTimeout, setHandshakeTimeout] = useState<number>(15)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [renameId, setRenameId] = useState<string | null>(null)

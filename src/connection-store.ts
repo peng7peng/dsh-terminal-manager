@@ -33,7 +33,7 @@ export interface ConnectionConfig {
   timeoutMs?: number
   /** 命令守卫白名单（可选，正则源列表） */
   guardWhitelist?: string[]
-  /** Telnet 模式：'telnet'（协议协商）| 'raw'（裸 TCP，默认） */
+  /** Telnet 模式：'telnet'（完整 IAC 协商，默认）| 'raw'（裸 TCP 透传） */
   telnetMode?: 'telnet' | 'raw'
   /** SSH 握手超时秒数（默认 15） */
   handshakeTimeoutSec?: number

@@ -2,7 +2,7 @@
  * F7 本地文件面板逻辑：纯函数 + store（假 rpc / 假 storage）。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { baseName, breadcrumbs, createLocalFsStore, formatSize, humanError, isSameOrInside, parentDir, type FileEntryView } from '../client/files/localFs.ts'
+import { baseName, breadcrumbs, createLocalFsStore, formatSize, humanError, isSameOrInside, parentDir, type FileEntryView, type RpcFn } from '../client/files/localFs.ts'
 
 describe('路径纯函数', () => {
   it('parentDir：Windows / POSIX，到顶返回自身', () => {
@@ -54,7 +54,7 @@ function fakeRpc(tree: Record<string, FileEntryView[]>, root = 'D:/ws') {
       return tree[p] as T
     }
     throw new Error(`unknown ${method}`)
-  })
+  }) as unknown as RpcFn & { mock: { calls: unknown[][] } }
   return { rpc, calls }
 }
 
@@ -132,7 +132,7 @@ describe('localFs store', () => {
       if (method === 'files.root') return { root: 'D:/ws' } as T
       if (payload?.path === 'D:/ws/slow') return new Promise<T>(r => { resolveSlow = r as (v: FileEntryView[]) => void })
       return TREE[String(payload?.path)] as T
-    })
+    }) as unknown as RpcFn
     const store = createLocalFsStore({ rpc, storage: fakeStorage() })
     await store.init()
     const slow = store.enter('D:/ws/slow')

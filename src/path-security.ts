@@ -47,7 +47,16 @@ async function realpathOf(path: string, what: string): Promise<string> {
 export async function resolveInsideRoot(root: string, target: string): Promise<string> {
   const absolute = requireAbsolute(target)
   const realRoot = await realpathOf(requireAbsolute(root), '树根目录')
-  const realTarget = await realpathOf(absolute, '路径')
+  let realTarget: string
+  try {
+    realTarget = await realpath(absolute)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw mapFsError(error, '路径')
+    // 不存在：先按最近的已存在祖先判断是否越界——根外的路径一律报 PATH_OUTSIDE_ROOT，
+    // 不用 NOT_FOUND 泄露「根外某文件存不存在」
+    await resolveWritePathInsideRoot(root, target)
+    throw new FileServiceError('NOT_FOUND', '路径不存在')
+  }
   if (!isWithin(realRoot, realTarget)) throw new FileServiceError('PATH_OUTSIDE_ROOT', '路径在当前文件树根之外')
   return realTarget
 }

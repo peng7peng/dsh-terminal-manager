@@ -87,8 +87,12 @@ describe('resolveInsideRoot（读围栏）', () => {
     if (linkToOutside === undefined) skip()
     expect(await codeOf(resolveInsideRoot(root, join(linkToOutside!, 'secret.txt')))).toBe('PATH_OUTSIDE_ROOT')
   })
-  it('不存在 → NOT_FOUND', async () => {
+  it('根内不存在 → NOT_FOUND', async () => {
     expect(await codeOf(resolveInsideRoot(root, join(root, 'a', 'nope.txt')))).toBe('NOT_FOUND')
+  })
+  it('根外且不存在 → 仍是 PATH_OUTSIDE_ROOT（不泄露根外文件是否存在）', async () => {
+    expect(await codeOf(resolveInsideRoot(root, join(outside, 'nope.txt')))).toBe('PATH_OUTSIDE_ROOT')
+    expect(await codeOf(resolveInsideRoot(root, join(outside, 'no', 'deeper.txt')))).toBe('PATH_OUTSIDE_ROOT')
   })
   it('相对路径 → VALIDATION', async () => {
     expect(await codeOf(resolveInsideRoot(root, 'a/b.txt'))).toBe('VALIDATION')

@@ -556,7 +556,7 @@ dsh-terminal-manager/
 | 面板入口快捷键 | 延后，MVP 不做 |
 | TC 脚本 6 项暂定决策（B11） | 按暂定值实现；与同事确认后若有变只改 `tc-parser.ts` / `runScript.ts` |
 | Excel（.xlsx） | 本期不做；9 月底有余量再评估（抄 excel-panel 5–10 人天 + 1MB 体积，或自制 3–5 人天） |
-| better-sidebar 源码位置 | 未拿到；F8/F9 先按原型 `prototypes/float-editor-b.html` + CodeMirror 官方用法自写，拿到后再对照裁剪 |
+| better-sidebar 源码位置 | 已拿到：`../DSH-better-sidebar`（MIT，v0.18.0-alpha.0）。抄 path-security / fs-tree / FreeWindow / TabBar / TextEditor+cm-themes，逐文件裁剪，对照表见 plan.md |
 | 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
 
 ## 验证计划

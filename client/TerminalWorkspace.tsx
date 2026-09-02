@@ -11,6 +11,9 @@ import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnr
 import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
+import { FilePanel } from './files/FilePanel.tsx'
+import { ToastHost } from './ToastHost.tsx'
+import { toast } from './toast.ts'
 
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
@@ -228,7 +231,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
             <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
           </div>
         </div>
+        {/* F7 本地文件面板（广播栏下方收起条）；远端面板 S5 接入 */}
+        <FilePanel onOpenFile={(entry) => toast(`编辑器下一步接入：${entry.name}`)} />
       </div>
+      <ToastHost />
       <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>
   )

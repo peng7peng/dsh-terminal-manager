@@ -5,7 +5,7 @@
 - 状态：已批准（Approved）— 2026-08-25
 - 日期：2026-08-25
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
-- 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见 `docs/2026-09-01-九月迭代设计方案.md` + `docs/ux/2026-09-01-九月迭代交互设计.md`，实现落地后再并入本文件
+- 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
 
 ## 需求
 
@@ -443,12 +443,7 @@ dsh-terminal-manager/
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
 ├── tests/                     # 185 项 vitest（17 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
-├── docs/
-│   └── archive/
-│       ├── solution.zh.md               # 原方案文档（已归档，不再维护；设计以本文件为准）
-│       └── connections-panel-upgrade.zh.md  # 连接面板升级提案（已归档，剩余待办并入 plan.md）
-├── docs/2026-09-01-九月迭代设计方案.md   # 九月迭代设计方案（副本；源文件在 ../开发过程文档/）
-├── docs/ux/2026-09-01-九月迭代交互设计.md # 九月迭代交互设计（定稿）
+├── （docs/ 不入库）             # 设计方案 / 交互设计 / 归档文档放仓库外 ../开发过程文档/
 ├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论；九月原型 design-demo / file-panels / float-editor-*
 ├── intent/intent.md           # 已 Accepted
 ├── spec.md                    # 本文件（唯一设计源）

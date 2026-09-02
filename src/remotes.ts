@@ -14,6 +14,9 @@ import type { Config } from './config.ts'
 import type { ConnectionConfig, ConnectionInput } from './connection-store.ts'
 import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
+import type { FileService, LocalPathRef } from './types/file-service.ts'
+import type { SendOptions } from './types/session-api.ts'
+import { FileServiceError } from './file-errors.ts'
 import { SessionError } from './session-manager.ts'
 
 /** 指令通道的依赖（注入便于测试）。 */
@@ -22,6 +25,13 @@ export interface RemoteDeps {
   store: import('./connection-store.ts').ConnectionStore
   /** 插件配置（workspaceRoot 等）；测试可省略 */
   config?: Config
+  /** 文件服务（B10）；未注入时 files.* 端点返回 UNSUPPORTED */
+  files?: FileService
+}
+
+function requireFiles(deps: RemoteDeps): FileService {
+  if (deps.files === undefined) throw new FileServiceError('UNSUPPORTED', '文件服务未启用')
+  return deps.files
 }
 
 /** 连接页查询/表单的载荷类型。 */
@@ -99,6 +109,40 @@ export async function dispatch(
         const { sessionId, count } = payload as { sessionId: string; count?: number }
         return ok(deps.sessions.read(sessionId, count))
       }
+      // 编辑器路径：一条命令一次 sendAndWait（TC 执行 / 发送选中逐条调用；不过守卫，来源缺省 script）
+      case 'sessions.send': {
+        const { sessionId, command, source, wait, newline, submit } = payload as {
+          sessionId: string; command: string; source?: SendOptions['source']; wait?: SendOptions['wait']; newline?: SendOptions['newline']; submit?: boolean
+        }
+        const result = await deps.sessions.sendAndWait(sessionId, command, {
+          source: source ?? 'script',
+          ...(wait !== undefined ? { wait } : {}),
+          ...(newline !== undefined ? { newline } : {}),
+          ...(submit !== undefined ? { submit } : {}),
+          signal,
+        })
+        return ok(result)
+      }
+      // 本地文件（B10）：root 由前端每次传入（当前树根），path 必须在 root 内
+      case 'files.tree': {
+        const ref = payload as unknown as LocalPathRef
+        return ok(await requireFiles(deps).listLocal(ref))
+      }
+      case 'files.read': {
+        const { root, path, maxBytes } = payload as LocalPathRef & { maxBytes?: number }
+        return ok(await requireFiles(deps).readLocal({ root, path }, maxBytes !== undefined ? { maxBytes } : {}))
+      }
+      case 'files.write': {
+        const { root, path, content } = payload as LocalPathRef & { content: string }
+        if (typeof content !== 'string') throw new FileServiceError('VALIDATION', 'content 必须是字符串')
+        return ok(await requireFiles(deps).writeLocal({ root, path }, content))
+      }
+      case 'files.dirs': {
+        const { path } = payload as { path: string }
+        return ok(await requireFiles(deps).listDirectories(path))
+      }
+      case 'files.root':
+        return ok({ root: deps.config?.workspaceRoot ?? process.cwd() })
       default:
         return { ok: false, error: { code: 'internal', message: `未知方法: ${endpoint}`, details: {} } }
     }
@@ -114,6 +158,7 @@ export async function dispatch(
 export const REMOTE_ERROR_CODES = [
   'VALIDATION', 'AUTH_FAILED', 'HOST_UNREACHABLE', 'CONN_TIMEOUT',
   'SESSION_NOT_FOUND', 'SESSION_BUSY', 'DISCONNECTED', 'COMMAND_BLOCKED', 'PROTO_ERROR',
+  'PATH_OUTSIDE_ROOT', 'NOT_FOUND', 'FILE_TOO_LARGE', 'REMOTE_IO', 'UNSUPPORTED',
 ] as const
 
 /**

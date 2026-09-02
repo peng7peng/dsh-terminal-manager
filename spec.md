@@ -284,7 +284,8 @@ interface ConnectionConfig {
   - `writeLocal(ref, content)`：原子写——写到同目录 `.<name>.tm-tmp-<random>` 再 `rename`；失败清理临时文件。不创建父目录（越权风险），父目录不存在抛 `NOT_FOUND`。
   - `listDirectories(absPath)`：只返回子目录，用于「换目录」选择器；不受树根限制（只读、只列目录名）。
 - **错误**：`FileServiceError { code: FileErrorCode }`；系统错误映射：`ENOENT → NOT_FOUND`，`EACCES/EPERM → VALIDATION`（消息不含绝对路径之外的信息），其余 `REMOTE_IO`（本地也复用此码，含义为 I/O 失败）。
-- **控制面端点（挂在 B7a `dispatch`）**：`files.tree { root, path }` / `files.read { root, path, maxBytes? }` / `files.write { root, path, content }` / `files.dirs { path }`，返回值与四件套一致。
+- **控制面端点（挂在 B7a `dispatch`）**：`files.tree { root, path }` / `files.read { root, path, maxBytes? }` / `files.write { root, path, content }` / `files.dirs { path }`，返回值与四件套一致；`files.root` 返回配置树根；`files.open { root, path }` 用系统默认程序打开树根内的**文件**（`src/open-external.ts`：Windows `cmd /c start ""`、macOS `open`、Linux `xdg-open`；不在 FileService 契约内，是主线自己的功能）。
+- **打开规则（前端 `client/files/openRule.ts`）**：文本类扩展名（txt / md / sh / py / json / ini / csv / log / yaml / xml / conf / toml / bat / ps1 …）双击进编辑器；其余（xlsx / docx / pdf / 图片 / 压缩包 …）双击交给系统程序；右键菜单两项都有。
 - **远端部分**（`listRemote` / `upload` / `download` / `downloadToLocal`）S5 实现；S1 里这四个方法抛 `UNSUPPORTED`。
 - **事件**：本地读写不派发 `file` 事件（S5 远端传输才派发）。
 
@@ -556,7 +557,7 @@ dsh-terminal-manager/
 | SSH 主机密钥 TOFU | MVP 后首个安全迭代 |
 | 面板入口快捷键 | 延后，MVP 不做 |
 | TC 脚本 6 项暂定决策（B11） | 按暂定值实现；与同事确认后若有变只改 `tc-parser.ts` / `runScript.ts` |
-| Excel（.xlsx） | 本期不做；9 月底有余量再评估（抄 excel-panel 5–10 人天 + 1MB 体积，或自制 3–5 人天） |
+| Excel（.xlsx）等非文本文件 | **已定（2026-09-02）：不自己编辑，交给用户本机的默认程序打开**——`files.open` 端点（B10）在树根围栏内用系统关联程序打开；面板双击非文本文件即走此路 |
 | better-sidebar 源码位置 | 已拿到：`../DSH-better-sidebar`（MIT，v0.18.0-alpha.0）。抄 path-security / fs-tree / FreeWindow / TabBar / TextEditor+cm-themes，逐文件裁剪，对照表见 plan.md |
 | 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
 

@@ -4,4 +4,4 @@ lib/
 .DS_Store
 coverage/
 *.tgz
-.vscode/
+.vscode/evals/manual-files/big.txt

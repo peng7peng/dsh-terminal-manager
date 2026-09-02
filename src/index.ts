@@ -15,6 +15,7 @@ import { registerAmbiguityHandling } from './ambiguity.ts'
 import { resolveConfig, type Config } from './config.ts'
 import { registerExtensions } from './ext/index.ts'
 import { LocalFileService } from './file-service.ts'
+import { openWithSystem } from './open-external.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
@@ -49,7 +50,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
   // 不能再把它们的返回值传给 ctx.effect（那会立即调用清理、删掉刚注册的路由）
-  registerRemotes(ctx, { sessions, store, config: cfg, files })
+  registerRemotes(ctx, { sessions, store, config: cfg, files, openExternal: (p) => openWithSystem(p) })
   registerWsIo(ctx, sessions)
 
   // 扩展模块（日志管理 / 共享端口）：只拿契约里的东西，主线不知道它们的内部

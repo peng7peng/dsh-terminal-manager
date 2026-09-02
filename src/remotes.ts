@@ -16,7 +16,9 @@ import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
 import type { FileService, LocalPathRef } from './types/file-service.ts'
 import type { SendOptions } from './types/session-api.ts'
-import { FileServiceError } from './file-errors.ts'
+import { stat } from 'node:fs/promises'
+import { FileServiceError, mapFsError } from './file-errors.ts'
+import { resolveInsideRoot } from './path-security.ts'
 import { SessionError } from './session-manager.ts'
 
 /** 指令通道的依赖（注入便于测试）。 */
@@ -27,6 +29,8 @@ export interface RemoteDeps {
   config?: Config
   /** 文件服务（B10）；未注入时 files.* 端点返回 UNSUPPORTED */
   files?: FileService
+  /** 用系统默认程序打开本机文件（files.open）；未注入时返回 UNSUPPORTED */
+  openExternal?: (path: string) => Promise<void>
 }
 
 function requireFiles(deps: RemoteDeps): FileService {
@@ -143,6 +147,16 @@ export async function dispatch(
       }
       case 'files.root':
         return ok({ root: deps.config?.workspaceRoot ?? process.cwd() })
+      // 非文本文件（xlsx / docx / pdf …）交给用户本机的默认程序打开；只允许树根内的文件
+      case 'files.open': {
+        const { root, path } = payload as unknown as LocalPathRef
+        if (deps.openExternal === undefined) throw new FileServiceError('UNSUPPORTED', '系统程序打开未启用')
+        const real = await resolveInsideRoot(root, path)
+        const st = await stat(real).catch((e: unknown) => { throw mapFsError(e, '文件') })
+        if (!st.isFile()) throw new FileServiceError('VALIDATION', '只能打开文件，不能打开目录')
+        await deps.openExternal(real)
+        return ok({ path: real })
+      }
       default:
         return { ok: false, error: { code: 'internal', message: `未知方法: ${endpoint}`, details: {} } }
     }

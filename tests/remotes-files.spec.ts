@@ -96,6 +96,21 @@ describe('files.* 端点', () => {
     const { deps } = makeDeps(false)
     expect(errMsg(await dispatch('files.tree', { root, path: root }, deps, abort))).toMatch(/^UNSUPPORTED:/)
   })
+
+  it('files.open：树根内的文件交给注入的打开函数；目录 → VALIDATION；根外 → PATH_OUTSIDE_ROOT；未注入 → UNSUPPORTED', async () => {
+    const { deps } = makeDeps()
+    const opened: string[] = []
+    deps.openExternal = async (p) => { opened.push(p) }
+    const r = await dispatch('files.open', { root, path: join(root, 'case1.txt') }, deps, abort)
+    expect(r.ok).toBe(true)
+    expect(opened).toHaveLength(1)
+    expect(opened[0]!.toLowerCase()).toContain('case1.txt')
+    expect(errMsg(await dispatch('files.open', { root, path: join(root, 'sub') }, deps, abort))).toMatch(/^VALIDATION:/)
+    expect(errMsg(await dispatch('files.open', { root, path: join(dir, 'connections.json') }, deps, abort))).toMatch(/^PATH_OUTSIDE_ROOT:/)
+    expect(opened).toHaveLength(1)
+    delete deps.openExternal
+    expect(errMsg(await dispatch('files.open', { root, path: join(root, 'case1.txt') }, deps, abort))).toMatch(/^UNSUPPORTED:/)
+  })
 })
 
 describe('sessions.send 端点', () => {

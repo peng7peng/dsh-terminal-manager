@@ -72,10 +72,17 @@ export function EditorWindow(props: {
 
   const dirtyCount = s.tabs.filter(t => t.dirty).length
   if (s.minimized) {
+    const names = s.tabs.map(t => t.name).join('\n')
     return (
-      <div className="tm-feMinTab" onClick={() => store.restore()} title="点击还原编辑器">
-        📝 编辑器 · {s.tabs.length} 个文件{dirtyCount > 0 && <span className="dot" title={`${dirtyCount} 个未保存`} />}
-      </div>
+      <button
+        type="button"
+        className={`tm-feMinIcon ${dirtyCount > 0 ? 'dirty' : ''}`}
+        onClick={() => store.restore()}
+        title={`编辑器（${s.tabs.length} 个文件${dirtyCount > 0 ? `，${dirtyCount} 个未保存` : ''}）\n${names}\n点击还原`}
+        aria-label="还原编辑器"
+      >
+        📝<span className="cnt">{s.tabs.length}</span>
+      </button>
     )
   }
 

@@ -2,7 +2,7 @@
 
 - 作者：产品负责人 / Codex 协作整理
 - 来源：2026-09-01 IDE 会话；参考 `ipop-port-mapping-sharing-log-design.md`
-- 状态：Draft
+- 状态：Accepted（产品负责人于 2026-09-02 接受）
 - 日期：2026-09-01（2026-09-02 根据产品答复修订）
 
 ## 问题

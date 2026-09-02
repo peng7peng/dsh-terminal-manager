@@ -28,7 +28,7 @@ describe('pickSendTargets（发送选中的默认目标，跟随广播栏）', (
   it('广播栏勾了谁就默认发谁（与在线取交集）', () => {
     expect(pickSendTargets(['a', 'b', 'c'], online)).toEqual(['a', 'c'])
   })
-  it('广播栏没勾（= 全部语义）→ 默认第一台在线，避免误发全部', () => {
+  it('广播栏没勾选 → 弹框默认只勾第一台在线，不预选全部（防误发）', () => {
     expect(pickSendTargets([], online)).toEqual(['a'])
   })
   it('广播栏选中的都掉线了 → 回退第一台在线', () => {

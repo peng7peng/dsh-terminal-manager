@@ -129,6 +129,17 @@ describe('apply(ctx) 装配', () => {
     expect(sessions).toHaveProperty('closeAll')
   })
 
+  it('registerRemotes 收到解析后的 config：缺省 workspaceRoot = 进程 cwd，显式值原样透传', async () => {
+    const { apply } = await import('../src/index.ts')
+    apply(fakeCtx().ctx as never)
+    const defaults = mockRegisterRemotes.mock.calls[0][1].config
+    expect(defaults).toEqual({ workspaceRoot: process.cwd(), telnetFileTransfer: true })
+
+    apply(fakeCtx().ctx as never, { workspaceRoot: 'D:/work/dut', telnetFileTransfer: false })
+    const explicit = mockRegisterRemotes.mock.calls[1][1].config
+    expect(explicit).toEqual({ workspaceRoot: 'D:/work/dut', telnetFileTransfer: false })
+  })
+
   it('registerExtensions 收到契约依赖 { sessions, events, dataDir }', async () => {
     const { apply } = await import('../src/index.ts')
     const { ctx } = fakeCtx()

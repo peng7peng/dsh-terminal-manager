@@ -10,6 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { Config } from './config.ts'
 import type { ConnectionConfig, ConnectionInput } from './connection-store.ts'
 import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
@@ -19,6 +20,8 @@ import { SessionError } from './session-manager.ts'
 export interface RemoteDeps {
   sessions: SessionManager
   store: import('./connection-store.ts').ConnectionStore
+  /** 插件配置（workspaceRoot 等）；测试可省略 */
+  config?: Config
 }
 
 /** 连接页查询/表单的载荷类型。 */

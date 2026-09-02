@@ -54,6 +54,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: link:../deepseek-harness/packages/core/tools
         version: link:../deepseek-harness/packages/core/tools
+      '@deepseek-ai/schemastery':
+        specifier: link:../deepseek-harness/vendor/schemastery
+        version: link:../deepseek-harness/vendor/schemastery
       '@types/node':
         specifier: ^26.3.0
         version: 26.3.0

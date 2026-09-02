@@ -8,11 +8,11 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**'],
       thresholds: {
-        // 当前基线（src-only）；#3 补单测后上调
-        statements: 72,
-        functions: 72,
-        branches: 60,
-        lines: 74,
+        // 2026-09-02 用户要求 90%：语句 / 函数 / 行 ≥ 90；分支 80（实际 85，剩余是传输层错误分支与防御性判断）
+        statements: 90,
+        functions: 90,
+        branches: 80,
+        lines: 90,
       },
     },
   },

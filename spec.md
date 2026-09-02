@@ -512,7 +512,7 @@ dsh-terminal-manager/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 282 项 vitest（26 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 312 项 vitest（33 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
 ├── （docs/ 不入库）             # 设计方案 / 交互设计 / 归档文档放仓库外 ../开发过程文档/
 ├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论；九月原型 design-demo / file-panels / float-editor-*
@@ -563,13 +563,13 @@ dsh-terminal-manager/
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，282 项基线）**
+**构建期测试（`pnpm test` = vitest，312 项基线）**
 - 九月新增：`config`（schema 缺省 / 覆盖）、`path-security`（逃逸 / junction / win32 大小写）、`file-service`（本地四件套 / 原子写 / 截断）、`remotes-files`（files.* 与 sessions.send 端点）、`tc-parser`（真实样例整段）、`client-files` / `client-editor-store` / `client-lang` / `client-tc`（前端纯逻辑：面板状态、Tab 状态机、语言映射与几何、执行计划 / 串并行 / 超时 / 中止）。
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
 - 工具层：经测试上下文调用六个 `tm_*`，断言 schema 与返回（含 `presentCall` 卡片）。
 - 集成胶水：`remotes`（HTTP handler / dispatch）、`ws-io`（帧分发/心跳/订阅清理）、`client/` 的 `ws`（重连/attach）、`rpc`（封包解包）、`store`（布局/可见性）——`tests/` 目录 14 个 spec 文件。
-- 覆盖率阈值（src-only，`vitest.config.ts`）：语句 72 / 分支 60 / 函数 72 / 行 74。
+- 覆盖率阈值（src-only，`vitest.config.ts`）：语句 90 / 分支 80 / 函数 90 / 行 90（2026-09-02 起）。
 
 **模拟设备**
 - `scripts/mock-device.mjs`：Telnet 路由器 CLI（ANSI 色：提示符绿/横幅青/错误红）；退格钳制（输入行空时不回退，防删掉 `router>` 提示符）；`--iac` 旗标可发 IAC 协商序列。
@@ -586,4 +586,4 @@ dsh-terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（282 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（312 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

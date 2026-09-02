@@ -113,6 +113,25 @@ describe('files.* 端点', () => {
   })
 })
 
+describe('sessions.reconnect / 取消', () => {
+  it('被动断开后 sessions.reconnect 重建连接，sessionId 不变', async () => {
+    const { deps, slots } = makeDeps()
+    const snap = value<{ sessionId: string }>(await dispatch('sessions.connect', { protocol: 'telnet', host: '10.0.0.11', port: 23 }, deps, abort))
+    slots[0]?.onClose('设备掉线')
+    expect(deps.sessions.get(snap.sessionId)?.status).toBe('closed')
+    const r = value<{ sessionId: string; status: string }>(await dispatch('sessions.reconnect', { sessionId: snap.sessionId }, deps, abort))
+    expect(r).toMatchObject({ sessionId: snap.sessionId, status: 'open' })
+  })
+  it('signal 已取消时出错 → cancelled', async () => {
+    const { deps } = makeDeps()
+    const ac = new AbortController()
+    ac.abort()
+    const r = await dispatch('sessions.disconnect', { sessionId: 'nope' }, deps, ac.signal)
+    expect(r.ok).toBe(false)
+    expect((r as { error: { code: string } }).error.code).toBe('cancelled')
+  })
+})
+
 describe('sessions.send 端点', () => {
   it('一次 sendAndWait：返回 SendResult，input 事件来源缺省 script', async () => {
     const { deps, slots, written } = makeDeps()

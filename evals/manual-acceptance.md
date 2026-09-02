@@ -137,7 +137,7 @@ pnpm dsh --profile tm-dev --port 4580 --no-open &
 
 ## 组七：九月迭代——本地文件面板 / 浮动编辑器 / TC 脚本执行（分支 `feat/sep-s1-files`）
 
-> 先跑自动化：在插件目录 `pnpm build` 然后 `pnpm test`，应看到 **275 项全绿**；这一步不过就不用往下点了。
+> 先跑自动化：在插件目录 `pnpm build` 然后 `pnpm test`，应看到 **312 项全绿**；这一步不过就不用往下点了。
 
 ### 前置准备（比组一多三样）
 

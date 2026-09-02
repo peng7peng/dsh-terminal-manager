@@ -6,9 +6,9 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**282 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**312 项全绿是基线**，改挂必须修绿再提交）
 - 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（19 场景，对活服务）
-- 覆盖率：`pnpm vitest run --coverage`（阈值 72/72/60/74，src-only）
+- 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
   - 健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
   - **3080 被用户自己的 DSH 占用，别动**；验证一律 3180

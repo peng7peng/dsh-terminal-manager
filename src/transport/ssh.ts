@@ -5,7 +5,7 @@
  */
 
 import { Client } from 'ssh2'
-import type { ClientChannel } from 'ssh2'
+import type { ClientChannel, SFTPWrapper } from 'ssh2'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   TransportError,
@@ -106,6 +106,26 @@ export function connectSsh(
             resize: (cols: number, rows: number) => {
               if (!closed) channel.setWindow(rows, cols, 0, 0)
             },
+            // 懒开 sftp 子通道：conn 引用从连接期到连接后一直持有，随时可复用同一 Client 开新子通道
+            getSftp: () =>
+              new Promise<SFTPWrapper>((resolveSftp, rejectSftp) => {
+                if (closed) {
+                  rejectSftp(new TransportError('DISCONNECTED', 'SSH 连接已断开，无法打开 SFTP'))
+                  return
+                }
+                conn.sftp((err, sftp) => {
+                  if (err) {
+                    // 等回调期间断线也按 DISCONNECTED 报；其余（如设备未开 sftp 子系统）归 PROTO_ERROR
+                    rejectSftp(
+                      closed
+                        ? new TransportError('DISCONNECTED', 'SSH 连接已断开，无法打开 SFTP')
+                        : new TransportError('PROTO_ERROR', `打开 SFTP 子通道失败: ${err.message}`, { cause: err }),
+                    )
+                    return
+                  }
+                  resolveSftp(sftp)
+                })
+              }),
             close: async () => {
               finishClose('本端主动断开')
               channel.close()

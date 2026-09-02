@@ -5,6 +5,8 @@
  * @module dsh-terminal-manager/transport/types
  */
 
+import type { SFTPWrapper } from 'ssh2'
+
 /** 统一的错误码（与方案 3.6 错误码约定一致）。 */
 export type TransportErrorCode =
   | 'AUTH_FAILED'
@@ -55,4 +57,9 @@ export interface Transport {
   resize?(cols: number, rows: number): void
   /** 关闭并等待资源释放（幂等） */
   close(): Promise<void>
+  /**
+   * 懒开 SFTP 子通道（仅 SSH 支持；Telnet 无此能力，实现可不提供）。
+   * 连接已断开时抛 DISCONNECTED；设备未开 sftp 子系统时抛 PROTO_ERROR。
+   */
+  getSftp?(): Promise<SFTPWrapper>
 }

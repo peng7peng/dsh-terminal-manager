@@ -95,6 +95,43 @@ export function createDeviceLab() {
       })
     },
 
+    /**
+     * SSH 设备（S5 传输测试用）：与 startSshDevice 行为一致，另支持 sftp 子系统。
+     * 这里只完成 SFTP 握手（接受通道、应答 INIT）；具体文件操作由 tests/sftp.spec.ts 自带更完整的内存实现。
+     */
+    startSshDeviceWithSftp(): Promise<{ port: number }> {
+      return new Promise((resolve) => {
+        const server = new SshServer({ hostKeys: [HOST_KEY] }, (client) => {
+          client.on('authentication', (ctx) => {
+            if (ctx.method === 'password') {
+              return ctx.username === 'admin' && ctx.password === 'test-pass' ? ctx.accept() : ctx.reject()
+            }
+            if (ctx.method === 'publickey') return ctx.accept()
+            return ctx.reject()
+          })
+          client.on('ready', () => {
+            client.on('session', (accept) => {
+              const session = accept()
+              session.on('pty', (acceptPty) => acceptPty())
+              session.on('window-change', (acceptWin) => acceptWin?.())
+              session.on('shell', (acceptShell) => {
+                const stream = acceptShell()
+                stream.write('Welcome to test device\r\n')
+                stream.on('data', (data: Buffer) => stream.write(data))
+              })
+              session.on('sftp', (acceptSftp) => acceptSftp())
+            })
+          })
+        })
+        cleanups.push(() => new Promise<void>((done) => {
+          server.close(() => done())
+        }))
+        server.listen(0, '127.0.0.1', () => {
+          resolve({ port: (server.address() as { port: number }).port })
+        })
+      })
+    },
+
     async cleanup(): Promise<void> {
       while (cleanups.length > 0) {
         await cleanups.pop()!()

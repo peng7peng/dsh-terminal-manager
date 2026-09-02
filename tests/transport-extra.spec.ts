@@ -114,3 +114,45 @@ describe('SSH 补充', () => {
     }
   }, 10_000)
 })
+
+describe('SSH SFTP（S5 步骤1）', () => {
+  const lab = createDeviceLab()
+  afterEach(() => lab.cleanup())
+
+  it('open 会话可取 sftp（懒开子通道，复用同一连接）', async () => {
+    const { port } = await lab.startSshDeviceWithSftp()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    const sftp = await t.getSftp!()
+    expect(typeof sftp.fastGet).toBe('function')
+    expect(typeof sftp.fastPut).toBe('function')
+    // 同一会话可再次懒开（复用 Client，不互相影响）
+    const sftp2 = await t.getSftp!()
+    expect(typeof sftp2.readdir).toBe('function')
+    await t.close()
+  })
+
+  it('close 后取用抛 DISCONNECTED', async () => {
+    const { port } = await lab.startSshDeviceWithSftp()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    await t.close()
+    await expect(t.getSftp!()).rejects.toMatchObject({ code: 'DISCONNECTED' })
+  })
+
+  it('设备未开 sftp 子系统 → PROTO_ERROR（消息不含凭据）', async () => {
+    const { port } = await lab.startSshDevice()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    await out.waitFor('Welcome to test device')
+    try {
+      await t.getSftp!()
+      throw new Error('should fail')
+    } catch (e) {
+      expect(e).toBeInstanceOf(TransportError)
+      expect((e as TransportError).code).toBe('PROTO_ERROR')
+      expect((e as TransportError).message).not.toContain('test-pass')
+    }
+    await t.close()
+  })
+})

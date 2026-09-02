@@ -27,7 +27,8 @@ export function clampMove(g: Geometry, vw: number, vh: number): Geometry {
   return {
     ...g,
     x: Math.min(Math.max(g.x, 0), Math.max(0, vw - g.w)),
-    y: Math.min(Math.max(g.y, TOP_LIMIT), Math.max(TOP_LIMIT, vh - 60)),
+    // 下边钳到「整个窗口可见」（与横向一致）；之前钳在 vh-60，窗口会悬出视口只剩一条标题栏，看起来像高度被压小
+    y: Math.min(Math.max(g.y, TOP_LIMIT), Math.max(TOP_LIMIT, vh - g.h)),
   }
 }
 

@@ -15,11 +15,11 @@ import { extOf, useEditorState } from '../editor/editorStore.ts'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { ContextMenu, type CtxItem } from './ContextMenu.tsx'
-import { planRun, runPlan, summarize, type RunItem } from './runScript.ts'
+import { pickSendTargets, planRun, runPlan, summarize, type RunItem } from './runScript.ts'
 import { buildTcOrder, tcIndexMap, tcTargetMap, type TcSession } from './tcMap.ts'
 import { SendSelectionDialog, TcConfirmDialog, TcTimeoutDialog } from './TcDialogs.tsx'
 import { TcSummaryBar } from './TcSummaryBar.tsx'
-import { getSkipConfirm, getTcRun, patchTcRun, setSkipConfirm, setTcRun, useTcRun } from './tcRunStore.ts'
+import { getSendSkipConfirm, getSkipConfirm, getTcRun, patchTcRun, setSendSkipConfirm, setSkipConfirm, setTcRun, useTcRun } from './tcRunStore.ts'
 
 /** 按钮可用性矩阵（D5） */
 export function abilitiesFor(ext: string): { run: boolean; send: boolean } {
@@ -37,12 +37,12 @@ function flashPane(sessionId: string): void {
 interface ConfirmState { title: string; items: RunItem[]; hints: Array<{ lineNo: number; text: string }> }
 interface TimeoutAsk { item: RunItem; resolve: (d: 'continue' | 'abort') => void }
 
-export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNode; below: ReactNode; onContextMenu: (e: React.MouseEvent) => void } {
+export function useTcActions(sessions: readonly TcSession[], bcTargets: readonly string[]): { actions: ReactNode; below: ReactNode; onContextMenu: (e: React.MouseEvent) => void } {
   const ed = useEditorState(editorStore())
   const run = useTcRun()
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [timeoutAsk, setTimeoutAsk] = useState<TimeoutAsk | null>(null)
-  const [sendDlg, setSendDlg] = useState<{ lines: string[] } | null>(null)
+  const [sendDlg, setSendDlg] = useState<{ lines: string[]; defaultIds: string[] } | null>(null)
   const [ctx, setCtx] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null)
 
   const active = ed.tabs.find(t => t.id === ed.activeId) ?? null
@@ -102,7 +102,7 @@ export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNo
     else setConfirm({ title, items, hints })
   }
 
-  /** 流程 B 入口 */
+  /** 流程 B 入口（按钮和右键都走这里）：勾过「不再提示」就直接按广播栏所选发送，不弹框 */
   function prepareSend(): void {
     const h = getActiveEditor()
     if (h === null || active === null) { toast('没有打开的文件'); return }
@@ -111,15 +111,18 @@ export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNo
     if (sel === null) { toast('请先在编辑器里选中要发送的内容'); return }
     const lines = sel.text.split(/\r?\n/).map(l => l.trimEnd()).filter(l => l.trim().length > 0)
     if (lines.length === 0) { toast('选中内容为空'); return }
-    setSendDlg({ lines })
+    const onlineIds = sessions.filter(s => s.status === 'open').map(s => s.sessionId)
+    if (onlineIds.length === 0) { toast('没有在线终端', 'error'); return }
+    // 默认目标跟随广播栏当前所选（语义与广播一致：没勾就发第一台，避免误发全部）
+    const defaultIds = pickSendTargets(bcTargets, onlineIds)
+    if (getSendSkipConfirm()) { void runSend(lines, defaultIds); return }
+    setSendDlg({ lines, defaultIds })
   }
 
-  function doSend(sessionIds: string[]): void {
-    const dlg = sendDlg
-    setSendDlg(null)
-    if (dlg === null || active === null) return
+  function runSend(lines: string[], sessionIds: string[]): void {
+    if (active === null) return
     const items: RunItem[] = []
-    dlg.lines.forEach((command, i) => {
+    lines.forEach((command, i) => {
       for (const sid of sessionIds) {
         const s = sessions.find(x => x.sessionId === sid)
         const tc = tcMap.get(sid)
@@ -129,7 +132,15 @@ export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNo
           : { key: `${i + 1}:${sid}`, lineNo: i + 1, command, tc, sessionId: sid, label: s?.label ?? sid, status: 'pending' })
       }
     })
-    void execute(`发送选中（${active.name}，${dlg.lines.length} 行 → ${sessionIds.length} 个终端）`, items)
+    void execute(`发送选中（${active.name}，${lines.length} 行 → ${sessionIds.length} 个终端）`, items)
+  }
+
+  function doSend(sessionIds: string[], skip: boolean): void {
+    const dlg = sendDlg
+    setSendDlg(null)
+    setSendSkipConfirm(skip)
+    if (dlg === null) return
+    void runSend(dlg.lines, sessionIds)
   }
 
   const onContextMenu = (e: React.MouseEvent): void => {
@@ -175,7 +186,7 @@ export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNo
         />
       )}
       {timeoutAsk !== null && <TcTimeoutDialog item={timeoutAsk.item} onDecide={(d) => { const t = timeoutAsk; setTimeoutAsk(null); t.resolve(d) }} />}
-      {sendDlg !== null && <SendSelectionDialog sessions={[...sessions]} tcMap={tcMap} lines={sendDlg.lines} onCancel={() => setSendDlg(null)} onConfirm={doSend} />}
+      {sendDlg !== null && <SendSelectionDialog sessions={[...sessions]} tcMap={tcMap} lines={sendDlg.lines} defaultPicked={sendDlg.defaultIds} onCancel={() => setSendDlg(null)} onConfirm={doSend} />}
       {ctx !== null && <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} onSelect={onCtxSelect} onClose={() => setCtx(null)} />}
     </>
   )

@@ -18,6 +18,8 @@ export interface FileEntryView {
 
 export interface LocalFsState {
   root: string
+  /** 用户在 Config 里配置的工作区目录（files.root）；「回到工作区」按钮的目标 */
+  workspaceRoot: string
   cwd: string
   entries: FileEntryView[]
   selected: string | null
@@ -50,6 +52,11 @@ function norm(p: string): string {
 function key(p: string): string {
   const n = norm(p)
   return /^[A-Za-z]:/.test(n) ? n.toLowerCase() : n
+}
+
+/** 两个路径是否指向同一目录（Windows 大小写不敏感、分隔符无关） */
+export function samePath(a: string, b: string): boolean {
+  return a.length > 0 && b.length > 0 && key(a) === key(b)
 }
 
 export function isSameOrInside(root: string, path: string): boolean {
@@ -122,12 +129,14 @@ export interface LocalFsStore {
   select(path: string | null): void
   /** 换树根：cwd 同步到新根并记忆 */
   setRoot(path: string): Promise<void>
+  /** 回到 Config 里的工作区目录（workspaceRoot 未知时不动作） */
+  goWorkspace(): Promise<void>
 }
 
 export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
   const storage = deps.storage
   let state: LocalFsState = {
-    root: '', cwd: '', entries: [], selected: null, loading: false, error: null,
+    root: '', workspaceRoot: '', cwd: '', entries: [], selected: null, loading: false, error: null,
     expanded: storage?.getItem(KEY_EXPANDED) === '1',
     ready: false,
   }
@@ -158,16 +167,20 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
       if (state.ready || initializing) return
       initializing = true
       try {
+        // 工作区目录始终从后端取（Config 可能变），localStorage 里只记用户上次选的树根
+        let workspaceRoot = ''
+        try {
+          workspaceRoot = (await deps.rpc<{ root: string }>('files.root')).root
+        } catch { /* 后端不可用时按钮置灰即可，不挡面板 */ }
         let root = storage?.getItem(KEY_ROOT) ?? ''
         if (root.length === 0) {
-          try {
-            root = (await deps.rpc<{ root: string }>('files.root')).root
-          } catch (error) {
-            set({ error: humanError(error) })
+          if (workspaceRoot.length === 0) {
+            set({ error: '无法获取根目录（后端不可用）' })
             return
           }
+          root = workspaceRoot
         }
-        set({ root, cwd: root, ready: true })
+        set({ root, cwd: root, workspaceRoot, ready: true })
         await load(root)
       } finally {
         initializing = false
@@ -193,6 +206,10 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
       set({ root: path, cwd: path })
       storage?.setItem(KEY_ROOT, path)
       await load(path)
+    },
+    async goWorkspace() {
+      if (state.workspaceRoot.length === 0) return
+      await this.setRoot(state.workspaceRoot)
     },
   }
 }

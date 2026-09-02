@@ -154,13 +154,18 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     [sessions, sessionOrder],
   )
 
+  // 广播目标池：可见的「在线」会话；勾了 chips 用 chips，没勾 = 全部（广播与发送选中同语义）
+  const visibleSessions = allSessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
+  const bcTargets = useMemo(
+    () => (broadcastChips.size > 0 ? [...broadcastChips] : visibleSessions.map(s => s.sessionId)),
+    [broadcastChips, visibleSessions],
+  )
+
   // TC 编号（D1）：open 会话按列表顺序编号；隐藏占号、断线不占号
   const tcMap = useMemo(() => tcIndexMap(buildTcOrder(allSessions)), [allSessions])
-  // F10/F11：编辑器底栏按钮 + 右键菜单 + 汇总条（TC 执行 / 发送选中）
-  const tc = useTcActions(allSessions)
+  // F10/F11：编辑器底栏按钮 + 右键菜单 + 汇总条（TC 执行 / 发送选中，默认目标跟随广播栏）
+  const tc = useTcActions(allSessions, bcTargets)
 
-  // 广播目标默认全选可见的「在线」会话
-  const visibleSessions = allSessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
   const allOn = visibleSessions.length > 0 && visibleSessions.every(s => broadcastChips.has(s.sessionId))
   function toggleChip(sid: string): void {
     setBroadcastChips(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n })

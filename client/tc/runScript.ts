@@ -145,3 +145,13 @@ export function summarize(items: readonly RunItem[]): RunSummary {
   }
   return s
 }
+
+/**
+ * 「发送选中」的默认目标：跟随广播栏当前所选（语义与广播一致——没勾就全发），
+ * 与在线会话取交集；交集为空（比如广播栏选中的都掉线了）回退到第一个在线会话。
+ */
+export function pickSendTargets(bcTargets: readonly string[], onlineIds: readonly string[]): string[] {
+  const online = new Set(onlineIds)
+  const picked = bcTargets.filter(id => online.has(id))
+  return picked.length > 0 ? picked : onlineIds.slice(0, 1)
+}

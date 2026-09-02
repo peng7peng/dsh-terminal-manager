@@ -34,3 +34,12 @@ export function getSkipConfirm(): boolean {
 export function setSkipConfirm(v: boolean): void {
   try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(SKIP_KEY, v ? '1' : '0') } catch { /* ignore */ }
 }
+
+const SEND_SKIP_KEY = 'tm.tc.sendSkipConfirm'
+/** 「发送选中不再提示」：勾选后直接按广播栏所选终端发送；右键「发送选中到终端…」仍会弹框（逃生门）。 */
+export function getSendSkipConfirm(): boolean {
+  try { return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SEND_SKIP_KEY) === '1' } catch { return false }
+}
+export function setSendSkipConfirm(v: boolean): void {
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(SEND_SKIP_KEY, v ? '1' : '0') } catch { /* ignore */ }
+}

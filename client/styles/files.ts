@@ -5,6 +5,7 @@
 
 export const FILES_CSS = `
 .tm-fpanel { flex:none; border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); background:var(--dsw-alias-bg-layer-2, #f5f6f7); display:flex; flex-direction:column; min-height:0; }
+.tm-fpBar, .tm-fpBar * { -webkit-user-drag:none; }
 .tm-fpBar { flex:none; display:flex; align-items:center; gap:8px; padding:5px 12px; cursor:pointer; user-select:none; touch-action:none; font-size:12.5px; font-weight:600; color:var(--dsw-alias-label-primary, #000); white-space:nowrap; }
 .tm-fpBar:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06)); }
 .tm-fpBar .arrow { display:inline-flex; color:var(--dsw-alias-label-tertiary, #888); transition:transform .15s; }

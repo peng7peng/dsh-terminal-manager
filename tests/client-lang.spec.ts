@@ -59,9 +59,13 @@ describe('F8 浮动窗几何（纯函数）', () => {
     expect(clampPanelHeight(900, 1000)).toBe(700)
   })
 
-  it('clampMove：不出左上，右下留边；clampResize：最小尺寸与视口余量', () => {
+  it('clampMove：不出左上；下边钳到整个窗口可见（不再悬出视口只剩标题条）；clampResize：最小尺寸与视口余量', () => {
     expect(clampMove({ x: -50, y: 0, w: 400, h: 300 }, 1000, 800)).toMatchObject({ x: 0, y: 34 })
-    expect(clampMove({ x: 900, y: 790, w: 400, h: 300 }, 1000, 800)).toMatchObject({ x: 600, y: 740 })
+    expect(clampMove({ x: 900, y: 790, w: 400, h: 300 }, 1000, 800)).toMatchObject({ x: 600, y: 500 })
+    // 拖到下边缘：窗口底边贴住视口底，高度保持不变（F25：之前钳在 vh-60，窗口悬出视口看起来像高度被压小）
+    expect(clampMove({ x: 100, y: 700, w: 400, h: 300 }, 1000, 800)).toMatchObject({ x: 100, y: 500, w: 400, h: 300 })
+    // 窗口比视口还高：顶在上限
+    expect(clampMove({ x: 0, y: 500, w: 400, h: 900 }, 1000, 800)).toMatchObject({ x: 0, y: 34, h: 900 })
     expect(clampResize({ x: 100, y: 100, w: 10, h: 10 }, 1000, 800)).toMatchObject({ w: FLOAT_MIN_W, h: FLOAT_MIN_H })
     expect(clampResize({ x: 100, y: 100, w: 5000, h: 5000 }, 1000, 800)).toMatchObject({ w: 900, h: 700 })
   })

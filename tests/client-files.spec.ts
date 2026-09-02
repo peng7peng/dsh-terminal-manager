@@ -77,12 +77,43 @@ describe('localFs store', () => {
     expect(rpc.mock.calls.some(c => c[0] === 'files.root')).toBe(true)
   })
 
-  it('init：localStorage 记住的树根优先，不问后端', async () => {
+  it('init：localStorage 记住的树根优先；后端仍会问一次（拿工作区目录）', async () => {
     const { rpc } = fakeRpc(TREE)
     const store = createLocalFsStore({ rpc, storage: fakeStorage({ 'tm.files.root': 'D:/ws/sub' }) })
     await store.init()
     expect(store.getState().root).toBe('D:/ws/sub')
-    expect(rpc.mock.calls.some(c => c[0] === 'files.root')).toBe(false)
+    expect(rpc.mock.calls.some(c => c[0] === 'files.root')).toBe(true)
+    expect(store.getState().workspaceRoot).toBe('D:/ws')
+  })
+
+  it('goWorkspace：回到工作区目录并记忆；后端不可用时置灰不动作', async () => {
+    const { rpc } = fakeRpc(TREE)
+    const storage = fakeStorage({ 'tm.files.root': 'E:/other' })
+    const store = createLocalFsStore({ rpc, storage })
+    await store.init()
+    expect(store.getState().root).toBe('E:/other')
+    await store.goWorkspace()
+    expect(store.getState().root).toBe('D:/ws')
+    expect(store.getState().cwd).toBe('D:/ws')
+    expect(storage.dump()['tm.files.root']).toBe('D:/ws')
+  })
+
+  it('init：后端不可用且无记忆 → 报错；有记忆 → 正常打开，工作区未知（按钮禁用）', async () => {
+    const rpc = vi.fn(async <T,>(method: string): Promise<T> => {
+      if (method === 'files.root') throw new Error('HTTP_500: 后端挂了')
+      throw new Error(`unknown ${method}`)
+    }) as unknown as RpcFn
+    const none = createLocalFsStore({ rpc, storage: fakeStorage() })
+    await none.init()
+    expect(none.getState().ready).toBe(false)
+    expect(none.getState().error).toContain('无法获取根目录')
+    await none.goWorkspace() // 不抛错、不动作
+    expect(none.getState().root).toBe('')
+
+    const memo = createLocalFsStore({ rpc, storage: fakeStorage({ 'tm.files.root': 'D:/ws' }) })
+    await memo.init()
+    expect(memo.getState().ready).toBe(true)
+    expect(memo.getState().workspaceRoot).toBe('')
   })
 
   it('enter / up：只在树根内移动，到根后 up 不动；进入时清选中', async () => {

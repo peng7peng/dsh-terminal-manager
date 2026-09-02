@@ -3,7 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { parseTcScript } from '../src/tc-parser.ts'
-import { planRun, runPlan, summarize, tcUsage, type RunItem } from '../client/tc/runScript.ts'
+import { planRun, pickSendTargets, runPlan, summarize, tcUsage, type RunItem } from '../client/tc/runScript.ts'
 import { buildTcOrder, tcIndexMap, tcTargetMap } from '../client/tc/tcMap.ts'
 
 const SESSIONS = [
@@ -20,6 +20,22 @@ describe('tcMap', () => {
     expect(m.get(0)).toEqual({ sessionId: 'a', label: 'dut-a' })
     expect(m.get(1)).toEqual({ sessionId: 'c', label: 'dut-c' })
     expect(m.has(2)).toBe(false)
+  })
+})
+
+describe('pickSendTargets（发送选中的默认目标，跟随广播栏）', () => {
+  const online = ['a', 'c']
+  it('广播栏勾了谁就默认发谁（与在线取交集）', () => {
+    expect(pickSendTargets(['a', 'b', 'c'], online)).toEqual(['a', 'c'])
+  })
+  it('广播栏没勾（= 全部语义）→ 默认第一台在线，避免误发全部', () => {
+    expect(pickSendTargets([], online)).toEqual(['a'])
+  })
+  it('广播栏选中的都掉线了 → 回退第一台在线', () => {
+    expect(pickSendTargets(['b'], online)).toEqual(['a'])
+  })
+  it('没有任何在线终端 → 空（调用方负责提示「没有在线终端」）', () => {
+    expect(pickSendTargets(['a'], [])).toEqual([])
   })
 })
 
@@ -104,5 +120,44 @@ describe('runPlan', () => {
     const r = await p
     expect(calls).toHaveLength(1)
     expect(r.map(i => i.status)).toEqual(['ok', 'aborted', 'aborted'])
+  })
+})
+
+describe('runPlan 边界', () => {
+  it('所有目标都无对应终端：全标 no-target，不调用 send', async () => {
+    // TC5/6 都没在线终端
+    const lines = parseTcScript('##>5\nls\n##>6\npwd\n')
+    const { send, calls } = fakeSend()
+    const r = await runPlan(planRun(lines, tcTargetMap(SESSIONS)), { send })
+    expect(calls).toHaveLength(0)
+    expect(r.map(i => i.status)).toEqual(['no-target', 'no-target'])
+    expect(summarize(r)).toEqual({ ok: 0, timeout: 0, error: 0, noTarget: 2, aborted: 0, total: 2 })
+  })
+
+  it('空脚本：planRun 返回 []，runPlan 立即返回 []', async () => {
+    const { send, calls } = fakeSend()
+    const r = await runPlan(planRun([], tcTargetMap(SESSIONS)), { send })
+    expect(r).toEqual([])
+    expect(calls).toHaveLength(0)
+    // 只有注释和标题的脚本也产生空计划
+    const lines = parseTcScript('[节]\n##注释\n#小标题\n')
+    expect(planRun(lines, tcTargetMap(SESSIONS))).toEqual([])
+  })
+
+  it('同一行多目标，其中一个 send 抛错：该目标 error，另一目标 ok，汇总正确', async () => {
+    // ##>01 → pwd 发给 TC0(a) 和 TC1(c)；让 a 抛错、c 正常
+    const lines = parseTcScript('##>01\npwd\n')
+    const send = vi.fn(async (sid: string, _cmd: string) => {
+      if (sid === 'a') throw new Error('DISCONNECTED: 会话已断开')
+      return { waitReason: 'quiet', output: '' }
+    })
+    const r = await runPlan(planRun(lines, tcTargetMap(SESSIONS)), { send })
+    expect(r).toHaveLength(2)
+    const aItem = r.find(i => i.sessionId === 'a')
+    const cItem = r.find(i => i.sessionId === 'c')
+    expect(aItem?.status).toBe('error')
+    expect(aItem?.message).toBe('会话已断开')
+    expect(cItem?.status).toBe('ok')
+    expect(summarize(r)).toEqual({ ok: 1, timeout: 0, error: 1, noTarget: 0, aborted: 0, total: 2 })
   })
 })

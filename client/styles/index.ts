@@ -8,9 +8,10 @@
 import { COMMON_CSS } from './common.ts'
 import { EDITOR_CSS } from './editor.ts'
 import { FILES_CSS } from './files.ts'
+import { TC_CSS } from './tc.ts'
 import { WORKSPACE_CSS } from './workspace.ts'
 
 /** 扩展模块样式（日志管理 / 共享端口）：在此追加自己的文件导出 */
 const EXT_CSS: readonly string[] = []
 
-export const PLUGIN_CSS = [WORKSPACE_CSS, COMMON_CSS, FILES_CSS, EDITOR_CSS, ...EXT_CSS].join('\n')
+export const PLUGIN_CSS = [WORKSPACE_CSS, COMMON_CSS, FILES_CSS, EDITOR_CSS, TC_CSS, ...EXT_CSS].join('\n')

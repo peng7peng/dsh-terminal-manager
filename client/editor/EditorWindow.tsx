@@ -57,6 +57,8 @@ export function EditorWindow(props: {
   actions?: ReactNode
   /** 编辑区右键（S3 接入右键菜单） */
   onContextMenu?: (e: React.MouseEvent) => void
+  /** 底栏下方的附加区域（S3 的汇总条 / 对话框） */
+  below?: ReactNode
 }): React.JSX.Element | null {
   const store = editorStore()
   const s = useEditorState(store)
@@ -118,6 +120,7 @@ export function EditorWindow(props: {
           <button type="button" className="tm-feBtn" disabled={active === null || active.truncated || !active.dirty || active.saving} onClick={() => void store.save()} title="保存 (Ctrl/Cmd+S)"><IconCheckOutline14 /> 保存</button>
           {props.actions}
         </div>
+        {props.below}
         {!s.maximized && <div className="tm-feResize" {...win.resizeHandlers} title="拖动缩放" />}
       </div>
       {s.pendingClose !== null && <CloseConfirm names={pendingNames} onAction={a => void store.confirmClose(a)} />}

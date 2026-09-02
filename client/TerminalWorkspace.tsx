@@ -14,6 +14,8 @@ import { TermView } from './TermView.tsx'
 import { FilePanel } from './files/FilePanel.tsx'
 import { EditorWindow, editorStore } from './editor/EditorWindow.tsx'
 import { ToastHost } from './ToastHost.tsx'
+import { buildTcOrder, tcIndexMap } from './tc/tcMap.ts'
+import { useTcActions } from './tc/useTcActions.tsx'
 
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
@@ -152,6 +154,11 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     [sessions, sessionOrder],
   )
 
+  // TC 编号（D1）：open 会话按列表顺序编号；隐藏占号、断线不占号
+  const tcMap = useMemo(() => tcIndexMap(buildTcOrder(allSessions)), [allSessions])
+  // F10/F11：编辑器底栏按钮 + 右键菜单 + 汇总条（TC 执行 / 发送选中）
+  const tc = useTcActions(allSessions)
+
   // 广播目标默认全选可见的「在线」会话
   const visibleSessions = allSessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
   const allOn = visibleSessions.length > 0 && visibleSessions.every(s => broadcastChips.has(s.sessionId))
@@ -211,6 +218,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
                   isMaximized={maximized === s.sessionId}
                   onToggleMaximize={() => toggleMaximize(s.sessionId)}
                   onMinimize={() => minimize(s.sessionId)}
+                  tcIndex={tcMap.get(s.sessionId)}
                 />
               </div>
             )
@@ -235,9 +243,9 @@ export function TerminalWorkspace(): React.JSX.Element | null {
         <FilePanel onOpenFile={(entry) => void editorStore().openFile(entry.path)} />
       </div>
       {/* F8 浮动编辑器（fixed 于视口，可拖到聊天区上方） */}
-      <EditorWindow />
+      <EditorWindow actions={tc.actions} below={tc.below} onContextMenu={tc.onContextMenu} />
       <ToastHost />
-      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
+      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} tcMap={tcMap} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>
   )
 }

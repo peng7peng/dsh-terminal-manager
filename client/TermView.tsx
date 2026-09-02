@@ -11,6 +11,8 @@ import { markUnread } from './store.ts'
 import type { TermWs } from './ws.ts'
 
 interface TermViewProps {
+  /** TC 编号（D1：在线会话顺序）；undefined = 不显示徽章 */
+  tcIndex?: number
   sessionId: string
   label: string
   target: string
@@ -23,7 +25,7 @@ interface TermViewProps {
   onMinimize?: () => void
 }
 
-export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize }: TermViewProps): React.JSX.Element {
+export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize, tcIndex }: TermViewProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Term | undefined>(undefined)
   const hiddenRef = useRef(isHidden)
@@ -151,6 +153,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
       <div className="tm-paneBar">
         <span className="dot" />
         <span className="nm">{label}</span>
+        {tcIndex !== undefined && <span className="tm-tcn" title="TC 编号 = 活跃会话列表顺序（拖动列表即切换）">TC{tcIndex}</span>}
         <span className="tgt">{target}</span>
         {isClosed ? (
           <>

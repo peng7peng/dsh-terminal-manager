@@ -29,6 +29,8 @@ interface Props {
   unreadSet: Set<string>
   hiddenSet: Set<string>
   sessionOrder: string[]
+  /** sessionId → TC 编号（D1/D4）；缺省不显示徽章 */
+  tcMap?: ReadonlyMap<string, number>
   onConnect: (target: ConnectTarget) => void
   onDisconnect: (sessionId: string) => void
   onReconnect: (sessionId: string) => void
@@ -38,7 +40,7 @@ interface Props {
   onReorder: (newOrder: string[]) => void
 }
 
-export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, onConnect, onDisconnect, onReconnect, onFocus, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
+export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder, tcMap, onConnect, onDisconnect, onReconnect, onFocus, onMarkRead, onToggleHidden, onReorder }: Props): React.JSX.Element {
   const [conns, setConns] = useState<ConnectionCfg[]>([])
   const [proto, setProto] = useState<'ssh' | 'telnet'>('ssh')
   const [authMode, setAuthMode] = useState<'password' | 'key'>('password')
@@ -230,8 +232,9 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               }
             }
             return (
-              <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (isClosed ? 'disconnected' : '')} draggable onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={handleClick} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }} title={isClosed ? '已断开 - 点击重连' : '点击切换显示'}>
-                <span className="tm-drag" title="拖动排序">⣿</span>
+              <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (isClosed ? 'disconnected' : '')} draggable={sortedSessions.length > 1} onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={handleClick} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }} title={isClosed ? '已断开 - 点击重连' : '点击切换显示'}>
+                <span className="tm-drag" title={sortedSessions.length > 1 ? "拖动排序 = 切换 TC 编号" : "只有一个会话，无需排序"} style={sortedSessions.length > 1 ? undefined : { opacity: 0.3, cursor: "default" }}>⣿</span>
+                {tcMap?.has(s.sessionId) && <span className="tm-tcn" title="TC 编号 = 活跃会话顺序">TC{tcMap.get(s.sessionId)}</span>}
                 <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
                 {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint">点击重连</span>}</span>)}
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}

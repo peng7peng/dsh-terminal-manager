@@ -106,6 +106,11 @@ export function SendSelectionDialog(props: {
             ? `⚠ 选中 ${props.lines.length} 行，逐条发送预计约 ${Math.ceil(props.lines.length * 0.6)} 秒（每条等静默 500ms+），确认继续？`
             : `逐条发送 ${props.lines.length} 行：每条等回显 / 静默后再发下一条；超时可跳过。`}
         </div>
+        {skip && (
+          <div className="tm-mNote warn" style={{ padding: '4px 8px 0' }}>
+            勾选「不再提示」后：点「发送选中 →」按钮和右键都<b>直接发送</b>，目标 = <b>广播栏当前所选</b>的终端（广播栏没勾就发第一台在线），不再弹框；重新打开工作区后恢复弹框。
+          </div>
+        )}
         <div className="tm-mFoot">
           <label title="下次点「发送选中 →」不再弹框，直接按广播栏当前所选的终端发送；右键「发送选中到终端…」仍会弹框">
             <input type="checkbox" checked={skip} onChange={e => setSkip(e.target.checked)} /> 不再提示

@@ -144,6 +144,18 @@ export function connectTelnet(
       }
 
       /**
+       * 子协商数据里的 0xFF 转义成 IAC IAC（RFC 1073）
+       */
+      const escapeIac = (data: Buffer): Buffer => {
+        const out: number[] = []
+        for (const b of data) {
+          if (b === IAC) out.push(IAC, IAC)
+          else out.push(b)
+        }
+        return Buffer.from(out)
+      }
+
+      /**
        * 发送窗口大小子协商
        */
       const sendWindowSize = (cols: number, rows: number): void => {
@@ -152,7 +164,32 @@ export function connectTelnet(
         const nawsData = Buffer.alloc(4)
         nawsData.writeUInt16BE(cols, 0)
         nawsData.writeUInt16BE(rows, 2)
-        socket.write(iacSubneg(NAWS, nawsData))
+        // RFC 1073：子协商数据里的 0xFF 字节要转义成 IAC IAC，否则破坏对端解析
+        socket.write(iacSubneg(NAWS, escapeIac(nawsData)))
+      }
+
+      // 前端拖动布局时会每帧请求 resize；高频 NAWS 会把弱 telnetd 打糊涂（把协商字节当输入回显成乱码）。
+      // 抖动期间只记最后一次尺寸，停稳 150ms 后发一条；尺寸没变不重发。
+      const RESIZE_DEBOUNCE_MS = 150
+      let lastCols = -1
+      let lastRows = -1
+      let resizeTimer: ReturnType<typeof setTimeout> | undefined
+      let pendingSize: { cols: number; rows: number } | null = null
+      const requestResize = (cols: number, rows: number): void => {
+        if (!useTelnet || closed) return
+        if (cols === lastCols && rows === lastRows) return
+        pendingSize = { cols, rows }
+        if (resizeTimer === undefined) {
+          resizeTimer = setTimeout(() => {
+            resizeTimer = undefined
+            const p = pendingSize
+            pendingSize = null
+            if (p === null || closed) return
+            lastCols = p.cols
+            lastRows = p.rows
+            sendWindowSize(p.cols, p.rows)
+          }, RESIZE_DEBOUNCE_MS)
+        }
       }
 
       // Telnet 模式：发送初始协商
@@ -164,7 +201,10 @@ export function connectTelnet(
         socket.write(iacResponse(DO, ECHO))
         // 主动发送默认窗口大小（80x24）
         // 某些服务器在收到 DO NAWS 后会等子协商数据，超时不发送会导致断开
+        // （#18 修复；后续真实尺寸由前端 resize 防抖同步，晚一点到达无影响）
         sendWindowSize(80, 24)
+        lastCols = 80
+        lastRows = 24
       }
 
       /**
@@ -270,9 +310,7 @@ export function connectTelnet(
           }
         },
         resize: (cols: number, rows: number) => {
-          if (!closed && useTelnet) {
-            sendWindowSize(cols, rows)
-          }
+          requestResize(cols, rows)
         },
         close: async () => {
           finishClose('本端主动断开')

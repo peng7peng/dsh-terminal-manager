@@ -12,6 +12,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionStore } from './connection-store.ts'
 import { registerAmbiguityHandling } from './ambiguity.ts'
+import { registerExtensions } from './ext/index.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
@@ -32,7 +33,8 @@ export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): string {
 
 /** 挂载插件。 */
 export function apply(ctx: Context): void {
-  const store = new ConnectionStore(join(resolveDataDir(), 'connections.json'))
+  const dataDir = resolveDataDir()
+  const store = new ConnectionStore(join(dataDir, 'connections.json'))
   const sessions = new SessionManager(store)
 
   registerTerminalTools(ctx, sessions)
@@ -42,6 +44,9 @@ export function apply(ctx: Context): void {
   // 不能再把它们的返回值传给 ctx.effect（那会立即调用清理、删掉刚注册的路由）
   registerRemotes(ctx, { sessions, store })
   registerWsIo(ctx, sessions)
+
+  // 扩展模块（日志管理 / 共享端口）：只拿契约里的东西，主线不知道它们的内部
+  registerExtensions(ctx, { sessions, events: sessions.events, dataDir })
 
   ctx.effect(() => () => {
     void sessions.closeAll()

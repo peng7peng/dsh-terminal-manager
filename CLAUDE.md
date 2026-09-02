@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**171 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**185 项全绿是基线**，改挂必须修绿再提交）
 - 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（19 场景，对活服务）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 72/72/60/74，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
@@ -20,16 +20,22 @@
 
 ## 约定
 
-- TypeScript strict；React 18 + 全局 `.tm-` 前缀 CSS（无 CSS Modules，无组件库），样式集中在 `client/styles.ts`。
+- TypeScript strict；React 18 + 全局 `.tm-` 前缀 CSS（无 CSS Modules，无组件库），样式按功能分文件放 `client/styles/`，入口 `index.ts` 拼接。
 - 插件是「双半包」：host 半（Cordis 模块）+ 浏览器半（slot 组件），参考 `extensions/ui-cordis`。
 - **会话不用 `ctx.terminals`**（那是 AI 私有本机 PTY）；本插件自持 `SessionManager` 公共会话池——人机共用是核心需求。
 - 工具注册遵循 `../deepseek-harness/docs/cookbook/adding-a-tool.md`。
 - AI 路径的发送必过命令守卫（`guard` 参数）；人的键入不过。错误格式 `{code, message}`，message 永不带凭据。
 - 所有文档、提交信息用中文；跟用户说人话（用户懂 C++/Python，不懂 TS）。
 
+## 两人并行开发（2026-09 起：主线 + 扩展模块两条线，不同分支）
+
+- **契约只在 `src/types/`**（`events.ts` 事件总线 / `session-api.ts` 会话公开面 / `file-service.ts` 文件服务），纯声明无实现。**改契约必须单独提 PR 到 main，两人 review**；功能分支不碰这个目录。
+- 扩展模块代码放 `src/ext/<模块>/` + `client/ext/<模块>/` + `client/styles/<模块>.ts` + `tests/ext-<模块>.spec.ts`；主线只在 `src/ext/index.ts`、`client/ext/index.tsx`、`client/styles/index.ts` 各留一行挂载。扩展模块只 import `src/types/`，不 import 主线实现。
+- `spec.md`/`plan.md` 各改各的章节；`tests/helpers.ts` 只增不改；合 main 前 rebase 一次且测试全绿。
+
 ## 架构
 
-host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）汇入 **B4 会话管理器**（状态机 + 1MB 环形缓冲 + 输出分发 + 独占发送 + 广播），B4 唯一接触 **B2 SSH / B3 Telnet** 传输；**B5 完成判定**（静默 500ms / 提示符正则 / 超时 30s，优先级 提示符 > 静默 > 超时）；**B1 连接存储**管配置落盘；**B8 命令守卫**拦 AI 危险命令。浏览器半经 通道① HTTP / 通道② WebSocket 与后端通信。详见 `spec.md`。
+host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）汇入 **B4 会话管理器**（状态机 + 1MB 环形缓冲 + 输出分发 + 独占发送 + 广播），B4 唯一接触 **B2 SSH / B3 Telnet** 传输；**B5 完成判定**（静默 500ms / 提示符正则 / 超时 30s，优先级 提示符 > 静默 > 超时）；**B1 连接存储**管配置落盘；**B8 命令守卫**拦 AI 危险命令；**B9 事件总线**（B4 在输出/输入/状态处 emit，扩展模块只 on）。浏览器半经 通道① HTTP / 通道② WebSocket 与后端通信。详见 `spec.md`。
 
 ## Agent 容易犯的错
 
@@ -42,6 +48,7 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 7. **xterm.css / 第三方 CSS 用虚拟模块内联**（`tm:xterm-css` 插件），别用 `?raw`/`?inline`（tsdown 默认不认，会留成 external require → "missed the module table"）。
 8. **浏览器 POST `application/json` 会先发 OPTIONS 预检**——自建路由必须处理 OPTIONS（返回 204+CORS 头），否则预检 405 卡住。
 9. **用户数据（连接/收藏等）存后端不存浏览器 localStorage**——localStorage 跟着浏览器走，DSH 重启/换浏览器/清缓存就丢。后端落盘到 `~/.dsh/terminal-manager/connections.json`（`ConnectionConfig` 字段）。向后兼容：旧数据缺字段按"未显式 false = 默认在收藏"处理（`c.favorited !== false`）。
+10. **`node_modules/@deepseek-ai/*` 是指向 `../deepseek-harness` 的符号链接**——上游一升级（如 0.1.2-alpha.3 把 `CallId` 改名 `ToolCallId`），这边测试会莫名挂掉；先 `git -C ../deepseek-harness log -3` 看上游动没动，再怀疑自己的改动。
 
 ## 钩子（Hooks）
 

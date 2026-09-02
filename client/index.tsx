@@ -10,7 +10,8 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import xtermCss from 'tm:xterm-css'
-import { WORKSPACE_CSS } from './styles.ts'
+import { registerClientExtensions } from './ext/index.tsx'
+import { PLUGIN_CSS } from './styles/index.ts'
 import { toggleWorkspace, useWorkspaceVisible } from './store.ts'
 import { TerminalWorkspace } from './TerminalWorkspace.tsx'
 
@@ -43,7 +44,7 @@ function ensureStyles(): void {
   if (styleInjected || typeof document === 'undefined') return
   const tag = document.createElement('style')
   tag.dataset.plugin = 'term-manager'
-  tag.textContent = xtermCss + '\n' + WORKSPACE_CSS
+  tag.textContent = xtermCss + '\n' + PLUGIN_CSS
   document.head.appendChild(tag)
   styleInjected = true
 }
@@ -61,4 +62,7 @@ export function apply(ctx: ClientContext): void {
     { name: 'shell.overlay', id: 'term-manager-workspace' },
     TerminalWorkspace,
   ))
+
+  // 扩展模块（日志管理 / 共享端口）的浏览器半
+  registerClientExtensions(ctx)
 }

@@ -5,6 +5,7 @@
 - 状态：已批准（Approved）— 2026-08-25
 - 日期：2026-08-25
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
+- 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
 
 ## 需求
 
@@ -163,6 +164,14 @@ interface ConnectionConfig {
 - **重连**：`reconnect(sessionId)` 仅对 `closed` 状态会话有效，清理旧 transport 后重建连接，sessionId 保持不变；失败则恢复为 `closed`。
 - **主动断开**：`disconnect(sessionId)` 标记会话为 `removed` 并从会话池删除，前端据此移除该会话；连接配置（收藏）保留。
 - 卸载时 `ctx.effect` 清理全部会话（`closeAll`）。
+- **公开面**：`SessionManager implements SessionManagerApi`（契约 `src/types/session-api.ts`）；数据类型（`SessionSnapshot`/`SendOptions`/`ConnectTarget` 等）正式定义也在契约文件，`session-manager.ts` re-export 保持老 import 路径。
+- **事件埋点（B9）**：`handleData` → `output`；`write` → `input(source='human')`；`sendImmediate`/`sendAndWait` → `input(source = options.source ?? (有 guard ? 'ai' : 'human'))`；`broadcast` 缺省 `source='broadcast'`（带 guard 为 `'ai'`）；`notify` → `status`（带完整快照）。总线由构造函数第三参注入，缺省自建。
+
+#### B9 EventBus（`src/event-bus.ts`，契约 `src/types/events.ts`）
+
+- `createEventBus()`：同步派发；`on(handler, filter?)` 按 `type`（单个或数组）/ `sessionId` 过滤，返回取消函数；订阅者抛错被吞掉并 `console.error`，主链路不受扩展模块影响。
+- 事件：`output` / `input`（含 `source: 'human'|'ai'|'script'|'broadcast'`）/ `status`（含 `snapshot`）/ `file`（传输结束，M5 起由文件服务派发）。
+- 消费者：日志管理模块（落盘）、共享端口模块（旁观）；主线自身不依赖它（`onStatus`/`subscribe` 仍是前端与工具的路径）。
 
 ##### 连接与会话的状态机（产品设计）
 
@@ -355,6 +364,26 @@ interface ConnectionConfig {
 **第二道防线（插件内建 B8 命令守卫）**：内容级检查——只检查 AI 发起的发送（`tm_send`/`tm_send_all`），人的键盘输入不拦；黑名单命中即拦截并返回 `COMMAND_BLOCKED`（AI 会看到拒绝原因并告知）；按连接 `guardWhitelist` 可豁免（同一命令在某台设备上可能是正常操作）；广播逐台检查、互不阻塞；所有拦截写日志。MVP 不重复造「确认弹窗」——「要确认后再放行」交给第一道防线。
 **优先级规则**：键盘输入永远实时、不排队；命令发送每会话独占——已有在跑时新发送直接返回 `SESSION_BUSY`；广播逐台并行、互不阻塞。
 
+### 模块间契约（`src/types/`）与扩展模块【2026-09-02 冻结】
+
+九月起两人并行：主线（终端 / 编辑器 / 文件面板 / TC 执行 / 文件传输，主线负责人）与扩展模块（日志管理 / 共享端口，扩展模块负责人）在不同分支开发，靠下面三个**纯声明**文件解耦：
+
+| 契约文件 | 内容 | 谁实现 | 谁消费 |
+|---|---|---|---|
+| `src/types/events.ts` | `TmEvent`（output / input / status / file）+ `TmEventBus`（emit / on + 过滤） | B4 埋点 + B9 总线（主线） | 日志管理（落盘）、共享端口（旁观） |
+| `src/types/session-api.ts` | `SessionManagerApi` 公开面 + 会话数据类型 | B4（主线） | 共享端口（控制会话只走这些方法，不绕过） |
+| `src/types/file-service.ts` | `FileService`（本地 listLocal/readLocal/writeLocal/listDirectories；远端 listRemote/upload/download/downloadToLocal）+ 错误码 + 进度类型 | 主线（M1 本地，M5 远端） | 日志管理（日志落盘 / 下载复用同一入口） |
+
+**规则**：
+1. 契约目录只放声明，不放实现；**任何改动单独提 PR 到 main，两人 review**，功能分支不碰。
+2. 扩展模块只 import `src/types/`，不 import 主线实现文件；主线不知道扩展模块内部。
+3. 挂载点：host 半 `src/ext/index.ts` 的 `registerExtensions(ctx, { sessions, events, files?, dataDir })`；浏览器半 `client/ext/index.tsx` 的 `registerClientExtensions(ctx)`；样式 `client/styles/index.ts` 的 `EXT_CSS`。主线在这三处各留一行调用，扩展模块的代码放 `src/ext/<模块>/`、`client/ext/<模块>/`、`client/styles/<模块>.ts`、`tests/ext-<模块>.spec.ts`。
+4. `dataDir`（`~/.dsh/terminal-manager`）下扩展模块开自己的子目录落盘，不写 `connections.json`。
+
+#### 扩展模块：日志管理 / 共享端口（扩展模块负责人）——待补充
+
+> 需求文档尚未成稿。本节由扩展模块负责人按上面的规则补写：模块职责、订阅哪些事件、落盘格式、对外路由 / UI 入口、测试点。主线不代写。
+
 ### 可扩展性设计（为后续功能留的口子）
 
 | 未来功能 | 落点（现在的接缝） | 说明 |
@@ -390,28 +419,32 @@ dsh-terminal-manager/
 │   │   └── telnet.ts          # B3 Telnet 传输（telnet/raw 双模式）
 │   ├── tools.ts               # B6 AI 工具 ×6
 │   ├── remotes.ts             # B7a 指令通道（/term-manager 前缀路由）
-│   └── ws-io.ts               # B7b 数据流通道（/term-io WS）
+│   ├── ws-io.ts               # B7b 数据流通道（/term-io WS）
+│   ├── event-bus.ts           # B9 事件总线实现
+│   ├── types/                 # 模块间契约（纯声明；改动单独 PR，两人 review）
+│   │   ├── events.ts          #   TmEvent / TmEventBus
+│   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型
+│   │   └── file-service.ts    #   FileService（本地 + 远端）
+│   └── ext/                   # 扩展模块（扩展模块负责人）：index.ts 是唯一挂载点，模块放 ext/<模块>/
 ├── client/                    # 浏览器半（F1–F6）
-│   ├── index.tsx              # 入口：slots（sidebar.footer.action + shell.overlay）+ 样式注入
+│   ├── index.tsx              # 入口：slots（sidebar.footer.action + shell.overlay）+ 样式注入 + 扩展挂载
 │   ├── TerminalWorkspace.tsx  # F1/F3 覆盖层外壳 + 终端网格 + 广播栏
 │   ├── ConnectionsPanel.tsx   # F2 连接面板（表单 + 收藏 + 最近连接 + 活跃会话）
 │   ├── TermView.tsx           # F4 xterm.js 窗格
 │   ├── ws.ts                  # F5 /term-io WS 客户端（重连 + attach）
 │   ├── rpc.ts                 # /term-manager RPC 客户端
 │   ├── store.ts               # F6 状态同步（可见性/布局/未读）
-│   ├── styles.ts              # 全局 .tm- 前缀 CSS（--dsw-* token）
+│   ├── styles/                # 全局 .tm- 前缀 CSS（--dsw-* token），按功能分文件，index.ts 拼接
+│   ├── ext/                   # 扩展模块浏览器半（扩展模块负责人）：index.tsx 是唯一挂载点
 │   └── raw.d.ts               # 声明虚拟模块（tm:xterm-css）
 ├── scripts/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 171 项 vitest（14 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 185 项 vitest（17 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
-├── docs/
-│   └── archive/
-│       ├── solution.zh.md               # 原方案文档（已归档，不再维护；设计以本文件为准）
-│       └── connections-panel-upgrade.zh.md  # 连接面板升级提案（已归档，剩余待办并入 plan.md）
-├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论
+├── （docs/ 不入库）             # 设计方案 / 交互设计 / 归档文档放仓库外 ../开发过程文档/
+├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论；九月原型 design-demo / file-panels / float-editor-*
 ├── intent/intent.md           # 已 Accepted
 ├── spec.md                    # 本文件（唯一设计源）
 └── plan.md                    # 构建计划（已批准）
@@ -455,7 +488,7 @@ dsh-terminal-manager/
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，171 项基线）**
+**构建期测试（`pnpm test` = vitest，185 项基线）**
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
 - 工具层：经测试上下文调用六个 `tm_*`，断言 schema 与返回（含 `presentCall` 卡片）。
@@ -477,4 +510,4 @@ dsh-terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（171 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（185 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

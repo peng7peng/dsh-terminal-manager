@@ -6,6 +6,7 @@
 - 日期：2026-08-25
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
 - 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
+- 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
 
 ## 需求
 
@@ -272,6 +273,41 @@ interface ConnectionConfig {
 - 心跳：每 30s `ws.ping()` 探活（`HEARTBEAT_INTERVAL_MS`）；`input`/`resize` 对不存在/已断会话静默忽略。
 - **回放历史不走 attach 帧**：终端窗格挂载时由客户端经控制面 `sessions.read` 拉缓冲尾部（`client/TermView.tsx` 的 `loadHistory`）。
 
+#### B10 FileService（`src/file-service.ts`，契约 `src/types/file-service.ts`）——本地部分【S1】
+
+- **树根模型**：所有本地读写限定在「当前树根」内。树根由前端每次调用传入（`LocalPathRef.root`），默认值来自 Config `workspaceRoot`（缺省 = DSH 进程 cwd），用户在 UI「换目录」后前端记住新根（localStorage，UI 偏好）。切换根 = 用户主动授权该目录。
+- **路径安全（`src/path-security.ts`，纯函数 + 一次 `realpath`）**：`resolveInsideRoot(root, path)` → 先 `path.resolve` 归一化，再对存在的最深祖先做 `fs.realpath` 解析符号链接，最后校验结果以 `realpath(root) + sep` 开头；不满足抛 `PATH_OUTSIDE_ROOT`。空路径 / 含 `\0` 抛 `VALIDATION`。Windows 大小写不敏感比较（`toLowerCase` 后比）。
+- **四件套**：
+  - `listLocal(ref)`：`readdir(withFileTypes)` 一层，目录在前、按名排序，返回 `FileEntry[]`（symlink 标 `symlink`，不跟随）。
+  - `readLocal(ref, { maxBytes = 10MiB })`：先 `stat`，超上限只读前 `maxBytes` 并 `truncated: true`（编辑器按只读打开）；按 UTF-8 解码。
+  - `writeLocal(ref, content)`：原子写——写到同目录 `.<name>.tm-tmp-<random>` 再 `rename`；失败清理临时文件。不创建父目录（越权风险），父目录不存在抛 `NOT_FOUND`。
+  - `listDirectories(absPath)`：只返回子目录，用于「换目录」选择器；不受树根限制（只读、只列目录名）。
+- **错误**：`FileServiceError { code: FileErrorCode }`；系统错误映射：`ENOENT → NOT_FOUND`，`EACCES/EPERM → VALIDATION`（消息不含绝对路径之外的信息），其余 `REMOTE_IO`（本地也复用此码，含义为 I/O 失败）。
+- **控制面端点（挂在 B7a `dispatch`）**：`files.tree { root, path }` / `files.read { root, path, maxBytes? }` / `files.write { root, path, content }` / `files.dirs { path }`，返回值与四件套一致。
+- **远端部分**（`listRemote` / `upload` / `download` / `downloadToLocal`）S5 实现；S1 里这四个方法抛 `UNSUPPORTED`。
+- **事件**：本地读写不派发 `file` 事件（S5 远端传输才派发）。
+
+#### B11 TC 脚本解析（`src/tc-parser.ts`，纯函数）【S3，语法按 2026-09-02 真实样例】
+
+真实脚本不是逐行前缀，而是**块状态切换**：一行 `##>数字串` 把「当前目标窗口」切过去，后续命令都发到这些窗口，直到下一个 `##>`。窗口编号 0–9 对应 TC0–TC9（= 活跃会话窗口顺序，D1）。
+
+| 行首形式 | 类型 | 处理 |
+|---|---|---|
+| `##>012`（`##>` 后仅数字，可带空白） | `target` | 当前目标 = 去重后的各个数字；不发送 |
+| `[标题]` / `[!标题]` | `section` | 大标题，不发送，**不重置目标**；记录名字与行号供「执行本节」 |
+| `###内容` | `command` | 「可发送的注释」：整行原样发送 |
+| `##内容`（非 `##>`） | `comment` | 不发送。含「间隔 N 秒」类人读提示 |
+| `#内容`（单个 `#`） | `subtitle` | 小标题，不发送（真实 shell 注释也会被归入此类，反正不发送） |
+| 空白行 | `blank` | 跳过 |
+| 其他 | `command` | 右侧去空白后发送到当前目标；文件开头未切换过时默认目标 `[0]` |
+
+- **输出**：`parseTcScript(text): TcLine[]`，每项 `{ lineNo, kind, raw, targets: number[], command?: string, section?: string }`；`targets` 是该行生效的目标（对非命令行也带，便于 UI 显示）。
+- **选区执行**：`resolveTargetsAt(lines, lineNo)` 返回某行之前最后一次 `##>` 的目标（无则 `[0]`），供「执行选中脚本」在选区不含 `##>` 时继承上文目标。
+- **本节范围**：`sectionRange(lines, lineNo)` 返回所在 `[标题]` 到下一个 `[标题]` 前一行的范围，供「执行本节」。
+- **执行模型**：前端把 `TcLine` 翻译成 `{ sessionId, command }` 序列（TC 编号 → sessionId 查 `sortedSessions`，执行期间冻结快照），逐条调用控制面 `sessions.send { sessionId, command, source: 'script', wait? }`（= 一次 `sendAndWait`），上一条完成或超时再发下一条；后端不知道 TC 概念。超时项可「跳过」或「中止」。
+- **暂定决策（待与同事确认，默认按此实现）**：① 选区不含 `##>` 时继承上文目标并在确认框显示；② `##间隔…` 只当注释，确认框列出提醒，不自动等待；③ `##>01` 后紧跟空行 = 纯切换，不报错；④ 多行 shell 函数体逐行发送，靠静默判定兜底，汇总条如实显示 `quiet`；⑤ 提供右键「执行本节」；⑥ `#` 真实注释被当小标题，接受。
+- **不做**：坐标模式、`[!…]` 的显示差异（解析层一律当标题）。
+
 #### 前端模块（`client/`，F1–F6）
 
 **F1 入口与外壳 + 样式（`index.tsx` / `styles.ts`）**：`ctx.slots.inject('sidebar.footer.action', …)` 注册「终端管理」按钮（点击 `toggleWorkspace`）；`ctx.slots.inject('shell.overlay', …)` 挂 `TerminalWorkspace`。样式：`ensureStyles()` 在 `document.head` 追加一条 `<style data-plugin="term-manager">`，xterm.css 走虚拟模块 `tm:xterm-css`（**不用 `?raw`/`?inline`**，tsdown 会留成 external → "missed the module table"）。`WORKSPACE_CSS` 全部为全局 `.tm-` 前缀类名（防污染 DSH），取 `--dsw-*` token（如 `--dsw-alias-bg-base`），无 CSS Modules。
@@ -296,6 +332,24 @@ interface ConnectionConfig {
 - 可见性：模块级 `useSyncExternalStore`；`setWorkspaceVisible` **同步** capture/restore 原始 frame grid（不依赖 React effect 时序）。
 - 布局：`useFrameLayout(active, chat)` 把 frame 网格强制为 `${sidebar}px ${有效聊天宽}px 0px`（`MutationObserver`/`ResizeObserver`/窗口 resize 时重算）；`TARGET_TERM_WIDTH = 480`、`PANEL_WIDTH = 300`，未拖动时 `有效聊天宽 = 视口 - 侧栏 - 480 - 300`（聊天自动填满左侧、无留白）；手动拖动后用手动值（下限 300，上限 `max(760, 视口宽-764)`——大屏可把终端收窄至约 200px）。
 - 未读：新输出时未读会话条目显示蓝点，点击标记已读。
+
+#### 前端新增模块（F7–F11，九月）【S1–S3】
+
+叠加在现有工作区上，**不改 DSH 骨架、不改连接面板与广播栏**（设计方案 2.1「零迁移」）。交互细节以仓库外的交互设计文档为准，这里只定模块边界与状态归属。
+
+| 模块 | 文件 | 职责 | 状态归属 |
+|---|---|---|---|
+| F7 本地文件面板 | `client/files/FilePanel.tsx` + `client/files/useLocalFs.ts` | 广播栏下方的收起条 / 展开面板：面包屑、上一级、刷新、换目录（目录选择弹窗，走 `files.dirs`）、列表单击选中 / 双击目录进入 / 双击文件 → 编辑器打开。远端面板 S5 复用同一列表组件 | 树根 + 折叠态 + 当前目录：localStorage（UI 偏好）；选中项：组件内 |
+| F8 浮动编辑器窗 | `client/editor/EditorWindow.tsx` + `client/editor/useFloatWindow.ts` | `position: fixed` 窗体，z-index 60–90：标题条拖动、右下角缩放、最大化、最小化成底部标签；每次打开居中偏下默认尺寸（D3 不记忆几何）；内部 TabBar（开 / 关 / 切换 / 脏点 / 关前保存确认） | Tab 列表 + 激活 Tab + 脏标记：`client/editor/editorStore.ts`（内存，不落盘） |
+| F9 代码编辑器 | `client/editor/CodeEditor.tsx` | CodeMirror 6 封装：按扩展名装语言包（sh / py / json / md，csv 与其余走纯文本）、Ctrl/Cmd+S 保存（`files.write`）、选区变化回调、只读模式（>10MB）。CSS 走虚拟模块 `tm:codemirror-css`（同 `tm:xterm-css` 机制） | 文档内容在 CodeMirror state 内 |
+| F10 TC 执行 | `client/tc/TcConfirmDialog.tsx`、`client/tc/TcSummaryBar.tsx`、`client/tc/runScript.ts` | [▶ 执行脚本] / 右键「执行选中脚本」/「执行本节」→ 解析（B11）→ 冻结映射快照 → 确认框（逐条命令将发往哪些终端、无对应终端标 ✗、「本次会话不再确认」）→ 逐条 `sessions.send`（source `script`）→ 常驻汇总条（逐端口 ✓ / ✗ / waitReason，可关闭）。执行中窗格闪烁（复用现有 focus-flash） | 「不再确认」：sessionStorage；执行进度：`runScript` 内部状态机 |
+| F11 发送选中 | `client/tc/SendSelectionDialog.tsx` | [▶ 发送选中→] / 右键「发送选中到终端…」→ 在线终端复选框（默认勾当前激活）、发送(N)、>20 行提示 → 逐条 `sessions.send`（source `script`）→ toast 汇总 | 组件内 |
+| TC 徽章 | `client/TermView.tsx` 标题条、`client/ConnectionsPanel.tsx` 活跃会话项 | 在线会话 ≥1 即显示 TC0/TC1…（D4）；编号 = `sortedSessions` 中 open 会话的序号；拖动排序即换编号（D1）；单终端时拖动手柄禁用 | 派生自现有 `sessionOrder`，不新增状态 |
+
+- **按钮可用性矩阵（D5）**：`.txt` 两个按钮都可用；`.md` 只可「发送选中」；其他类型都禁用（tooltip 说明）。
+- **编辑器只编辑本地文件**（交互设计 §11.4）；远端文件不进编辑器。
+- **样式**：每个模块一个文件 `client/styles/files.ts` / `editor.ts` / `tc.ts`，在 `client/styles/index.ts` 拼接。
+- **打包**：CodeMirror 全量打进 `client.js`（设计方案 2.7 方案 B），预计 ~2MB；不做 chunk 基建。
 
 ### 核心需求 → 代码路径（走一遍）
 
@@ -330,6 +384,9 @@ interface ConnectionConfig {
 | 连接建立超时 | 15s（SSH `readyTimeout`；Telnet 同用 `connectTimeoutMs`） | SSH UI：15/30/60/120/180s | `handshakeTimeoutSec` / `connectTimeoutMs` |
 | 换行 `newline` | `crlf` | `lf / cr / crlf` | 连接配置 + sendAndWait 调用参数 |
 | 本地回显 `localEcho` | false | 开/关 | 连接配置（后端已保存；xterm 本地回显未接通，见「待确认项」） |
+| 本地工作区根 `workspaceRoot` | DSH 进程 cwd | 任意目录 | 插件 Config schema（`cordis.yml` 的 `config:`）；UI「换目录」临时切换 |
+| 编辑器打开上限 | 10 MiB（超出只读 + 截断） | — | `files.read` 的 `maxBytes` |
+| Telnet 文件传输开关 `telnetFileTransfer` | true | 开/关 | 插件 Config schema【S5】 |
 
 ### 订阅与会话的生命周期（谁看、谁连、谁清理）
 
@@ -357,6 +414,11 @@ interface ConnectionConfig {
 | `DISCONNECTED` | 会话已断开（设备掉线或手动断开） |
 | `COMMAND_BLOCKED` | 命令命中黑名单（命令守卫拦截） |
 | `PROTO_ERROR` | 协议层错误（SSH 通道建立失败等） |
+| `PATH_OUTSIDE_ROOT` | 文件路径落在当前树根之外（含符号链接逃逸）【B10】 |
+| `NOT_FOUND` | 文件 / 目录不存在【B10】 |
+| `FILE_TOO_LARGE` | 超过读取 / 传输上限【B10】 |
+| `REMOTE_IO` | 文件 I/O 失败（本地或 SFTP）【B10】 |
+| `UNSUPPORTED` | 该会话协议 / 当前阶段不支持此文件操作【B10】 |
 
 ### 命令安全防护（AI 发危险命令怎么办）
 
@@ -421,6 +483,10 @@ dsh-terminal-manager/
 │   ├── remotes.ts             # B7a 指令通道（/term-manager 前缀路由）
 │   ├── ws-io.ts               # B7b 数据流通道（/term-io WS）
 │   ├── event-bus.ts           # B9 事件总线实现
+│   ├── file-service.ts        # B10 文件服务（S1 本地四件套；S5 远端）
+│   ├── path-security.ts       # B10 路径安全（归一化 + realpath + 树根校验）
+│   ├── tc-parser.ts           # B11 TC 脚本解析（纯函数）
+│   ├── config.ts              # 插件 Config schema（workspaceRoot / telnetFileTransfer）
 │   ├── types/                 # 模块间契约（纯声明；改动单独 PR，两人 review）
 │   │   ├── events.ts          #   TmEvent / TmEventBus
 │   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型
@@ -434,6 +500,9 @@ dsh-terminal-manager/
 │   ├── ws.ts                  # F5 /term-io WS 客户端（重连 + attach）
 │   ├── rpc.ts                 # /term-manager RPC 客户端
 │   ├── store.ts               # F6 状态同步（可见性/布局/未读）
+│   ├── files/                 # F7 本地文件面板（FilePanel.tsx + useLocalFs.ts）
+│   ├── editor/                # F8/F9 浮动编辑器窗 + Tab + CodeMirror（EditorWindow / CodeEditor / editorStore）
+│   ├── tc/                    # F10/F11 TC 执行（确认框 / 汇总条 / runScript）+ 发送选中弹窗
 │   ├── styles/                # 全局 .tm- 前缀 CSS（--dsw-* token），按功能分文件，index.ts 拼接
 │   ├── ext/                   # 扩展模块浏览器半（扩展模块负责人）：index.tsx 是唯一挂载点
 │   └── raw.d.ts               # 声明虚拟模块（tm:xterm-css）
@@ -485,6 +554,10 @@ dsh-terminal-manager/
 | 凭据加密（DSH `ctx.credentials`） | 后续迭代，替掉明文 JSON |
 | SSH 主机密钥 TOFU | MVP 后首个安全迭代 |
 | 面板入口快捷键 | 延后，MVP 不做 |
+| TC 脚本 6 项暂定决策（B11） | 按暂定值实现；与同事确认后若有变只改 `tc-parser.ts` / `runScript.ts` |
+| Excel（.xlsx） | 本期不做；9 月底有余量再评估（抄 excel-panel 5–10 人天 + 1MB 体积，或自制 3–5 人天） |
+| better-sidebar 源码位置 | 未拿到；F8/F9 先按原型 `prototypes/float-editor-b.html` + CodeMirror 官方用法自写，拿到后再对照裁剪 |
+| 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
 
 ## 验证计划
 

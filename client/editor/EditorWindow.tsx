@@ -13,7 +13,7 @@ import { formatSize } from '../files/localFs.ts'
 import { CodeEditor, type EditorHandle } from './CodeEditor.tsx'
 import { EditorTabs } from './EditorTabs.tsx'
 import { createEditorStore, useEditorState, type EditorStore } from './editorStore.ts'
-import { useFloatWindow } from './useFloatWindow.ts'
+import { RESIZE_DIRS, useFloatWindow } from './useFloatWindow.ts'
 
 let singleton: EditorStore | undefined
 /** 模块级单例：文件面板双击 → editorStore().openFile(path)。 */
@@ -95,7 +95,7 @@ export function EditorWindow(props: {
       <div ref={win.rootRef} className={`tm-floatEd ${win.dragging !== null ? 'dragging' : ''}`} style={win.style} data-tm-editor>
         <div className="tm-feHead" {...win.headerHandlers} onDoubleClick={() => store.toggleMaximize()}>
           <EditorTabs tabs={s.tabs} activeId={s.activeId} onActivate={id => store.activate(id)} onClose={id => store.requestClose(id)} />
-          <div className="tm-feCtrls" data-no-drag>
+          <div className="tm-feCtrls">
             <button type="button" title="最小化成底部标签" onClick={() => store.minimize()}><IconChevronDownOutline14 /></button>
             <button type="button" title={s.maximized ? '还原' : '最大化'} onClick={() => store.toggleMaximize()}><IconFullscreenOutline16 /></button>
             <button type="button" title="关闭编辑器" onClick={() => store.requestCloseWindow()}><IconCloseFill14 /></button>
@@ -128,7 +128,7 @@ export function EditorWindow(props: {
           {props.actions}
         </div>
         {props.below}
-        {!s.maximized && <div className="tm-feResize" {...win.resizeHandlers} title="拖动缩放" />}
+        {!s.maximized && RESIZE_DIRS.map(dir => <div key={dir} className={`tm-feRs ${dir}`} {...win.resizeHandlers(dir)} />)}
       </div>
       {s.pendingClose !== null && <CloseConfirm names={pendingNames} onAction={a => void store.confirmClose(a)} />}
     </>

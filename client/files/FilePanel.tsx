@@ -5,7 +5,7 @@
  * @module dsh-terminal-manager/client/files/FilePanel
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
@@ -116,13 +116,61 @@ function DirPicker(props: { initial: string; onCancel: () => void; onPick: (path
   )
 }
 
+const HEIGHT_KEY = 'tm.files.height'
+export const PANEL_MIN_H = 120
+export const PANEL_DEFAULT_H = 220
+
+/** 面板高度上限：视口的 70%（留出终端网格） */
+export function clampPanelHeight(h: number, viewportH: number): number {
+  return Math.round(Math.min(Math.max(h, PANEL_MIN_H), Math.max(PANEL_MIN_H, viewportH * 0.7)))
+}
+
+function readStoredHeight(): number {
+  try {
+    const v = Number(localStorage.getItem(HEIGHT_KEY))
+    return Number.isFinite(v) && v > 0 ? v : PANEL_DEFAULT_H
+  } catch { return PANEL_DEFAULT_H }
+}
+
 export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void }): React.JSX.Element {
   const store = localFsStore()
   const s = useLocalFsState(store)
   const [picking, setPicking] = useState(false)
   const [ctx, setCtx] = useState<{ entry: FileEntryView; x: number; y: number } | null>(null)
+  const [height, setHeight] = useState<number>(() => (typeof localStorage === 'undefined' ? PANEL_DEFAULT_H : readStoredHeight()))
+  const [resizing, setResizing] = useState(false)
+  /** 顶栏拖动：记录起点；松手时没动过 = 点击（展开 / 收起），动过 = 改高度 */
+  const dragRef = useRef<{ y: number; h: number; moved: boolean } | null>(null)
 
   useEffect(() => { void store.init() }, [store])
+
+  const onBarDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return
+    dragRef.current = { y: e.clientY, h: height, moved: false }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  const onBarMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const d = dragRef.current
+    if (d === null || !s.expanded) return
+    const dy = e.clientY - d.y
+    if (!d.moved && Math.abs(dy) < 4) return
+    d.moved = true
+    setResizing(true)
+    // 往上拖 = 面板变高
+    setHeight(clampPanelHeight(d.h - dy, window.innerHeight))
+  }
+  const onBarUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const d = dragRef.current
+    dragRef.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+    if (d === null) return
+    if (d.moved) {
+      setResizing(false)
+      try { localStorage.setItem(HEIGHT_KEY, String(clampPanelHeight(d.h - (e.clientY - d.y), window.innerHeight))) } catch { /* ignore */ }
+    } else {
+      store.toggleExpanded()
+    }
+  }
 
   const crumbs = s.ready ? breadcrumbs(s.root, s.cwd) : []
   const atRoot = crumbs.length <= 1
@@ -135,14 +183,21 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
   }
 
   return (
-    <div className={`tm-fpanel ${s.expanded ? 'open' : ''}`}>
-      <div className="tm-fpBar" onClick={() => store.toggleExpanded()} title="点击展开 / 收起">
+    <div className={`tm-fpanel ${s.expanded ? 'open' : ''} ${resizing ? 'resizing' : ''}`}>
+      <div
+        className="tm-fpBar"
+        onPointerDown={onBarDown}
+        onPointerMove={onBarMove}
+        onPointerUp={onBarUp}
+        onPointerCancel={() => { dragRef.current = null; setResizing(false) }}
+        title={s.expanded ? '点击收起；上下拖动改面板高度' : '点击展开'}
+      >
         <span className="arrow"><IconChevronRightOutline14 /></span>
         <span>📁 本地文件</span>
         <span className="sub">{s.ready ? s.cwd : '…'}</span>
       </div>
       {s.expanded && (
-        <div className="tm-fpBody">
+        <div className="tm-fpBody" style={{ height }}>
           <div className="tm-fpToolbar">
             <button className="tm-tbtn icon" disabled={atRoot} onClick={() => void store.up()} title="上一级" aria-label="上一级"><IconChevronUpOutline14 /></button>
             <button className="tm-tbtn icon" onClick={() => setPicking(true)} title="换目录（切换本地根目录）" aria-label="换目录"><IconFolderOpen16 /></button>

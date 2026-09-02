@@ -14,7 +14,7 @@ export function EditorTabs(props: {
   onClose: (id: string) => void
 }): React.JSX.Element {
   return (
-    <div className="tm-feTabs" data-no-drag>
+    <div className="tm-feTabs">
       {props.tabs.map(t => (
         <div
           key={t.id}

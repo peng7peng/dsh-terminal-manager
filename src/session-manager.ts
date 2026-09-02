@@ -10,38 +10,33 @@
 import { randomUUID } from 'node:crypto'
 import { checkCommand, type GuardOptions } from './command-guard.ts'
 import type { ConnectionStore } from './connection-store.ts'
+import { createEventBus } from './event-bus.ts'
 import { connectSsh } from './transport/ssh.ts'
 import { connectTelnet } from './transport/telnet.ts'
 import type { Transport, TransportCallbacks } from './transport/types.ts'
+import type { TmEventBus, TmInputSource } from './types/events.ts'
+import type {
+  BroadcastEntry,
+  ConnectTarget,
+  SendOptions,
+  SendResult,
+  SessionErrorCode,
+  SessionManagerApi,
+  SessionSnapshot,
+  SessionStatus,
+} from './types/session-api.ts'
 import { WaitPolicy, type WaitPolicyConfig, type WaitReason } from './wait-policy.ts'
 
-export type SessionStatus = 'connecting' | 'open' | 'closed' | 'removed'
-
-export interface SessionSnapshot {
-  sessionId: string
-  connId?: string
-  label: string
-  target: string
-  protocol: 'ssh' | 'telnet'
-  status: SessionStatus
-  openedAtMs?: number
-  closeReason?: string
-}
-
-export interface SendResult {
-  output: string
-  waitReason: WaitReason
-  truncated: boolean
-}
-
-export interface BroadcastEntry {
-  sessionId: string
-  outcome: 'ok' | 'busy' | 'disconnected' | 'error'
-  result?: SendResult
-  code?: string
-}
-
-export type SessionErrorCode = 'SESSION_NOT_FOUND' | 'SESSION_BUSY' | 'DISCONNECTED' | 'COMMAND_BLOCKED' | 'SESSION_NOT_DISCONNECTED'
+// 数据类型的正式定义在契约文件 src/types/session-api.ts；这里 re-export 保持老 import 路径可用
+export type {
+  BroadcastEntry,
+  ConnectTarget,
+  SendOptions,
+  SendResult,
+  SessionErrorCode,
+  SessionSnapshot,
+  SessionStatus,
+} from './types/session-api.ts'
 
 export class SessionError extends Error {
   constructor(
@@ -50,26 +45,6 @@ export class SessionError extends Error {
   ) {
     super(message)
   }
-}
-
-/** 连接目标的传输层参数（由存储或临时连接提供）。 */
-export interface ConnectTarget {
-  protocol: 'ssh' | 'telnet'
-  host: string
-  port: number
-  username?: string
-  password?: string
-  privateKey?: string
-  passphrase?: string
-  label?: string
-  /** Telnet 模式：'telnet'（协议协商）| 'raw'（裸 TCP，默认） */
-  telnetMode?: 'telnet' | 'raw'
-  /** SSH 握手超时毫秒（默认 15000） */
-  connectTimeoutMs?: number
-  /** 换行模式（默认 'crlf'） */
-  newline?: 'lf' | 'cr' | 'crlf'
-  /** 本地回显（默认 false） */
-  localEcho?: boolean
 }
 
 /** 传输层工厂（可注入假实现用于测试）。 */
@@ -106,29 +81,21 @@ interface SessionRecord {
   newline?: 'lf' | 'cr' | 'crlf'
 }
 
-export interface SendOptions {
-  /** 覆盖完成判定参数（缺省用连接配置，再缺省用全局默认） */
-  wait?: WaitPolicyConfig
-  /** 传入则做命令守卫检查（AI 路径必传，人工键入不传） */
-  guard?: GuardOptions
-  /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
-  newline?: 'lf' | 'cr' | 'crlf'
-  /** 本地回显（默认 false） */
-  localEcho?: boolean
-  /** 命令后是否追加回车，默认 true */
-  submit?: boolean
-  /** 取消信号（AI 工具层透传 exec.signal） */
-  signal?: AbortSignal
+/** 输入来源缺省规则：传了 guard 就是 AI 路径，否则是人。 */
+function sourceOf(options: { guard?: GuardOptions; source?: TmInputSource }, fallback: TmInputSource = 'human'): TmInputSource {
+  return options.source ?? (options.guard !== undefined ? 'ai' : fallback)
 }
 
 /** 会话池。 */
-export class SessionManager {
+export class SessionManager implements SessionManagerApi {
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly statusListeners = new Set<(snapshot: SessionSnapshot) => void>()
 
   constructor(
     private readonly store: ConnectionStore | undefined,
     private readonly transportFactory: TransportFactory = defaultTransportFactory,
+    /** 事件总线（契约 src/types/events.ts）；缺省自建一条，也可从外部注入共享 */
+    readonly events: TmEventBus = createEventBus(),
   ) {}
 
   /** 订阅会话状态变化（连接中/已连接/已关闭）。返回取消函数。 */
@@ -320,14 +287,16 @@ export class SessionManager {
   write(sessionId: string, data: string): void {
     const record = this.requireOpen(sessionId)
     record.transport?.write(data)
+    this.events.emit({ type: 'input', sessionId, data, source: 'human', ts: Date.now() })
   }
 
   /** AI 路径"发完即回"：过守卫，追加换行写入，不等待执行完成。换行优先用调用参数，其次连接级配置，缺省 crlf。 */
-  async sendImmediate(sessionId: string, command: string, options: { guard?: GuardOptions; signal?: AbortSignal; newline?: 'lf' | 'cr' | 'crlf' } = {}): Promise<void> {
+  async sendImmediate(sessionId: string, command: string, options: Pick<SendOptions, 'guard' | 'signal' | 'newline' | 'source'> = {}): Promise<void> {
     const record = this.requireOpen(sessionId)
     if (record.busy) throw new SessionError('SESSION_BUSY', '该会话正在执行另一条发送')
     this.assertAllowed(record, command, options)
     record.transport?.write(command + this.eolOf(record, options.newline))
+    this.events.emit({ type: 'input', sessionId, data: command, source: sourceOf(options), ts: Date.now() })
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
@@ -394,6 +363,7 @@ export class SessionManager {
           if (reason !== undefined) finish(reason)
         }, POLL_INTERVAL_MS)
         record.transport?.write(command + (submit ? eol : ''))
+        this.events.emit({ type: 'input', sessionId, data: command, source: sourceOf(options), ts: Date.now() })
       })
 
       return { output: policy.output(), waitReason: outcome, truncated: policy.truncated() }
@@ -403,7 +373,8 @@ export class SessionManager {
   }
 
   /** 广播：逐台独立执行、互不阻塞，每台单独出结果。 */
-  async broadcast(command: string, targetSessionIds?: readonly string[], options: SendOptions = {}): Promise<BroadcastEntry[]> {
+  async broadcast(command: string, targetSessionIds?: readonly string[], rawOptions: SendOptions = {}): Promise<BroadcastEntry[]> {
+    const options: SendOptions = { ...rawOptions, source: sourceOf(rawOptions, 'broadcast') }
     const targets = targetSessionIds !== undefined
       ? targetSessionIds
       : [...this.sessions.values()].filter(r => r.status === 'open').map(r => r.sessionId)
@@ -476,6 +447,7 @@ export class SessionManager {
       record.buffer = record.buffer.slice(record.buffer.length - BUFFER_CAP_BYTES)
     }
     for (const listener of [...record.subscribers]) listener(chunk)
+    this.events.emit({ type: 'output', sessionId: record.sessionId, data: chunk, ts: Date.now() })
   }
 
   private handleClose(record: SessionRecord, reason: string): void {
@@ -514,5 +486,6 @@ export class SessionManager {
   private notify(record: SessionRecord): void {
     const snap = this.snapshot(record)
     for (const listener of [...this.statusListeners]) listener(snap)
+    this.events.emit({ type: 'status', sessionId: snap.sessionId, status: snap.status, snapshot: snap, ts: Date.now() })
   }
 }

@@ -7,7 +7,11 @@ const mockRegisterRemotes = vi.fn(mockRegisterRemotesImpl)
 function mockRegisterWsIoImpl() { return () => {} }
 const mockRegisterWsIo = vi.fn(mockRegisterWsIoImpl)
 const mockRegisterAmbiguity = vi.fn()
+const mockRegisterExtensions = vi.fn()
 
+vi.mock('../src/ext/index.ts', () => ({
+  registerExtensions: mockRegisterExtensions,
+}))
 vi.mock('../src/tools.ts', () => ({
   registerTerminalTools: mockRegisterTools,
 }))
@@ -23,7 +27,8 @@ vi.mock('../src/ambiguity.ts', () => ({
 
 /** Mock SessionManager，跟踪 closeAll 调用 */
 const mockCloseAll = vi.fn().mockResolvedValue(undefined)
-class MockSessionManager { closeAll = mockCloseAll }
+const mockEvents = { emit: vi.fn(), on: vi.fn() }
+class MockSessionManager { closeAll = mockCloseAll; events = mockEvents }
 vi.mock('../src/session-manager.ts', () => ({
   SessionManager: MockSessionManager,
 }))
@@ -122,6 +127,19 @@ describe('apply(ctx) 装配', () => {
     // 第二个参数是 sessions（有 closeAll 方法）
     const sessions = mockRegisterTools.mock.calls[0][1]
     expect(sessions).toHaveProperty('closeAll')
+  })
+
+  it('registerExtensions 收到契约依赖 { sessions, events, dataDir }', async () => {
+    const { apply } = await import('../src/index.ts')
+    const { ctx } = fakeCtx()
+    process.env.DSH_TERMINAL_MANAGER_DATA = '/ext/data'
+    apply(ctx as never)
+    expect(mockRegisterExtensions).toHaveBeenCalledTimes(1)
+    const [passedCtx, deps] = mockRegisterExtensions.mock.calls[0]
+    expect(passedCtx).toBe(ctx)
+    expect(deps.sessions).toHaveProperty('closeAll')
+    expect(deps.events).toBe(mockEvents)
+    expect(deps.dataDir).toBe('/ext/data')
   })
 })
 

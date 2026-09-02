@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>9月迭代原型 B — DSH 页面内嵌（侧栏+AI对话+覆盖层工作区+浮动编辑器）</title>
+<style>
+  :root, [data-theme="dark"] {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --border: #2d333b;
+    --text: #c9d1d9; --dim: #768390; --accent: #4d6bfe; --accent-soft: #4d6bfe22; --green: #3fb950;
+    --warn: #d29922; --err: #f85149;
+    --term-bg: #010409; --term-text: #b8f0c0; --term-cmd: #79c0ff;
+    --ed-bg: #0d1117; --ed-gutter: #6e7681; --ed-code: #c9d1d9; --ed-kw: #ff7b72; --ed-fn: #d2a8ff;
+    --sel-bg: #264f78; --float-shadow: 0 14px 44px rgba(0,0,0,.6);
+    --bubble-user: #1f4b8f33; --bubble-user-border: #2f6fce55;
+    --tool-card: #1c2333; --tool-card-border: #2d3a54;
+  }
+  [data-theme="light"] {
+    --bg: #f3f5f9; --panel: #ffffff; --panel2: #eef1f6; --border: #dbe1ec;
+    --text: #24292f; --dim: #66707f; --accent: #4d6bfe; --accent-soft: #4d6bfe14; --green: #1a7f37;
+    --warn: #9a6700; --err: #cf222e;
+    --term-bg: #0b0e14; --term-text: #b8f0c0; --term-cmd: #79c0ff;
+    --ed-bg: #ffffff; --ed-gutter: #8c959f; --ed-code: #24292f; --ed-kw: #cf222e; --ed-fn: #8250df;
+    --sel-bg: #b6d0f2; --float-shadow: 0 14px 44px rgba(30,40,60,.3);
+    --bubble-user: #dbe9ff; --bubble-user-border: #b6d0f2;
+    --tool-card: #f0f3fa; --tool-card-border: #d5ddef;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* 顶部说明条（原型专用，非 DSH） */
+  .explain { flex: none; background: linear-gradient(90deg,#1f3a68,#132039); color: #a8c7fa; padding: 6px 14px; font-size: 12.5px; display: flex; align-items: center; gap: 14px; }
+  [data-theme="light"] .explain { background: linear-gradient(90deg,#ddebff,#cfe1fb); color: #1a4b8f; }
+  .explain .tip::before { content: "💡"; margin-right: 4px; }
+  .explain .spacer { flex: 1; }
+  .theme-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 14px; padding: 2px 12px; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+  /* ── DSH 页面骨架：侧栏 | 聊天 | 工作区 ── */
+  .dsh { flex: 1; display: grid; grid-template-columns: 232px 420px 1fr; min-height: 0; }
+
+  /* DSH 侧栏 */
+  .dsh-side { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px 8px; }
+  .dsh-logo { font-weight: 700; padding: 4px 8px 12px; font-size: 14px; }
+  .side-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; color: var(--dim); font-size: 12.5px; cursor: pointer; }
+  .side-item:hover { background: var(--panel2); }
+  .side-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .side-sp { flex: 1; }
+  .side-foot { border-top: 1px solid var(--border); padding-top: 8px; }
+  .side-entry { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--text); font-size: 12.5px; font-weight: 600; background: var(--accent-soft); cursor: pointer; border: 1px solid transparent; }
+  .side-entry span:last-child { color: var(--accent); }
+
+  /* AI 聊天区（DSH 的，插件不改它） */
+  .dsh-chat { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+  .chat-head { flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+  .chat-head small { color: var(--dim); font-weight: 400; margin-left: 8px; }
+  .chat-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .msg-user { align-self: flex-end; max-width: 85%; background: var(--bubble-user); border: 1px solid var(--bubble-user-border); border-radius: 12px 12px 3px 12px; padding: 8px 12px; font-size: 12.8px; }
+  .msg-ai { max-width: 95%; font-size: 12.8px; }
+  .msg-ai .ai-tag { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
+  .tool-card { background: var(--tool-card); border: 1px solid var(--tool-card-border); border-radius: 8px; padding: 6px 10px; font-size: 11.8px; margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+  .tool-card .tname { font-weight: 700; color: var(--accent); font-family: Consolas, monospace; }
+  .tool-card .targ { color: var(--dim); font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-card .tok { margin-left: auto; color: var(--green); flex: none; }
+  .msg-ai .ai-text { line-height: 1.6; }
+  .msg-ai .ok { color: var(--green); }
+  .chat-input { flex: none; margin: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; color: var(--dim); font-size: 12.5px; }
+
+  /* ── 覆盖层工作区（插件）── */
+  .overlay { display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--border); position: relative; }
+  .ws-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .ws-head .t { font-weight: 700; font-size: 13.5px; }
+  .ws-head .onb { color: var(--dim); font-size: 12px; }
+  .ws-head .onb b { color: var(--green); }
+  .ws-head select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 12px; }
+  .ws-head .sp { flex: 1; }
+  .ghost-btn { background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 2px 10px; cursor: pointer; font-size: 12px; }
+  .ghost-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  .ov-main { flex: 1; display: flex; min-height: 0; }
+
+  /* 文件树窄条 */
+  .tree { flex: none; width: 44px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding: 6px 0; gap: 4px; transition: width .18s; overflow: hidden; }
+  .tree.open { width: 190px; align-items: stretch; padding: 6px 8px; }
+  .tree .icon-btn { width: 32px; height: 32px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 7px; cursor: pointer; font-size: 16px; border: none; background: transparent; color: var(--dim); }
+  .tree .icon-btn:hover { background: var(--panel2); color: var(--text); }
+  .tree.open .icon-btn { width: 100%; justify-content: flex-start; padding-left: 8px; }
+  .tree-label { display: none; font-size: 11px; color: var(--dim); padding: 2px 8px 4px; font-weight: 600; }
+  .tree.open .tree-label { display: block; }
+  .tree-item { display: none; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-size: 12.5px; }
+  .tree.open .tree-item { display: flex; }
+  .tree-item:hover { background: var(--panel2); }
+  .tree-item.active { background: var(--panel2); outline: 1px solid var(--accent); }
+  .tree-item .dot-remote { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .tree-section { display: none; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; width: 100%; }
+  .tree.open .tree-section { display: block; }
+
+  /* 终端网格 */
+  .terms { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px; gap: 8px; }
+  .term-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; min-height: 0; }
+  .term-pane { background: var(--term-bg); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .term-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11.5px; }
+  .term-bar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .term-bar .nm { font-weight: 600; }
+  .term-bar .tgt { color: var(--dim); }
+  .term-bar .sp { flex: 1; }
+  .term-bar button { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 12px; padding: 0 2px; }
+  .term-body { flex: 1; padding: 6px 9px; font: 11.5px/1.55 "JetBrains Mono", Consolas, monospace; color: var(--term-text); overflow: auto; white-space: pre-wrap; }
+  .term-body .cmd { color: var(--term-cmd); }
+
+  /* 连接面板 */
+  .conns { flex: none; width: 212px; background: var(--panel); border-left: 1px solid var(--border); padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .conns h4 { font-size: 12px; color: var(--dim); font-weight: 600; }
+  .conn-form { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .conn-form .row { display: flex; gap: 6px; }
+  .conn-form input, .conn-form select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 7px; font-size: 12px; }
+  .conn-form .btns { display: flex; gap: 6px; }
+  .btn-primary { flex: 1; background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 5px 0; font-weight: 600; cursor: pointer; font-size: 12.5px; }
+  .btn-plain { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 0; cursor: pointer; font-size: 12.5px; }
+  .fav-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 12.3px; }
+  .fav-item:hover { background: var(--panel2); }
+  .fav-item .proto { font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--panel2); color: var(--dim); border: 1px solid var(--border); }
+  .fav-item .sub { color: var(--dim); font-size: 11px; margin-left: auto; }
+
+  /* 广播栏 */
+  .bcast { flex: none; display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--panel); border-top: 1px solid var(--border); }
+  .bcast .lb { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .chip { padding: 2px 9px; border-radius: 12px; border: 1px solid var(--border); color: var(--dim); font-size: 11.8px; cursor: pointer; user-select: none; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bcast input { flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 5px 10px; font-size: 12.5px; }
+  .bcast .send { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 5px 14px; font-weight: 600; cursor: pointer; }
+
+  /* ── 浮动编辑器：fixed 于整个视口，可拖到 AI 聊天区上方 ── */
+  .float-ed { position: fixed; z-index: 50; width: 540px; min-width: 380px; height: 380px; min-height: 220px; left: 700px; top: 62%; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--float-shadow); display: flex; flex-direction: column; overflow: hidden; }
+  .float-ed.max { left: 236px !important; top: 34px !important; width: auto; height: auto; right: 8px; bottom: 40px; }
+  .fe-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: var(--panel2); border-bottom: 1px solid var(--border); cursor: grab; user-select: none; }
+  .fe-head:active { cursor: grabbing; }
+  .fe-tabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow: hidden; }
+  .fe-tab { display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--dim); white-space: nowrap; }
+  .fe-tab.active { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border); }
+  .fe-tab .dirty { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); display: none; }
+  .fe-tab.dirty .dirty { display: inline-block; }
+  .fe-ctrls { display: flex; gap: 2px; }
+  .fe-ctrls button { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 5px; }
+  .fe-ctrls button:hover { background: var(--panel); color: var(--text); }
+  .fe-body { flex: 1; min-height: 0; display: flex; background: var(--ed-bg); overflow: auto; }
+  .fe-gutter { flex: none; padding: 8px 8px 8px 12px; text-align: right; color: var(--ed-gutter); font: 11.5px/1.6 "JetBrains Mono", Consolas, monospace; user-select: none; position: sticky; left: 0; background: var(--ed-bg); }
+  .fe-code { flex: 1; padding: 8px 12px 8px 4px; font: 11.5px/1.6 "JetBrains Mono", Consolas, monospace; color: var(--ed-code); white-space: pre; }
+  .fe-code .kw { color: var(--ed-kw); } .fe-code .fn { color: var(--ed-fn); }
+  .fe-code .sel-line { background: var(--sel-bg); border-radius: 3px; display: inline-block; width: 100%; }
+  .fe-foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--border); background: var(--panel); }
+  .fe-foot .hint { color: var(--dim); font-size: 11.3px; flex: 1; }
+  .fe-btn { border: 1px solid var(--border); background: var(--panel2); color: var(--text); border-radius: 7px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
+  .fe-btn.go { background: var(--green); border-color: var(--green); color: #fff; }
+  .fe-btn:hover { filter: brightness(1.1); }
+  .fe-result { flex: none; border-top: 1px solid var(--border); background: var(--panel2); padding: 6px 12px; font: 11.3px/1.7 Consolas, monospace; max-height: 108px; overflow: auto; }
+  .fe-result .r-ok { color: var(--green); } .fe-result .r-fail { color: var(--err); }
+  .fe-result .r-head { font-weight: 700; margin-bottom: 2px; }
+
+  .toast { position: fixed; z-index: 99; left: 50%; transform: translateX(-50%); bottom: 56px; background: var(--panel); border: 1px solid var(--accent); color: var(--text); border-radius: 9px; padding: 8px 18px; font-size: 12.5px; box-shadow: var(--float-shadow); opacity: 0; transition: opacity .25s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  /* 右键菜单（对齐插件 tm-ctxMenu：fixed + z-index 100） */
+  .ctx-menu { position: fixed; z-index: 100; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px 0; box-shadow: 0 4px 16px rgba(0,0,0,.25); min-width: 168px; display: none; }
+  .ctx-item { padding: 6px 14px; font-size: 12.5px; cursor: pointer; color: var(--text); }
+  .ctx-item:hover { background: var(--panel2); }
+  .ctx-item.go { color: var(--green); font-weight: 600; }
+  .ctx-sep { border-top: 1px solid var(--border); margin: 3px 0; }
+
+  /* 发送选中弹窗 */
+  .modal-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.42); display: flex; align-items: center; justify-content: center; }
+  .modal { width: 340px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--float-shadow); overflow: hidden; }
+  .m-head { padding: 10px 14px; font-weight: 700; border-bottom: 1px solid var(--border); }
+  .m-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .m-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+  .m-row:hover { background: var(--panel2); }
+  .m-row .sub { color: var(--dim); font-size: 11px; margin-left: auto; }
+  .m-row.off { color: var(--dim); }
+  .m-note { color: var(--dim); font-size: 11.3px; padding: 6px 2px 0; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+  .m-foot .btn-plain { flex: none; padding: 5px 14px; }
+  .m-foot .btn-primary { flex: none; padding: 5px 16px; }
+  .m-foot .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="explain">
+  <b>9月迭代原型 B · DSH 页面内嵌</b>
+  <span class="tip">完整 DSH 骨架：侧栏 + AI 对话 + 覆盖层工作区（插件）</span>
+  <span class="tip">编辑器浮窗可拖到 AI 对话区上方</span>
+  <span class="spacer"></span>
+  <button class="theme-btn" onclick="toggleTheme()">🌙 日/夜</button>
+</div>
+
+<div class="dsh">
+  <!-- ── DSH 侧栏（插件的入口在这里）── -->
+  <div class="dsh-side">
+    <div class="dsh-logo">🤖 DeepSeek Harness</div>
+    <div class="side-item active">💬 当前会话</div>
+    <div class="side-item">🕘 历史会话</div>
+    <div class="side-item">⚙️ 设置</div>
+    <div class="side-sp"></div>
+    <div class="side-foot">
+      <div class="side-entry"><span>🖥️</span><span>终端管理</span></div>
+      <div class="side-item" style="margin-top:4px">🔌 插件中心</div>
+    </div>
+  </div>
+
+  <!-- ── AI 聊天区（DSH 的，插件不动它）── -->
+  <div class="dsh-chat">
+    <div class="chat-head">芯片验证 · dut 调试<small>DSH 主会话</small></div>
+    <div class="chat-body">
+      <div class="msg-user">连上 7.218.30.25:22，读一下本地 test/case1.tc，按脚本执行并汇总结果</div>
+      <div class="msg-ai">
+        <div class="ai-tag">Agent</div>
+        <div class="tool-card">⚙ <span class="tname">tm_connect</span><span class="targ">{ connId: "dut-ssh-22" }</span><span class="tok">✓</span></div>
+        <div class="tool-card">📖 <span class="tname">读取本地文件</span><span class="targ">test/case1.tc</span><span class="tok">✓</span></div>
+        <div class="tool-card">⚙ <span class="tname">tm_send</span><span class="targ">{ command: "hostname" }</span><span class="tok">✓</span></div>
+        <div class="tool-card">⚙ <span class="tname">tm_send</span><span class="targ">{ command: "df -h" }</span><span class="tok">✓</span></div>
+        <div class="ai-text">已按 case1.tc 执行完毕：<br>
+        ① hostname → <span class="ok">pekphis965809</span> ✓<br>
+        ② df -h → 磁盘 45% 使用 <span class="ok">✓</span><br>
+        ③ ping 8.8.8.8 → 3/3 通 <span class="ok">✓</span><br>
+        右侧终端已同步显示全部输出。</div>
+      </div>
+      <div class="msg-user">把 /home/user/logs/result.csv 下载给我</div>
+      <div class="msg-ai">
+        <div class="ai-tag">Agent</div>
+        <div class="tool-card">⚙ <span class="tname">tm_download</span><span class="targ">{ sessionId, remotePath: "/home/user/logs/result.csv" }</span><span class="tok">✓</span></div>
+        <div class="ai-text">文件已开始下载（SFTP，12.3 KB）。</div>
+      </div>
+    </div>
+    <div class="chat-input">输入消息，@ 引用文件…</div>
+  </div>
+
+  <!-- ── 覆盖层工作区（插件本体）── -->
+  <div class="overlay">
+    <div class="ws-head">
+      <span class="t">🖥️ 终端</span>
+      <span class="onb">在线 <b>4</b> / 6</span>
+      <label style="color:var(--dim);font-size:12px">列数 <select><option>2 列</option><option>1 列</option><option>3 列</option></select></label>
+      <span class="sp"></span>
+      <button class="ghost-btn">全部显示</button>
+      <button class="ghost-btn">✕ 关闭</button>
+    </div>
+
+    <div class="ov-main">
+      <div class="tree" id="tree">
+        <button class="icon-btn" onclick="toggleTree()" title="展开/收起文件树">📁</button>
+        <div class="tree-label">文件</div>
+        <div class="tree-item" onclick="toast('切换目录：弹出目录选择（host 半列目录/输入路径）→ 以新目录为根，localStorage 记忆；安全边界=用户当前选择的根')" title="切换文件树根目录"><span>📂</span><b>换目录…</b></div>
+        <div class="tree-item active" onclick="openFile('case1.tc', this)">📁 test/</div>
+        <div class="tree-item" onclick="openFile('case1.tc', this)">&nbsp;&nbsp;📄 case1.tc</div>
+        <div class="tree-item" onclick="openFile('case2.tc', this)">&nbsp;&nbsp;📄 case2.tc</div>
+        <div class="tree-item" onclick="openFile('config.csv', this)">&nbsp;&nbsp;📄 config.csv</div>
+        <div class="tree-item" onclick="openFile('check.md', this)">&nbsp;&nbsp;📄 check.md</div>
+        <div class="tree-section">
+          <div class="tree-label">远程 · 在线设备</div>
+          <div class="tree-item">💻 dut-ssh-22<span class="dot-remote"></span></div>
+          <div class="tree-item">💻 dut-ssh-2222<span class="dot-remote"></span></div>
+          <div class="tree-item">💻 dut-telnet-23<span class="dot-remote"></span></div>
+        </div>
+      </div>
+
+      <div class="terms">
+        <div class="term-grid">
+          <div class="term-pane">
+            <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-22</span><span class="tgt">ssh :22</span><span class="sp"></span><button>🗕</button><button>🗖</button><button>✕</button></div>
+            <div class="term-body" data-t="22"><span class="cmd">root@pekphis:~#</span> hostname
+pekphis965809
+<span class="cmd">root@pekphis:~#</span> df -h
+Filesystem      Size  Used Use% Mounted on
+/dev/sda2        98G   41G  45% /
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+          </div>
+          <div class="term-pane">
+            <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-2222</span><span class="tgt">ssh :2222</span><span class="sp"></span><button>🗕</button><button>🗖</button><button>✕</button></div>
+            <div class="term-body" data-t="2222"><span class="cmd">root@pekphis:~#</span> free -m
+              total    used    free
+Mem:          32122   14200   17922
+Swap:          2047       0    2047
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+          </div>
+          <div class="term-pane">
+            <div class="term-bar"><span class="dot"></span><span class="nm">dut-telnet-23</span><span class="tgt">telnet :23</span><span class="sp"></span><button>🗕</button><button>🗖</button><button>✕</button></div>
+            <div class="term-body" data-t="23">Ubuntu 20.04.5 LTS
+pekphis965809 login: admin
+Password:
+Welcome to Ubuntu 20.04.5 LTS
+<span class="cmd">admin@pekphis:~$</span> ▌</div>
+          </div>
+          <div class="term-pane">
+            <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-2323</span><span class="tgt">ssh :2323</span><span class="sp"></span><button>🗕</button><button>🗖</button><button>✕</button></div>
+            <div class="term-body" data-t="2323"><span class="cmd">root@pekphis:~#</span> ping -c 3 8.8.8.8
+64 bytes from 8.8.8.8: time=12.1 ms
+64 bytes from 8.8.8.8: time=11.8 ms
+64 bytes from 8.8.8.8: time=12.4 ms
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+          </div>
+        </div>
+        <!-- 广播栏：MVP 现状位置（终端列内部底部，不横跨连接面板） -->
+        <div class="bcast">
+          <span class="lb">📢 广播到</span>
+          <span class="chip on">全部</span>
+          <span class="chip">dut-ssh-22</span>
+          <span class="chip">dut-ssh-2222</span>
+          <span class="chip">dut-telnet-23</span>
+          <input placeholder="输入要广播到所选会话的命令…">
+          <button class="send">发送</button>
+        </div>
+      </div>
+
+      <div class="conns">
+        <h4>新建 / 编辑连接</h4>
+        <div class="conn-form">
+          <div class="row"><select><option>SSH</option><option>Telnet</option></select><input placeholder="名称" value="dut-ssh-2324"></div>
+          <div class="row"><input placeholder="主机" value="7.218.30.25"><input placeholder="端口" value="2324" style="max-width:60px"></div>
+          <div class="row"><input placeholder="用户名" value="root"><input placeholder="密码" type="password" value="····"></div>
+          <div class="row"><input placeholder="TC端口编号" value="0" style="max-width:96px"><span style="color:var(--dim);font-size:10.5px;align-self:center">TC 脚本里的编号</span></div>
+          <div class="btns"><button class="btn-primary">保存</button><button class="btn-plain">连接</button></div>
+        </div>
+        <h4>⭐ 收藏 (5)</h4>
+        <div class="fav-item"><span class="proto">SSH</span>dut-ssh-22<span class="sub">TC:0 ●</span></div>
+        <div class="fav-item"><span class="proto">SSH</span>dut-ssh-2222<span class="sub">TC:1 ●</span></div>
+        <div class="fav-item"><span class="proto">TEL</span>dut-telnet-23<span class="sub">:23 ●</span></div>
+        <div class="fav-item"><span class="proto">SSH</span>dut-ssh-2323<span class="sub">:2323 ●</span></div>
+        <div class="fav-item"><span class="proto">SSH</span>dut-ssh-2324<span class="sub">:2324</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 浮动编辑器：fixed 于视口，可拖到 AI 对话区上 -->
+<div class="float-ed" id="floatEd">
+  <div class="fe-head" id="feHead">
+    <div class="fe-tabs">
+      <div class="fe-tab active" onclick="switchTab('case1.tc', this)"><span>📄 case1.tc</span></div>
+      <div class="fe-tab dirty" onclick="switchTab('config.csv', this)"><span>📄 config.csv</span><span class="dirty"></span></div>
+    </div>
+    <div class="fe-ctrls">
+      <button title="最小化" onclick="toast('原型示意：收起后变成底部标签，点开恢复')">🗕</button>
+      <button title="最大化/还原" onclick="toggleMax()">🗖</button>
+      <button title="关闭" onclick="closeEd()">✕</button>
+    </div>
+  </div>
+  <div class="fe-body">
+    <div class="fe-gutter">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12</div>
+    <div class="fe-code" id="feCode"></div>
+  </div>
+  <div class="fe-foot">
+    <span class="hint" id="feHint">脚本内已含端口映射（*: 全部 / 0: 1: 指定端口），执行后逐端口汇报</span>
+    <button class="fe-btn" onclick="toast('上传：弹窗选目标设备（在线 SSH 多选）→ SFTP 上传 → 进度条')">📤 上传</button>
+    <button class="fe-btn go" id="feGo" onclick="feGo()">▶ 执行脚本</button>
+  </div>
+  <div class="fe-result" id="feResult" style="display:none"></div>
+</div>
+
+<!-- 右键菜单（编辑器内） -->
+<div class="ctx-menu" id="ctxMenu">
+  <div class="ctx-item go" id="ctxRun">▶ 执行选中脚本（2 行）</div>
+  <div class="ctx-item" id="ctxSendSel">发送选中到终端…</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="hideCtx()">复制</div>
+</div>
+
+<!-- 发送选中弹窗 -->
+<div class="modal-mask" id="sendModal" style="display:none">
+  <div class="modal">
+    <div class="m-head">发送选中内容到终端</div>
+    <div class="m-body">
+      <label class="m-row"><input type="checkbox" checked data-sid="22"> 💻 dut-ssh-22<span class="sub">ssh :22 · TC:0</span></label>
+      <label class="m-row"><input type="checkbox" checked data-sid="2222"> 💻 dut-ssh-2222<span class="sub">ssh :2222 · TC:1</span></label>
+      <label class="m-row"><input type="checkbox" data-sid="23"> 💻 dut-telnet-23<span class="sub">telnet :23</span></label>
+      <label class="m-row"><input type="checkbox" data-sid="2323"> 💻 dut-ssh-2323<span class="sub">ssh :2323</span></label>
+      <div class="m-note">逐条发送：每条等回显/静默后再发下一条；超时会提示，可跳过</div>
+    </div>
+    <div class="m-foot">
+      <button class="btn-plain" onclick="closeSendModal()">取消</button>
+      <button class="btn-primary" id="sendGo" onclick="doSend()">发送 (2)</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const FILES = {
+    'case1.tc': `<span class="kw"># 验证用例 1：基础信息采集（语法示例，待真实样例校正）</span>
+<span class="fn">*: hostname</span>          <span class="kw"># 已标注端口全部执行</span>
+<span class="fn">*: date</span>
+<span class="fn">*: who</span>
+<span class="kw">** 结果检查：磁盘（下面两行模拟已选中，可右键执行）</span>
+<span class="fn sel-line">0: df -h</span>
+<span class="fn sel-line">1: df -h</span>
+<span class="kw">** 结果检查：内存</span>
+<span class="fn">0: free -m</span>
+<span class="fn">1: free -m</span>
+<span class="fn">*: ping -c 3 8.8.8.8</span>`,
+    'case2.tc': `<span class="kw"># 验证用例 2：接口状态</span>
+<span class="fn">0: ip addr show</span>
+<span class="fn">1: ip addr show</span>
+<span class="fn">*: uptime</span>`,
+    'config.csv': `name,ip,port,protocol
+dut-ssh-22,7.218.30.25,22,ssh
+dut-ssh-2222,7.218.30.25,2222,ssh
+dut-telnet-23,7.218.30.25,23,telnet
+dut-ssh-2323,7.218.30.25,2323,ssh`,
+    'check.md': `# 验证清单
+<span class="sel-line">- [ ] 执行 \`hostname\`，确认主机名</span>
+<span class="sel-line">- [ ] 执行 \`date\`，确认系统时间</span>
+<span class="sel-line">- [ ] 执行 \`df -h\`，确认磁盘</span>
+- [ ] 执行 \`free -m\`，确认内存`,
+  };
+  function renderCode(name) {
+    document.getElementById('feCode').innerHTML = FILES[name] ?? FILES['case1.tc'];
+    document.querySelectorAll('.fe-tab').forEach(t => {
+      const isCur = t.textContent.includes(name);
+      t.classList.toggle('active', isCur);
+      if (name === 'config.csv') t.classList.add('dirty');
+    });
+    // 按钮随文件类型变化：.tc → 执行脚本（按脚本端口映射，不选终端）；其他 → 发送选中（弹终端多选）
+    const isTc = name.endsWith('.tc');
+    document.getElementById('feGo').textContent = isTc ? '▶ 执行脚本' : '▶ 发送选中 →';
+    document.getElementById('feHint').textContent = isTc
+      ? '脚本内已含端口映射（*: 全部 / 0: 1: 指定端口），执行后逐端口汇报'
+      : '已选中内容 —— 弹窗选终端（可多选）→ 逐条发送（每条等回显再发下一条）';
+    if (!isTc) document.getElementById('feResult').style.display = 'none';
+  }
+  function feGo() {
+    const name = [...document.querySelectorAll('.fe-tab')].find(t => t.classList.contains('active'))?.textContent ?? '';
+    if (name.includes('.tc')) { runScript(CASE1_FULL); showResult(); }
+    else openSendModal();
+  }
+  function showResult() {
+    const el = document.getElementById('feResult');
+    el.style.display = 'block';
+    el.innerHTML = `<div class="r-head">case1.tc 执行完毕（映射：TC0→dut-ssh-22，TC1→dut-ssh-2222；*: = 已标注端口的在线终端）</div>
+<span class="r-ok">✓ *: hostname —— 2 台成功（见右侧终端）</span>
+<span class="r-ok">✓ 0: df -h —— dut-ssh-22（磁盘 45%）</span>
+<span class="r-fail">✗ 1: free -m —— dut-ssh-2222 超时（waitReason=timeout，可 tm_read 复查）</span>
+<span class="r-ok">✓ *: ping -c 3 8.8.8.8 —— 2 台成功</span>`;
+  }
+
+  // ── TC 脚本执行：结果反映到终端窗格 ──
+  const CASE1_FULL = [
+    { port: '*', cmd: 'hostname' },
+    { port: '*', cmd: 'date' },
+    { port: '*', cmd: 'who' },
+    { port: '0', cmd: 'df -h' },
+    { port: '1', cmd: 'df -h' },
+    { port: '0', cmd: 'free -m' },
+    { port: '1', cmd: 'free -m' },
+    { port: '*', cmd: 'ping -c 3 8.8.8.8' },
+  ];
+  const CASE1_SEL = [
+    { port: '0', cmd: 'df -h' },
+    { port: '1', cmd: 'df -h' },
+  ];
+  const MD_SEL = ['hostname', 'date', 'df -h'];  // .md 选中发送的模拟内容
+  const TC_MAP = { '0': '22', '1': '2222' };     // 连接配置里标注的 TC 端口编号 → 会话
+  const TC_ONLINE = ['22', '2222'];              // 已标注 TC 编号且在线的终端（*: 的范围）
+
+  function fakeOut(cmd) {
+    if (cmd.startsWith('hostname')) return 'pekphis965809';
+    if (cmd.startsWith('date')) return '2026-09-01 11:02:33 CST';
+    if (cmd.startsWith('who')) return 'root    pts/1    2026-09-01 09:40';
+    if (cmd.startsWith('df')) return 'Filesystem  Size  Used Use% Mounted on\n/dev/sda2     98G   41G  45% /';
+    if (cmd.startsWith('free')) return '        total    used    free\nMem:    32122   14200   17922';
+    if (cmd.startsWith('ping')) return '64 bytes from 8.8.8.8: time=12.1 ms\n64 bytes from 8.8.8.8: time=11.8 ms\n3 packets transmitted, 3 received';
+    if (cmd.startsWith('ip addr')) return 'eth0: 7.218.30.25/24  UP';
+    if (cmd.startsWith('uptime')) return ' 11:02:33 up 12 days,  1 user';
+    return '(ok)';
+  }
+  function termAppend(t, cmd, out, delayMs) {
+    setTimeout(() => {
+      const body = document.querySelector(`[data-t="${t}"]`);
+      if (!body) return;
+      body.insertAdjacentHTML('beforeend', `\n<span class="cmd">root@pekphis:~#</span> ${cmd}\n${out}\n`);
+      body.scrollTop = body.scrollHeight;
+    }, delayMs);
+  }
+  function runScript(lines) {
+    let i = 0;
+    for (const { port, cmd } of lines) {
+      const targets = port === '*' ? TC_ONLINE : [TC_MAP[port]].filter(Boolean);
+      for (const t of targets) { termAppend(t, cmd, fakeOut(cmd), i * 350); i += 1; }
+    }
+  }
+
+  // ── 编辑器右键：执行选中脚本 / 发送选中 ──
+  const feCode = document.getElementById('feCode');
+  const ctxMenu = document.getElementById('ctxMenu');
+  feCode.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const isTc = curFileTc();
+    document.getElementById('ctxRun').style.display = isTc ? 'block' : 'none';
+    document.getElementById('ctxSendSel').style.display = isTc ? 'none' : 'block';
+    ctxMenu.style.display = 'block';
+    ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 190) + 'px';
+    ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 120) + 'px';
+  });
+  function hideCtx() { ctxMenu.style.display = 'none'; }
+  document.addEventListener('click', e => { if (!ctxMenu.contains(e.target)) hideCtx(); });
+  function curFileTc() {
+    return [...document.querySelectorAll('.fe-tab')].find(t => t.classList.contains('active'))?.textContent.includes('.tc') ?? false;
+  }
+  document.getElementById('ctxRun').onclick = () => {
+    hideCtx();
+    runScript(CASE1_SEL);
+    toast('已执行选中 2 行（0:→dut-ssh-22，1:→dut-ssh-2222）——右侧终端同步显示');
+  };
+  document.getElementById('ctxSendSel').onclick = () => { hideCtx(); openSendModal(); };
+
+  // ── 发送选中弹窗 ──
+  function openSendModal() {
+    document.getElementById('sendModal').style.display = 'flex';
+    updateSendCount();
+  }
+  function closeSendModal() { document.getElementById('sendModal').style.display = 'none'; }
+  function updateSendCount() {
+    const n = [...document.querySelectorAll('#sendModal input:checked')].length;
+    const go = document.getElementById('sendGo');
+    go.textContent = `发送 (${n})`;
+    go.disabled = n === 0;
+  }
+  document.querySelectorAll('#sendModal input').forEach(cb => cb.addEventListener('change', updateSendCount));
+  function doSend() {
+    const targets = [...document.querySelectorAll('#sendModal input:checked')].map(cb => cb.dataset.sid);
+    closeSendModal();
+    // 模拟"逐条发送"：间隔 350ms 逐条追加到每个勾选的终端
+    MD_SEL.forEach((cmd, idx) => { for (const t of targets) termAppend(t, cmd, fakeOut(cmd), idx * 350 + t.length * 60); });
+    toast(`已逐条发送 ${MD_SEL.length} 条到 ${targets.length} 个终端 —— 右侧终端同步显示`);
+  }
+  function switchTab(name, el) {
+    document.querySelectorAll('.fe-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    renderCode(name);
+  }
+  function openFile(name, treeEl) {
+    document.querySelectorAll('.tree-item').forEach(t => t.classList.remove('active'));
+    treeEl.classList.add('active');
+    renderCode(name);
+    document.getElementById('floatEd').style.display = 'flex';
+  }
+  function closeEd() { document.getElementById('floatEd').style.display = 'none'; }
+  function toggleMax() { document.getElementById('floatEd').classList.toggle('max'); }
+  function toggleTree() { document.getElementById('tree').classList.toggle('open'); }
+
+  (function () {
+    const ed = document.getElementById('floatEd'), head = document.getElementById('feHead');
+    let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
+    head.addEventListener('pointerdown', e => {
+      if (e.target.tagName === 'BUTTON' || ed.classList.contains('max')) return;
+      drag = true; sx = e.clientX; sy = e.clientY;
+      const r = ed.getBoundingClientRect(); ox = r.left; oy = r.top;
+      head.setPointerCapture(e.pointerId);
+    });
+    head.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const x = Math.max(0, Math.min(window.innerWidth - 200, ox + e.clientX - sx));
+      const y = Math.max(34, Math.min(window.innerHeight - 120, oy + e.clientY - sy));
+      ed.style.left = x + 'px'; ed.style.top = y + 'px';
+    });
+    head.addEventListener('pointerup', () => drag = false);
+  })();
+
+  let toastTimer;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+  function toggleTheme() {
+    const el = document.documentElement;
+    el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+  }
+  renderCode('case1.tc');
+</script>
+</body>
+</html>

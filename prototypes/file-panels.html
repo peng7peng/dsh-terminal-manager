@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件面板设计仿真 — 远端/本地文件树（收起条 + 展开面板）</title>
+<style>
+  :root, [data-theme="dark"] {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2129; --border: #2d333b;
+    --text: #c9d1d9; --dim: #768390; --accent: #4d6bfe; --accent-soft: #4d6bfe22; --green: #3fb950;
+    --warn: #d29922;
+    --term-bg: #010409; --term-text: #b8f0c0; --term-cmd: #79c0ff;
+    --ed-bg: #0d1117; --ed-code: #c9d1d9; --ed-kw: #ff7b72;
+    --float-shadow: 0 14px 44px rgba(0,0,0,.6);
+  }
+  [data-theme="light"] {
+    --bg: #f3f5f9; --panel: #ffffff; --panel2: #eef1f6; --border: #dbe1ec;
+    --text: #24292f; --dim: #66707f; --accent: #4d6bfe; --accent-soft: #4d6bfe14; --green: #1a7f37;
+    --warn: #9a6700;
+    --term-bg: #0b0e14; --term-text: #b8f0c0; --term-cmd: #79c0ff;
+    --ed-bg: #ffffff; --ed-code: #24292f; --ed-kw: #cf222e;
+    --float-shadow: 0 14px 44px rgba(30,40,60,.3);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+
+  .explain { flex: none; background: linear-gradient(90deg,#1f3a68,#132039); color: #a8c7fa; padding: 6px 14px; font-size: 12.5px; display: flex; gap: 16px; align-items: center; }
+  [data-theme="light"] .explain { background: linear-gradient(90deg,#ddebff,#cfe1fb); color: #1a4b8f; }
+  .explain .tip::before { content: "💡"; margin-right: 4px; }
+  .explain .spacer { flex: 1; }
+  .theme-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 14px; padding: 2px 12px; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+  .wrap { flex: 1; display: grid; grid-template-columns: 1fr 210px; min-height: 0; }
+
+  /* 左：终端列（网格 + 广播栏 + 两个文件面板） */
+  .terms { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border); }
+  .term-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px; padding: 8px; min-height: 0; }
+  .term-pane { background: var(--term-bg); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .term-pane.flash { outline: 2px solid var(--accent); }
+  .term-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 11.5px; }
+  .term-bar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .term-bar .nm { font-weight: 600; }
+  .term-bar .tgt { color: var(--dim); }
+  .term-body { flex: 1; padding: 6px 9px; font: 11.5px/1.55 "JetBrains Mono", Consolas, monospace; color: var(--term-text); overflow: auto; white-space: pre-wrap; }
+  .term-body .cmd { color: var(--term-cmd); }
+
+  .bcast { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--border); }
+  .bcast .lb { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .chip { padding: 1px 9px; border-radius: 12px; border: 1px solid var(--border); color: var(--dim); font-size: 11.5px; cursor: pointer; user-select: none; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bcast input { flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 4px 10px; font-size: 12px; }
+  .bcast .send { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 4px 14px; font-weight: 600; cursor: pointer; }
+
+  /* ── 文件面板：收起条 + 展开面板 ── */
+  .fpanel { flex: none; border-top: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; }
+  .fp-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer; user-select: none; font-size: 12.5px; font-weight: 600; }
+  .fp-bar:hover { background: var(--panel2); }
+  .fp-bar .arrow { font-size: 10px; color: var(--dim); transition: transform .15s; }
+  .fpanel.open .fp-bar .arrow { transform: rotate(90deg); }
+  .fp-bar .fp-sub { color: var(--dim); font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fp-bar .badge { font-size: 9.5px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 4px; padding: 0 5px; }
+  .fp-body { display: none; flex-direction: column; border-top: 1px solid var(--border); max-height: 240px; }
+  .fpanel.open .fp-body { display: flex; }
+
+  .fp-toolbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 5px 10px; flex-wrap: wrap; }
+  .term-chip { padding: 1px 9px; border-radius: 11px; border: 1px solid var(--border); color: var(--dim); font-size: 11.3px; cursor: pointer; user-select: none; }
+  .term-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fp-tbtn { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px; }
+  .fp-tbtn:hover { border-color: var(--accent); }
+  .fp-tbtn.dis { opacity: .4; cursor: not-allowed; }
+  .fp-toolbar .sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
+
+  .fp-path { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 10px 5px; font: 11.3px Consolas, monospace; color: var(--dim); flex-wrap: wrap; }
+  .fp-path .seg { cursor: pointer; padding: 0 3px; border-radius: 4px; }
+  .fp-path .seg:hover { background: var(--panel2); color: var(--text); }
+  .fp-path .cur { color: var(--text); font-weight: 600; }
+
+  .fp-list { flex: 1; overflow: auto; padding: 0 6px 6px; min-height: 0; }
+  .fp-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 6px; font-size: 12.3px; cursor: pointer; }
+  .fp-row:hover { background: var(--panel2); }
+  .fp-row.sel { background: var(--accent-soft); outline: 1px solid var(--accent); }
+  .fp-row .ic { flex: none; }
+  .fp-row .sz { margin-left: auto; color: var(--dim); font-size: 11px; flex: none; }
+
+  /* 右：连接面板（精简） */
+  .conns { background: var(--panel); padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .conns h4 { font-size: 12px; color: var(--dim); font-weight: 600; }
+  .sess-item { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; font-size: 12.3px; background: var(--panel2); margin-bottom: 4px; }
+  .sess-item .tc-badge { flex: none; font-size: 9.5px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 4px; padding: 1px 5px; }
+  .sess-item .dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
+
+  /* 浮动编辑器（简版：双击本地文件打开） */
+  .float-ed { position: fixed; z-index: 60; width: 480px; height: 330px; left: 180px; top: 14%; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--float-shadow); display: none; flex-direction: column; overflow: hidden; }
+  .fe-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--panel2); border-bottom: 1px solid var(--border); font-size: 12.3px; font-weight: 600; }
+  .fe-head .sp { flex: 1; }
+  .fe-head button { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 13px; }
+  .fe-body { flex: 1; overflow: auto; background: var(--ed-bg); padding: 10px 14px; font: 11.5px/1.6 "JetBrains Mono", Consolas, monospace; color: var(--ed-code); white-space: pre; }
+  .fe-body .kw { color: var(--ed-kw); }
+
+  .toast { position: fixed; z-index: 99; left: 50%; transform: translateX(-50%); bottom: 56px; background: var(--panel); border: 1px solid var(--accent); color: var(--text); border-radius: 9px; padding: 8px 18px; font-size: 12.5px; box-shadow: var(--float-shadow); opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 72vw; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="explain">
+  <b>文件面板设计仿真</b>
+  <span class="tip">远端文件树 = 广播栏下方收起条，点击展开（非浮窗）；可切终端/切目录</span>
+  <span class="tip">本地文件树在远端下面；双击文件 → 浮动编辑器打开</span>
+  <span class="spacer"></span>
+  <button class="theme-btn" onclick="toggleTheme()">🌙 日/夜</button>
+</div>
+
+<div class="wrap">
+  <!-- 终端列 -->
+  <div class="terms">
+    <div class="term-grid">
+      <div class="term-pane" data-pane="22">
+        <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-22</span><span class="tgt">ssh :22</span></div>
+        <div class="term-body" data-t="22"><span class="cmd">root@pekphis:~#</span> hostname
+pekphis965809
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+      </div>
+      <div class="term-pane" data-pane="2222">
+        <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-2222</span><span class="tgt">ssh :2222</span></div>
+        <div class="term-body" data-t="2222"><span class="cmd">root@pekphis:~#</span> free -m
+Mem:  32122  14200  17922
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+      </div>
+      <div class="term-pane" data-pane="23">
+        <div class="term-bar"><span class="dot"></span><span class="nm">dut-telnet-23</span><span class="tgt">telnet :23</span></div>
+        <div class="term-body" data-t="23"><span class="cmd">admin@pekphis:~$</span> uptime
+ 11:02:33 up 12 days
+<span class="cmd">admin@pekphis:~$</span> ▌</div>
+      </div>
+      <div class="term-pane" data-pane="2323">
+        <div class="term-bar"><span class="dot"></span><span class="nm">dut-ssh-2323</span><span class="tgt">ssh :2323</span></div>
+        <div class="term-body" data-t="2323"><span class="cmd">root@pekphis:~#</span> date
+2026-09-01 10:23:45
+<span class="cmd">root@pekphis:~#</span> ▌</div>
+      </div>
+    </div>
+
+    <div class="bcast">
+      <span class="lb">📢 广播到</span>
+      <span class="chip on">全部</span>
+      <span class="chip">dut-ssh-22</span>
+      <span class="chip">dut-ssh-2222</span>
+      <input placeholder="输入要广播到所选会话的命令…">
+      <button class="send">发送</button>
+    </div>
+
+    <!-- 远端文件面板 -->
+    <div class="fpanel open" id="rp">
+      <div class="fp-bar" onclick="togglePanel('rp')" title="点击展开/收起">
+        <span class="arrow">▶</span><span>💻 远端文件</span>
+        <span class="badge" id="rpBadge">dut-ssh-22</span>
+        <span class="fp-sub" id="rpSub">/home/user</span>
+      </div>
+      <div class="fp-body">
+        <div class="fp-toolbar">
+          <span id="rpChips" style="display:flex;gap:4px;flex-wrap:wrap"></span>
+          <span class="sep"></span>
+          <button class="fp-tbtn" id="rpUp" onclick="navUp('remote')">⬆️ 上一级</button>
+          <button class="fp-tbtn" onclick="uploadSel('file')">📤 上传文件</button>
+          <button class="fp-tbtn" onclick="downloadSel('file')">📥 下载文件</button>
+          <button class="fp-tbtn" onclick="uploadSel('folder')">📁 上传文件夹</button>
+          <button class="fp-tbtn" onclick="downloadSel('folder')">🗂️ 下载文件夹</button>
+          <button class="fp-tbtn" onclick="refresh('remote')">🔄 刷新</button>
+        </div>
+        <div class="fp-path" id="rpPath"></div>
+        <div class="fp-list" id="rpList"></div>
+      </div>
+    </div>
+
+    <!-- 本地文件面板 -->
+    <div class="fpanel" id="lp">
+      <div class="fp-bar" onclick="togglePanel('lp')" title="点击展开/收起">
+        <span class="arrow">▶</span><span>📁 本地文件</span>
+        <span class="fp-sub" id="lpSub">D:\demo\test</span>
+      </div>
+      <div class="fp-body">
+        <div class="fp-toolbar">
+          <button class="fp-tbtn" id="lpUp" onclick="navUp('local')">⬆️ 上一级</button>
+          <button class="fp-tbtn" onclick="uploadSel('file')">📤 上传文件</button>
+          <button class="fp-tbtn" onclick="downloadSel('file')">📥 下载文件</button>
+          <button class="fp-tbtn" onclick="uploadSel('folder')">📁 上传文件夹</button>
+          <button class="fp-tbtn" onclick="downloadSel('folder')">🗂️ 下载文件夹</button>
+          <button class="fp-tbtn" onclick="refresh('local')">🔄 刷新</button>
+          <span style="color:var(--dim);font-size:11px;margin-left:6px">双击文件 → 编辑器打开</span>
+        </div>
+        <div class="fp-path" id="lpPath"></div>
+        <div class="fp-list" id="lpList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 连接面板（精简） -->
+  <div class="conns">
+    <h4>活跃会话</h4>
+    <div class="sess-item"><span class="tc-badge">TC0</span>dut-ssh-22<span class="dot"></span></div>
+    <div class="sess-item"><span class="tc-badge">TC1</span>dut-ssh-2222<span class="dot"></span></div>
+    <div class="sess-item"><span class="tc-badge">TC2</span>dut-telnet-23<span class="dot"></span></div>
+    <div class="sess-item"><span class="tc-badge">TC3</span>dut-ssh-2323<span class="dot"></span></div>
+  </div>
+</div>
+
+<!-- 浮动编辑器（双击本地文件打开） -->
+<div class="float-ed" id="floatEd">
+  <div class="fe-head"><span id="feTitle">📄 case1.txt</span><span class="sp"></span><button onclick="document.getElementById('floatEd').style.display='none'">✕</button></div>
+  <div class="fe-body" id="feBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── 远端假数据：每个终端各自的目录树 ──
+  const REMOTE_FS = {
+    '22': { '/': ['home/'], '/home/': ['user/'], '/home/user/': ['logs/', 'test/', 'result.csv', 'run.log', 'config.ini'], '/home/user/logs/': ['run-0901.log', 'run-0831.log'], '/home/user/test/': ['demo.sh', 'readme.txt'] },
+    '2222': { '/': ['root/'], '/root/': ['out/', 'data.csv'], '/root/out/': ['build.log'] },
+    '23': { '/': ['home/'], '/home/': ['admin/'], '/home/admin/': ['bin/', 'start.sh'], '/home/admin/bin/': ['init.sh'] },
+    '2323': { '/': ['data/'], '/data/': ['test/'], '/data/test/': ['case/', 'report.docx'], '/data/test/case/': ['tc-01.txt'] },
+  };
+  const REMOTE_ROOT = { '22': '/home/user/', '2222': '/root/', '23': '/home/admin/', '2323': '/data/test/' };
+  const SESSIONS = { '22': 'dut-ssh-22', '2222': 'dut-ssh-2222', '23': 'dut-telnet-23', '2323': 'dut-ssh-2323' };
+
+  const LOCAL_FS = {
+    'D:/demo/test/': ['test/', 'configs/', 'case1.txt', 'case2.txt', 'config.csv', 'check.md', 'run.py'],
+    'D:/demo/test/test/': ['case1.txt', 'case2.txt'],
+    'D:/demo/test/configs/': ['a.ini', 'b.csv'],
+  };
+  const LOCAL_ROOT = 'D:/demo/test/';
+
+  const LOCAL_FILE_CONTENT = {
+    'case1.txt': `<span class="kw"># TC 脚本</span>\n<span class="kw">*: hostname</span>\n<span class="kw">0: df -h</span>\n<span class="kw">1: free -m</span>`,
+    'case2.txt': '<span class="kw"># TC 脚本 2</span>\n<span class="kw">*: uptime</span>',
+    'config.csv': 'name,ip,port\ndut-ssh-22,7.218.30.25,22',
+    'check.md': '# 清单\n- hostname\n- df -h',
+    'run.py': '<span class="kw">print</span>("hello dut")',
+    'a.ini': '[serial]\nbaud=115200',
+    'b.csv': 'step,cmd\n1,show version',
+  };
+
+  // ── 状态 ──
+  let rpSid = '22', rpDir = REMOTE_ROOT['22'];
+  let lpDir = LOCAL_ROOT;
+  let rpSel = null, lpSel = null;   // 选中项 {name, isDir}
+
+  const isDir = n => n.endsWith('/');
+
+  // ── 渲染 ──
+  function renderRemote() {
+    document.getElementById('rpBadge').textContent = SESSIONS[rpSid];
+    document.getElementById('rpSub').textContent = rpDir;
+    // 终端 chips
+    document.getElementById('rpChips').innerHTML = Object.keys(SESSIONS).map(sid =>
+      `<span class="term-chip ${sid === rpSid ? 'on' : ''}" onclick="switchRemote('${sid}')">${SESSIONS[sid]}</span>`).join('');
+    // 面包屑
+    const parts = rpDir.split('/').filter(Boolean);
+    document.getElementById('rpPath').innerHTML = '<span class="seg" onclick="rpGo(\'/\')">/</span>' +
+      parts.map((p, i) => `<span class="seg ${i === parts.length - 1 ? 'cur' : ''}" onclick="rpGo('/${parts.slice(0, i + 1).join('/')}/')">${p}</span>`).join('<span>/</span>');
+    // 列表
+    const items = REMOTE_FS[rpSid][rpDir] ?? [];
+    document.getElementById('rpList').innerHTML = items.length ? items.map(n =>
+      `<div class="fp-row ${rpSel?.name === n ? 'sel' : ''}" onclick="pickRemote('${n}')" ${isDir(n) ? `ondblclick="rpGo('${rpDir}${n}')"` : ''}><span class="ic">${isDir(n) ? '📁' : '📄'}</span><span>${n.replace(/\/$/, '')}</span><span class="sz">${isDir(n) ? '文件夹' : (n.endsWith('.log') ? '12 KB' : '2 KB')}</span></div>`
+    ).join('') : '<div style="color:var(--dim);padding:10px">（空目录）</div>';
+    document.getElementById('rpUp').classList.toggle('dis', rpDir === '/');
+    rpSel = null;
+  }
+  function renderLocal() {
+    document.getElementById('lpSub').textContent = lpDir.replace(/\//g, '\\');
+    const parts = lpDir.replace(LOCAL_ROOT, '').split('/').filter(Boolean);
+    document.getElementById('lpPath').innerHTML = `<span class="seg cur" onclick="lpGo('${LOCAL_ROOT}')">${lpDir.replace(/\//g, '\\')}</span>` +
+      (parts.length > 1 ? ` <span style="color:var(--dim)">（点击根返回）</span>` : '');
+    const items = LOCAL_FS[lpDir] ?? [];
+    document.getElementById('lpList').innerHTML = items.length ? items.map(n =>
+      `<div class="fp-row ${lpSel?.name === n ? 'sel' : ''}" onclick="pickLocal('${n}')" ondblclick="lpOpen('${n}')"><span class="ic">${isDir(n) ? '📁' : '📄'}</span><span>${n.replace(/\/$/, '')}</span><span class="sz">${isDir(n) ? '文件夹' : '1 KB'}</span></div>`
+    ).join('') : '<div style="color:var(--dim);padding:10px">（空目录）</div>';
+    document.getElementById('lpUp').classList.toggle('dis', lpDir === LOCAL_ROOT);
+    lpSel = null;
+  }
+
+  // ── 交互 ──
+  function switchRemote(sid) { rpSid = sid; rpDir = REMOTE_ROOT[sid]; renderRemote(); toast(`已切换到 ${SESSIONS[sid]} —— 路径与列表跟随该终端的当前目录`); }
+  function rpGo(dir) { rpDir = dir; renderRemote(); }
+  function lpGo(dir) { lpDir = dir; renderLocal(); }
+  function navUp(which) {
+    if (which === 'remote') { if (rpDir === '/') return; const p = rpDir.replace(/[^/]+\/$/, ''); rpDir = p || '/'; renderRemote(); }
+    else { if (lpDir === LOCAL_ROOT) return; const p = lpDir.replace(/[^/]+\/$/, ''); lpDir = p || LOCAL_ROOT; renderLocal(); }
+  }
+  function pickRemote(n) { rpSel = { name: n, isDir: isDir(n) }; renderRemote(); rpSel = { name: n, isDir: isDir(n) }; }
+  function pickLocal(n) { lpSel = { name: n, isDir: isDir(n) }; renderLocal(); lpSel = { name: n, isDir: isDir(n) }; }
+  function refresh(which) { which === 'remote' ? (renderRemote(), toast('远端列表已刷新（SFTP readdir）')) : (renderLocal(), toast('本地列表已刷新')); }
+
+  function requireSel(which, want) {
+    const sel = which === 'remote' ? rpSel : lpSel;
+    if (!sel) { toast('请先在列表里单击选中一项'); return null; }
+    if (want === 'file' && sel.isDir) { toast('选中的是文件夹 —— 请用「下载/上传文件夹」'); return null; }
+    if (want === 'folder' && !sel.isDir) { toast('选中的是文件 —— 请用「下载/上传文件」'); return null; }
+    return sel;
+  }
+  function downloadSel(kind) {
+    const sel = requireSel('remote', kind); if (!sel) return;
+    const name = sel.name.replace(/\/$/, '');
+    toast(`⬇️ 下载 ${name} ${kind === 'folder' ? '（递归）' : ''}：${SESSIONS[rpSid]}:${rpDir}${sel.name} → 本地浏览器保存${kind === 'file' ? '' : '…（SFTP，进度条）'}`);
+  }
+  function uploadSel(kind) {
+    const src = lpSel ?? { name: kind === 'folder' ? 'test/' : 'config.csv', isDir: kind === 'folder' };
+    const name = src.name.replace(/\/$/, '');
+    if (kind === 'folder' && !src.isDir) { toast('上传文件夹：请先在本地列表选中一个文件夹'); return; }
+    if (kind === 'file' && src.isDir) { toast('上传文件：请先在本地列表选中一个文件'); return; }
+    toast(`⬆️ 上传 ${name} ${kind === 'folder' ? '（递归）' : ''}：本地 → ${SESSIONS[rpSid]}:${rpDir}${name}${kind === 'folder' ? '/' : ''}${rpSid === '23' ? '（Telnet：base64 命令模拟，实验性）' : '（SFTP，进度条）'}`);
+  }
+  function lpOpen(n) {
+    if (isDir(n)) { lpDir = lpDir + n; renderLocal(); return; }
+    const body = document.getElementById('feBody');
+    body.innerHTML = LOCAL_FILE_CONTENT[n] ?? `（${n} 的内容）`;
+    document.getElementById('feTitle').textContent = '📄 ' + n;
+    document.getElementById('floatEd').style.display = 'flex';
+  }
+  function togglePanel(id) { document.getElementById(id).classList.toggle('open'); }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+  }
+  function toggleTheme() { const el = document.documentElement; el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark'; }
+
+  renderRemote();
+  renderLocal();
+</script>
+</body>
+</html>

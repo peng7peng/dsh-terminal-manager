@@ -1,11 +1,12 @@
 # DSH Terminal Manager — 构建计划
 
 - 派生自：`spec.md`（唯一设计源，已合并原 `docs/solution.zh.md`）
-- 状态：M0–M5 已全部完成（2026-08-26）；本文件按 SDLC 规则 6 随实现偏离同步更新
+- 状态：MVP M0–M5 已全部完成（2026-08-26）；**九月迭代已开工（2026-09-02，见文末「九月迭代」）**；本文件按 SDLC 规则 6 随实现偏离同步更新
 - 日期：2026-08-25
 - 修订：
   - 2026-08-25 插入「方案讲解 + GUI 方案选型」里程碑（M1）
   - 2026-08-28 同步真实实现的偏离（见下「实现偏离记录」）；`docs/connections-panel-upgrade.zh.md` 的剩余待办并入本文「后续待办」段，原文件已归档
+  - 2026-09-02 追加「九月迭代」计划：契约先行 PR + 主线 S1–S5 + 扩展模块轨道
 
 ## 实现偏离记录（规则 6：偏离即同提交更新）
 
@@ -112,6 +113,44 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 **#17 修法**：`session-manager.ts` 的 `connect()` 自动创建临时连接时硬编码 `favorited: false`（符合原设计"临时连接也入「最近连接」"的注释）。前端 `ConnectionsPanel` 加 `useEffect`：会话数量增加时自动重拉 connections 列表，解决 AI 工具创建的连接不能实时出现在 UI 的问题。
 
 **#18 修法**：`transport/telnet.ts` 在连接建立时主动发送默认 80x24 NAWS 子协商数据（`sendWindowSize(80, 24)`），不再依赖前端 `ws.resize()` 的异步到达。某些服务器（特别是 Linux/Windows telnetd）在收到客户端 WILL NAWS 后会等子协商数据，超时（约 30–60s）不发就断开连接。前端 ResizeObserver 后续的 resize 仍会更新真实尺寸。
+
+## 九月迭代（2026-09-02 起）
+
+- 设计源：`docs/2026-09-01-九月迭代设计方案.md`（V0.2，副本）+ `docs/ux/2026-09-01-九月迭代交互设计.md`（定稿）+ `prototypes/design-demo.html` 等原型
+- 协作：主线（主线负责人，`feat/sep-workbench`）与扩展模块（扩展模块负责人，日志管理 / 共享端口，自开分支）并行；契约见 `spec.md`「模块间契约」
+
+### S0 契约先行 PR（本 PR，合 main 后两人各自拉分支）
+
+| 项 | 状态 |
+|---|---|
+| 设计方案 / 交互设计 / 原型入库 | ✅ |
+| `src/types/{events,session-api,file-service}.ts` 三个契约文件 | ✅ |
+| B9 事件总线实现 + B4 埋点（output / input 含来源 / status） | ✅（tests/event-bus.spec.ts、tests/session-events.spec.ts） |
+| 挂载空壳 `src/ext/index.ts` + `client/ext/index.tsx`；`client/styles.ts` 拆成 `client/styles/` 目录 | ✅ |
+| `spec.md` 契约章节 + 扩展模块占位章节；`CLAUDE.md` 协作规矩 | ✅ |
+| 决策：文件服务由本插件实现、扩展模块负责人复用（原「归属待定」已定） | ✅ |
+
+### 主线里程碑（S1–S5，对应设计方案 M1–M5；约 12 + 8 人天）
+
+| 里程碑 | 内容 | 依赖 | 预估 |
+|---|---|---|---|
+| **S1 本地文件服务 + UI 骨架** | `FileService` 本地四件套（listLocal/readLocal/writeLocal/listDirectories，路径安全：归一化 + 符号链接解析 + 树根校验）+ `/term-manager/files.*` 路由 + Config `workspaceRoot`；本地文件面板（收起条/展开、面包屑、换目录）；浮动编辑器窗（拖/缩/最大化/最小化成底部标签）+ Tab 管理（抄 better-sidebar，裁剪） | S0 | 4 天 |
+| **S2 编辑器** | CodeMirror 6 全量打包（`tm:codemirror-css` 虚拟模块）+ 语法高亮（sh/py/json/md/csv）+ 打开/保存（Ctrl+S 原子写）/ 脏标记 / 关 Tab 保存确认 / >10MB 只读 | S1 | 3 天 |
+| **S3 选中发送 + TC 执行** | `src/tc-parser.ts` 纯函数；TC 徽章（窗格标题 + 活跃会话项，拖动 = 换编号）；[▶ 执行脚本] + 右键执行选中 + 映射确认框（"本次会话不再确认"）+ 常驻汇总条；[▶ 发送选中→] 终端多选弹窗 + 逐条 `sendAndWait(source:'script')` + >20 行提示；按钮可用性矩阵（D5） | S2 | 3 天 |
+| **S4 联调收尾** | 接入扩展模块负责人模块联调、eval 场景补齐、README「文件访问范围」、spec/plan 同步 | S3 + 扩展模块 | 2 天 |
+| **S5 文件传输 + 远端面板** | `transport/ssh.ts` 导出 `getSftp()`（复用 Client 开 sftp 通道）→ `transport/sftp.ts`；`FileService` 远端四件套；Telnet base64 命令模拟（≤1MB，Config `telnetFileTransfer` 开关，UI 标实验性）；`/files/upload`（POST raw）/ `/files/download`（GET 流式）路由 + `/term-io` `file-progress` 帧；远端文件面板（切终端 chips、6 按钮、同名覆盖/跳过/重命名）；`tm_upload` / `tm_download`；`file` 事件派发 | S1（可与 S3 并行，最后合） | 8 天 |
+
+调整说明（相对设计方案）：本地文件服务和路径安全从 M2 提前到 S1 最前面做——文件面板、编辑器都依赖它，且它是 `FileService` 契约的第一批实现，能尽早验证契约。
+
+### 扩展模块轨道（扩展模块负责人）——待补充
+
+需求文档成稿后由扩展模块负责人在此补：里程碑、订阅的事件、落盘格式、路由 / UI 入口、测试点。主线只承诺：契约不单方面改；`registerExtensions` / `registerClientExtensions` / `EXT_CSS` 三个挂载点稳定；S4 留 2 天联调。
+
+### 开放问题（九月）
+
+1. TC 语法真实样例未到——解析器按原型设想语法先做，样例到位后只改 `tc-parser.ts`。
+2. `.xlsx` 本期不做（设计方案 3.9）。
+3. 浮动编辑器 z-index 与 DSH 模态的冲突——60~90 区间，遇到再让位。
 
 ## 证据
 

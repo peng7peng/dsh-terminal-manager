@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -73,7 +73,7 @@ async function setup() {
   const signal = new AbortController().signal
   let callNumber = 0
   const call = (name: string, args: unknown) => ctx.tools.execute({
-    signal, callId: CallId(`tm-call-${++callNumber}`), name, arguments: args, agent,
+    signal, callId: ToolCallId(`tm-call-${++callNumber}`), name, arguments: args, agent,
   })
   return { ctx, sessions, emit, call, signal }
 }

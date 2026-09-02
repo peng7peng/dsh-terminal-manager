@@ -13,7 +13,10 @@ node scripts/mock-device.mjs 2324 &
 # 2. 起 DSH
 cd /d/myProject/dsh/deepseek-harness
 pnpm dsh --profile tm-dev --port 4580 --no-open &
-# 浏览器开 http://127.0.0.1:4580，硬刷新（Ctrl+F5）加载最新 client.js
+# 启动后终端会打印一行 "dsh web: http://127.0.0.1:4580/?token=..."——必须用这条带 token 的完整地址打开
+# （新版 DSH 有登录保护，直接开 http://127.0.0.1:4580 会显示 "authentication required"；
+#   第一次带 token 打开后浏览器记住登录，之后刷新不用再带）。硬刷新（Ctrl+F5）加载最新 client.js
+# 报 "EADDRINUSE 4580" = 上一个 DSH 还在跑：回到它的窗口找 token 地址，或 netstat -ano | findstr :4580 找到 PID 后 taskkill /PID <pid> /F 再重启
 ```
 
 ---
@@ -166,7 +169,7 @@ pnpm dsh --profile tm-dev --port 4580 --no-open &
 
    `a.py`：随便一行 `print(1)`。
 
-2. 起两台模拟设备 `mock-device.mjs 2323` 和 `2324`，起 DSH（同组一）；浏览器硬刷新。
+2. 起两台模拟设备 `mock-device.mjs 2323` 和 `2324`，起 DSH（同组一）；**用终端打印的带 `?token=` 的地址打开**，再硬刷新。
 3. 连上两台：收藏里点 `mock-1`（2323）和 `mock-2`（2324），确认两个终端窗格都在线。
 
 ---

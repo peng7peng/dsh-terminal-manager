@@ -14,13 +14,14 @@ export interface CtxItem {
 }
 
 export function ContextMenu(props: { x: number; y: number; items: CtxItem[]; onSelect: (id: string) => void; onClose: () => void }): React.JSX.Element {
+  const { onClose } = props
   useEffect(() => {
-    const onDown = (e: MouseEvent): void => { if (!(e.target instanceof Element) || e.target.closest('.tm-ctx') === null) props.onClose() }
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') props.onClose() }
+    const onDown = (e: MouseEvent): void => { if (!(e.target instanceof Element) || e.target.closest('.tm-ctx') === null) onClose() }
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
-  }, [props])
+  }, [onClose])
   const left = typeof window === 'undefined' ? props.x : Math.min(props.x, window.innerWidth - 220)
   const top = typeof window === 'undefined' ? props.y : Math.min(props.y, window.innerHeight - 40 * props.items.length)
   return (

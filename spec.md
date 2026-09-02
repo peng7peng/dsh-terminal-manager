@@ -29,6 +29,7 @@
 - **可靠性**：设备断连自动标记会话状态并即时推送 `status` 帧；重连是显式动作，不做静默自动重连；WS 通道断线自动重连（指数退避，重连后由前端重建终端状态）。
 - **安全**：
   - 数据面 WebSocket（`/term-io`）MVP 信任栅栏 = **仅 loopback**（`127.0.0.1` / `localhost` / `[::1]`，见 `ws-io.ts` 的 `isLoopback`）；trustedHosts 白名单列为后续项。
+  - 控制面 HTTP（`/term-manager`）**来源围栏**（2026-09-02 起）：`remotes.ts` 的 `isTrustedOrigin`——请求无 `Origin`（同源）、或 `Origin` 是 loopback、或与 `Host` 相同才处理，其余 403；CORS 头只回显被允许的来源，**不再回 `*`**。原因：`files.*` 端点能读写本机文件，通配 CORS 会让互联网网页借浏览器跨源发 JSON POST（CSRF）写任意文件。前端 `fetch` 用相对路径、与页面同源，不受影响。
   - 凭据本地明文保存（产品负责人已接受的风险）；落盘 `connections.json` 权限尽力 0600（Windows 平滑降级）；错误消息/日志/工具返回值**永不含密码或密钥内容**；文档明示该风险。
   - MVP 阶段 SSH 主机密钥不做严格校验（`hostVerifier` 接受任意主机密钥，见 `transport/ssh.ts`）；TOFU（首次信任）+ 指纹核对列为 MVP 后首个安全迭代。
 - **可维护性**：对 DSH 的集成面最小化（不依赖 `ctx.terminals` / `tool-terminal`；控制面不用 `ctx.typert.remotes`），以耐受开发者预览期的破坏性变更。
@@ -510,7 +511,7 @@ dsh-terminal-manager/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 275 项 vitest（26 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 282 项 vitest（26 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
 ├── （docs/ 不入库）             # 设计方案 / 交互设计 / 归档文档放仓库外 ../开发过程文档/
 ├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论；九月原型 design-demo / file-panels / float-editor-*
@@ -561,7 +562,7 @@ dsh-terminal-manager/
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，275 项基线）**
+**构建期测试（`pnpm test` = vitest，282 项基线）**
 - 九月新增：`config`（schema 缺省 / 覆盖）、`path-security`（逃逸 / junction / win32 大小写）、`file-service`（本地四件套 / 原子写 / 截断）、`remotes-files`（files.* 与 sessions.send 端点）、`tc-parser`（真实样例整段）、`client-files` / `client-editor-store` / `client-lang` / `client-tc`（前端纯逻辑：面板状态、Tab 状态机、语言映射与几何、执行计划 / 串并行 / 超时 / 中止）。
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
@@ -584,4 +585,4 @@ dsh-terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（275 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（282 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

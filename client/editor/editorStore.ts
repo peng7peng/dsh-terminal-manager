@@ -108,9 +108,12 @@ export function createEditorStore(deps: EditorDeps): EditorStore {
   async function saveOne(tab: EditorTab): Promise<boolean> {
     if (tab.saving) return false
     patchTab(tab.id, { saving: true })
+    const written = tab.content
     try {
-      await deps.rpc('files.write', { root: deps.getRoot(), path: tab.path, content: tab.content })
-      patchTab(tab.id, { saving: false, savedContent: tab.content, dirty: false })
+      await deps.rpc('files.write', { root: deps.getRoot(), path: tab.path, content: written })
+      // 写盘期间用户可能还在敲字：脏标记按「当前内容 vs 刚写进去的内容」重算，不能无条件清
+      const now = state.tabs.find(t => t.id === tab.id)
+      patchTab(tab.id, { saving: false, savedContent: written, dirty: now !== undefined && now.content !== written })
       deps.onInfo?.(`已保存 ${tab.name}`)
       return true
     } catch (error) {

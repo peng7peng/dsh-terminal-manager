@@ -97,6 +97,34 @@ describe('editorStore', () => {
     expect(store.getState().tabs[0]).toMatchObject({ dirty: false, savedContent: 'v2' })
   })
 
+  it('保存期间继续编辑：写盘完成后仍是脏的（不能静默丢掉新敲的字）', async () => {
+    let releaseWrite: () => void = () => {}
+    const writes: string[] = []
+    const rpc = (async (method: string, payload?: Record<string, unknown>) => {
+      if (method === 'files.read') return { content: 'v1', size: 2, truncated: false }
+      if (method === 'files.write') {
+        writes.push(String(payload?.content))
+        await new Promise<void>(r => { releaseWrite = r })
+        return { bytes: 2 }
+      }
+      throw new Error('unknown')
+    }) as unknown as EditorRpc
+    const store = createEditorStore({ rpc, getRoot: () => 'D:/ws' })
+    await store.openFile('D:/ws/a.txt')
+    store.setContent('D:/ws/a.txt', 'v2')
+    const saving = store.save()
+    store.setContent('D:/ws/a.txt', 'v2 + more')   // 写盘还没返回
+    releaseWrite()
+    expect(await saving).toBe(true)
+    const tab = store.getState().tabs[0]!
+    expect(writes).toEqual(['v2'])
+    expect(tab.savedContent).toBe('v2')
+    expect(tab.content).toBe('v2 + more')
+    expect(tab.dirty).toBe(true)
+    store.requestClose('D:/ws/a.txt')
+    expect(store.getState().pendingClose).toBe('D:/ws/a.txt')
+  })
+
   it('save 失败：保留脏标记并报错', async () => {
     const { deps, errors } = fakeDeps({ 'D:/ws/a.txt': 'hello' }, { failWrite: true })
     const store = createEditorStore(deps)

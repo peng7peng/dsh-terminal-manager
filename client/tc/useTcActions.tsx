@@ -122,7 +122,11 @@ export function useTcActions(sessions: readonly TcSession[]): { actions: ReactNo
     dlg.lines.forEach((command, i) => {
       for (const sid of sessionIds) {
         const s = sessions.find(x => x.sessionId === sid)
-        items.push({ key: `${i + 1}:${sid}`, lineNo: i + 1, command, tc: tcMap.get(sid) ?? -1, sessionId: sid, label: s?.label ?? sid, status: 'pending' })
+        const tc = tcMap.get(sid)
+        // 弹窗只列在线会话，理论上都在映射里；万一在勾选与发送之间掉线，就标成无对应终端而不是发出去
+        items.push(tc === undefined
+          ? { key: `${i + 1}:${sid}`, lineNo: i + 1, command, tc: 0, label: s?.label ?? sid, status: 'no-target' }
+          : { key: `${i + 1}:${sid}`, lineNo: i + 1, command, tc, sessionId: sid, label: s?.label ?? sid, status: 'pending' })
       }
     })
     void execute(`发送选中（${active.name}，${dlg.lines.length} 行 → ${sessionIds.length} 个终端）`, items)

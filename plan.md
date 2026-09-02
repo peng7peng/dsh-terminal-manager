@@ -178,6 +178,7 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 - `pnpm test`：**275 项全绿**（26 个 spec 文件；本分支新增 90 项）；覆盖率 84.5 / 74.4 / 83.7 / 86.9（阈值 72/72/60/74）
 - `pnpm build`：host 57KB；client.js **1.91MB**（CodeMirror 全量，设计方案 2.7 方案 B）
 - 手工验收（DSH 3180 + mock-device 2323/2324）：本地文件面板展开 / 面包屑 / 换目录选择器 / 双击打开 → 浮动编辑器（CodeMirror markdown 高亮、拖动、Tab、底栏）→ 连接两台 mock 后窗格与活跃会话项显示 TC0/TC1 → 打开 TC 脚本点「执行脚本」→ 映射确认框（TC0/TC1 各 3 条、TC5 无对应终端、第 6 行「间隔」提示）→ 确认后逐条发送、终端回显、汇总条 ✓6 ✗1、toast → 选中两行点「发送选中」→ 终端多选弹窗默认勾 TC0
+- **审查（2026-09-02，子 agent 只读审查 `badc5fb~1..HEAD`）**：高 1 / 中 1 / 低 3 / nit 5，结论「可合并，先修高与中」。已修：① 高——`/term-manager` 回 `ACAO:*` 且无来源校验，`files.write` 暴露给互联网网页 CSRF → 加 `isTrustedOrigin` 来源围栏（loopback / 同 Host 放行，其余 403，CORS 头只回显允许来源），测试 5 项；② 中——保存期间继续编辑会被误清脏、关 Tab 静默丢字 → 按「当前内容 vs 写入内容」重算脏标记，测试 1 项；③ 低——进不去的目录不再改 cwd；`init` 并发只问一次后端（测试 2 项）；④ nit——右键菜单监听器依赖、发送选中掉线兜底。未修：「符号链接逃逸」用例在无权限的 Windows 上会 skip（建议 CI 用 Linux runner 跑一次）；`###` 整行发送语义待与脚本作者确认。测试 282 项全绿。
 - **偏离记录**：① 步骤 8 不需要 `tm:codemirror-css`（CodeMirror 自注入样式）；② 步骤 9–11 合成一个提交；③ 「发送选中」默认勾选 TC0 而非「当前激活终端」（工作区没有激活终端概念）；④ 同一脚本行的多个目标并行发送、不同行串行（设计说逐条串行，这里按设备并行更快且顺序语义不变）；⑤ 新增 `client/tc/ContextMenu.tsx`、`TcDialogs.tsx`、`tcRunStore.ts`、`client/toast.ts`、`ToastHost.tsx`、`src/file-errors.ts`（计划未列）
 
 **风险与对策**

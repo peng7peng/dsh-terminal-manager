@@ -137,13 +137,15 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
     for (const l of listeners) l()
   }
   let loadSeq = 0
+  let initializing = false
   async function load(cwd: string): Promise<void> {
     const seq = ++loadSeq
-    set({ loading: true, error: null, cwd, selected: null })
+    set({ loading: true, error: null, selected: null })
     try {
       const entries = await deps.rpc<FileEntryView[]>('files.tree', { root: state.root, path: cwd })
       if (seq !== loadSeq) return
-      set({ entries, loading: false })
+      // 成功才提交 cwd：进不去的目录不改面包屑
+      set({ entries, cwd, loading: false })
     } catch (error) {
       if (seq !== loadSeq) return
       set({ entries: [], loading: false, error: humanError(error) })
@@ -153,18 +155,23 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
     getState: () => state,
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb) } },
     async init() {
-      if (state.ready) return
-      let root = storage?.getItem(KEY_ROOT) ?? ''
-      if (root.length === 0) {
-        try {
-          root = (await deps.rpc<{ root: string }>('files.root')).root
-        } catch (error) {
-          set({ error: humanError(error) })
-          return
+      if (state.ready || initializing) return
+      initializing = true
+      try {
+        let root = storage?.getItem(KEY_ROOT) ?? ''
+        if (root.length === 0) {
+          try {
+            root = (await deps.rpc<{ root: string }>('files.root')).root
+          } catch (error) {
+            set({ error: humanError(error) })
+            return
+          }
         }
+        set({ root, cwd: root, ready: true })
+        await load(root)
+      } finally {
+        initializing = false
       }
-      set({ root, ready: true })
-      await load(root)
     },
     setExpanded(expanded) {
       set({ expanded })
@@ -183,7 +190,7 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
     },
     select(path) { set({ selected: path }) },
     async setRoot(path) {
-      set({ root: path })
+      set({ root: path, cwd: path })
       storage?.setItem(KEY_ROOT, path)
       await load(path)
     },

@@ -111,6 +111,23 @@ describe('localFs store', () => {
     expect(store.getState().entries).toEqual([])
   })
 
+  it('进入一个进不去的目录：cwd 不变（面包屑不指向没进去的目录），只报错', async () => {
+    const { rpc } = fakeRpc(TREE)
+    const store = createLocalFsStore({ rpc, storage: fakeStorage() })
+    await store.init()
+    await store.enter('D:/ws/missing')
+    expect(store.getState().cwd).toBe('D:/ws')
+    expect(store.getState().error).toBe('目录不存在')
+  })
+
+  it('init 并发调用只问一次后端', async () => {
+    const { rpc } = fakeRpc(TREE)
+    const store = createLocalFsStore({ rpc, storage: fakeStorage() })
+    await Promise.all([store.init(), store.init(), store.init()])
+    expect(rpc.mock.calls.filter(c => c[0] === 'files.root')).toHaveLength(1)
+    expect(rpc.mock.calls.filter(c => c[0] === 'files.tree')).toHaveLength(1)
+  })
+
   it('setRoot：换根并记忆；expanded 记忆', async () => {
     const storage = fakeStorage()
     const { rpc } = fakeRpc(TREE)

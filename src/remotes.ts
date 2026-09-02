@@ -129,11 +129,11 @@ export async function dispatch(
         return ok(await requireFiles(deps).listLocal(ref))
       }
       case 'files.read': {
-        const { root, path, maxBytes } = payload as LocalPathRef & { maxBytes?: number }
+        const { root, path, maxBytes } = payload as unknown as LocalPathRef & { maxBytes?: number }
         return ok(await requireFiles(deps).readLocal({ root, path }, maxBytes !== undefined ? { maxBytes } : {}))
       }
       case 'files.write': {
-        const { root, path, content } = payload as LocalPathRef & { content: string }
+        const { root, path, content } = payload as unknown as LocalPathRef & { content: string }
         if (typeof content !== 'string') throw new FileServiceError('VALIDATION', 'content 必须是字符串')
         return ok(await requireFiles(deps).writeLocal({ root, path }, content))
       }
@@ -161,16 +161,36 @@ export const REMOTE_ERROR_CODES = [
   'PATH_OUTSIDE_ROOT', 'NOT_FOUND', 'FILE_TOO_LARGE', 'REMOTE_IO', 'UNSUPPORTED',
 ] as const
 
+/** 来源围栏：只放行本机页面。无 Origin（同源 GET / 非浏览器）放行；Origin 是 loopback 或与 Host 相同放行；其余 403。
+ *  背景：本插件的页面与路由同源（fetch 相对路径），本不需要 CORS；但 files.* 端点能读写本机文件，
+ *  不能让互联网上的恶意网页借浏览器跨源打进来（CSRF）。 */
+export function isTrustedOrigin(origin: string | undefined, host: string | undefined): boolean {
+  if (origin === undefined || origin === '') return true
+  let url: URL
+  try { url = new URL(origin) } catch { return false }
+  const h = url.hostname.toLowerCase()
+  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1') return true
+  return host !== undefined && url.host.toLowerCase() === host.toLowerCase()
+}
+
 /**
  * 构造 HTTP 路由 handler（便于独立测试）。
  * 返回一个 (req, res) => void 的异步函数。
  */
 export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res: ServerResponse) => void {
   return async (req, res) => {
+    const origin = req.headers.origin
+    if (!isTrustedOrigin(origin, req.headers.host)) {
+      res.writeHead(403, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'forbidden origin' }))
+      return
+    }
+    // 允许的来源原样回显（不再用 *）；同源请求没有 Origin 时不发 CORS 头
+    const cors: Record<string, string> = origin !== undefined && origin !== '' ? { 'access-control-allow-origin': origin, 'vary': 'Origin' } : {}
     // CORS 预检：浏览器 POST application/json 前会先 OPTIONS，必须放行
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
-        'access-control-allow-origin': '*',
+        ...cors,
         'access-control-allow-methods': 'POST, OPTIONS',
         'access-control-allow-headers': 'content-type',
       })
@@ -199,10 +219,10 @@ export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res:
     const endpoint = method || urlMethod
     try {
       const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
-      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+      res.writeHead(200, { 'content-type': 'application/json', ...cors })
       res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
     } catch (error) {
-      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+      res.writeHead(200, { 'content-type': 'application/json', ...cors })
       res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
     }
   }

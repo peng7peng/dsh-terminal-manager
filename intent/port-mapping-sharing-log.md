@@ -3,7 +3,7 @@
 - 作者：产品负责人 / Codex 协作整理
 - 来源：2026-09-01 IDE 会话；参考 `ipop-port-mapping-sharing-log-design.md`
 - 状态：Accepted（产品负责人于 2026-09-02 接受）
-- 日期：2026-09-01（2026-09-02 根据产品答复修订）
+- 日期：2026-09-01（2026-09-02 根据产品答复修订；2026-09-03 对齐提交 `badc5fb` 的开发契约）
 
 ## 问题
 
@@ -20,31 +20,34 @@ IPOP 文档提供了功能语义和已知缺陷清单，但其 C++/Electron 实�
 交付完成后，用户可以在现有 DSH 插件工作区内完成以下可观察操作：
 
 1. 创建、编辑、删除、启动和停止 TCP/UDP 端口映射；配置持久化，可选择随插件启动；首版包含 CSV 导入/导出和列表排序；UI 能看到运行状态、最近错误、活跃连接/会话数和收发字节数；TCP 与 UDP 均有本地端到端测试证明双向转发有效。
-2. 对任一已打开的 SSH/Telnet 会话启动和停止 TCP 会话共享；共享服务对外监听、无认证，连接客户端可以实时接收会话输出并向终端写入，输入复用现有 `SessionManager.write` 路径；会话关闭或插件卸载时共享端口和客户端全部被清理。
-3. 生成插件运行日志和会话输出日志。应用运行日志支持级别并按 5 MiB、最多 5 个文件轮转；会话日志默认关闭、可按会话启停，可选时间戳和 ANSI 清理，只记录设备输出、不记录用户或共享客户端输入，不轮转且不设置保留数量，直到会话关闭或用户关闭日志时销毁写入流；UI 展示当前状态及文件路径；所有日志都不得记录密码、私钥或认证载荷。
-4. 上述能力通过现有 `/term-manager` 控制面和必要的数据订阅接入现有 React 工作区，沿用当前交互语言、DSH 设计 token、`.tm-` 样式前缀和错误格式，不破坏连接管理、多终端显示、人工输入或 AI 工具。
+2. 对任一已打开的 SSH/Telnet 会话启动和停止 TCP 会话共享；共享服务对外监听、无认证，连接客户端可以实时接收会话输出并向终端写入。设备输出和会话状态从冻结的 `TmEventBus` 契约消费，输入只调用冻结的 `SessionManagerApi.write`；会话关闭或插件卸载时共享端口和客户端全部被清理。
+3. 生成插件运行日志和会话输出日志。应用运行日志支持级别并按 5 MiB、最多 5 个文件轮转；会话日志默认关闭、可按会话启停，可选时间戳和 ANSI 清理，只消费 `TmEventBus` 的设备 `output` 事件，不记录 `input` 事件，不轮转且不设置保留数量，直到会话关闭或用户关闭日志时结束并刷盘；UI 展示当前状态及文件路径；所有日志都不得记录密码、私钥或认证载荷。
+4. 上述能力作为九月迭代的扩展模块，通过现有 `/term-manager` 下的扩展子路由和独立状态订阅接入 DSH React `shell.overlay`，沿用当前交互语言、DSH 设计 token、`.tm-` 样式前缀和错误格式，不修改主线终端工作区、连接管理、人工输入、`/term-io` 或 AI 工具。
 5. `pnpm build`、既有测试和新增单元/集成测试全部通过；Socket 生命周期、端口冲突、IPv4/IPv6、UDP 源端点隔离、慢客户端背压、日志轮转与敏感信息过滤都有回归证据。
 
 ## 受影响的用户与系统
 
 - 用户：当前 DSH Terminal Manager 的本机/小团队使用者，以及经授权连接共享端口的观察者或协作者。
-- Host 半：`src/index.ts` 装配与卸载、`SessionManager` 输出订阅/人工写入、`/term-manager` 控制面、配置持久化、Node.js TCP/UDP 与文件系统能力。
-- 浏览器半：现有终端工作区、终端窗格操作区、RPC 客户端与集中式 `client/styles.ts`。
-- 数据：继续以 `resolveDataDir()` 为根目录，新增映射配置、日志配置和日志子目录；不得改写现有 `connections.json` 的语义。
+- Host 半：`src/ext/port-log/` 扩展模块，经 `src/ext/index.ts` 唯一挂载；只依赖 `src/types/events.ts`、`src/types/session-api.ts` 的冻结契约以及 Cordis/Node 公共 API。
+- 浏览器半：`client/ext/port-log/` 自包含 React 浮层，经 `client/ext/index.tsx` 唯一挂载；样式独立放在 `client/styles/port-log.ts` 并由样式入口拼接。
+- 数据：继续以 `resolveDataDir()` 为根目录，但全部新增数据放入 `ext/port-log/` 自有子目录；不得改写现有 `connections.json` 或主线文件数据。
 - 决策人：用户本人（产品负责人）；涉及对外监听、远程输入和日志内容的安全默认值需由其明确批准。
 
 ## 约束
 
 - 仅做当前 Cordis/DSH 插件的增量开发，不修改 DSH 核心，不创建独立 app 或外部中间服务。
-- Host 与浏览器实现保持 TypeScript strict；前端保持 React 18；样式继续集中在 `client/styles.ts`，使用 `.tm-` 前缀和现有 `--dsw-*` token，不引入另一套组件库或 CSS Modules。
-- 复用现有 `SessionManager` 作为终端输出和输入的唯一接缝；端口共享不得直接接触 SSH/Telnet transport。
-- 复用 `/term-manager` 与既有路由注册/清理方式；浏览器不可直接操作本机 Socket 或文件系统。
+- Host 与浏览器实现保持 TypeScript strict；前端保持 React 18；扩展样式放在 `client/styles/port-log.ts`，使用 `.tm-` 前缀和现有 `--dsw-*` token，不引入另一套组件库或 CSS Modules。
+- 严格遵循提交 `badc5fb48aa99d7a10d61923e91f9845900cfb6d` 的两人并行开发契约：功能分支不得修改 `src/types/`；如发现契约不足，必须停止功能实现并另提契约 PR，由两人评审。
+- 扩展模块只能 import `src/types/` 中的主线契约，不得 import `session-manager.ts`、`remotes.ts`、`ws-io.ts`、transport 或其他主线实现；共享输入只经 `SessionManagerApi.write`，输出/状态只经 `TmEventBus.on`。
+- Host 只在 `src/ext/index.ts` 增加一行挂载，浏览器只在 `client/ext/index.tsx` 增加一行挂载，样式只在 `client/styles/index.ts` 增加一行拼接；除此之外不得改动主线文件。
+- 扩展控制面注册在 `/term-manager/ext/port-log` 长前缀下，利用 WebServer 最长前缀优先与主线路由共存；运行状态由扩展自有 SSE 提供，不修改 `/term-io`。浏览器不可直接操作本机 Socket 或文件系统。
 - 采用 Node.js 事件驱动 I/O，不照搬 IPOP 的线程、busy-loop、手工内存或 C++ Socket 代码；IPOP 已列出的删除、IPv6、UDP、资源泄漏和关闭竞态缺陷必须有针对性测试。
 - 端口映射与共享均只由用户通过 GUI/RPC 手动配置，不新增允许 DSH Agent 自动开放、关闭或修改监听端口的工具。
 - 产品负责人已明确选择与 IPOP 一致的共享模型：对外监听、无认证、客户端完全可写。UI 必须清晰提示“任何能连接该端口的客户端都可查看输出并控制终端”的风险；该风险不通过改成只读或增加认证来规避。
 - 会话日志默认关闭；开启后只记录设备输出，错误与日志不含凭据。应用日志按 5 MiB × 5 轮转；会话日志不轮转、不自动清理，磁盘占用风险需在 UI 中提示。
 - 保留现有连接配置和会话行为的向后兼容；插件卸载必须通过 `ctx.effect` 完成映射、共享、日志流和会话的确定性清理。
 - Windows 是当前必验平台；Socket 与路径实现尽量使用 Node.js 跨平台 API，避免写死盘符或仅 Windows 可用的调用。
+- 扩展测试使用 `tests/ext-port-log-*.spec.ts` 和自有 helper；`tests/helpers.ts` 只增不改，且不得连接用户真实设备。合入 main 前必须 rebase，并保持契约基线测试与新增测试全绿。
 
 ## 范围外
 

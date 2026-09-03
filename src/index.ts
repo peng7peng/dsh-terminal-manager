@@ -45,7 +45,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const sessions = new SessionManager(store)
   const files = new LocalFileService(sessions, sessions.events)
 
-  registerTerminalTools(ctx, sessions)
+  registerTerminalTools(ctx, { sessions, files, workspaceRoot: cfg.workspaceRoot })
   registerAmbiguityHandling(ctx, sessions)
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；

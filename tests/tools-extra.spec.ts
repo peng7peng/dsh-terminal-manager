@@ -1,10 +1,11 @@
 /**
- * B6 工具层补充：immediate 分支、参数校验、sessionIds 解析、presentCall / presentResult 卡片。
+ * B6 工具层补充：immediate 分支、参数校验、sessionIds 解析、presentCall / presentResult 卡片；
+ * S5：tm_upload / tm_download。
  */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -13,9 +14,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ConnectionStore } from '../src/connection-store.ts'
+import { LocalFileService } from '../src/file-service.ts'
+import { connectSsh } from '../src/transport/ssh.ts'
+import type { SftpLike, Transport, TransportCallbacks } from '../src/transport/types.ts'
+import type { FileService } from '../src/types/file-service.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
-import type { TransportCallbacks } from '../src/transport/types.ts'
 import { registerTerminalTools } from '../src/tools.ts'
+import { createDeviceLab } from './helpers.ts'
 
 function fakeFactory(): { emit: (slot: number, chunk: string) => void; written: string[]; factory: TransportFactory } {
   const slots: TransportCallbacks[] = []
@@ -56,14 +61,18 @@ beforeAll(async () => {
 
 afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
 
-async function setup() {
+async function setup(opts: { files?: FileService; workspaceRoot?: string } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   const { emit, written, factory } = fakeFactory()
   const sessions = new SessionManager(store, factory)
-  registerTerminalTools(ctx, sessions)
+  registerTerminalTools(ctx, {
+    sessions,
+    files: opts.files ?? new LocalFileService(),
+    workspaceRoot: opts.workspaceRoot ?? dir,
+  })
   const agent = fakeAgent(ctx, 'tools-extra')
   const signal = new AbortController().signal
   let n = 0
@@ -161,3 +170,81 @@ describe('tm_send / tm_send_all 分支', () => {
 })
 
 function tool_present(r: { isError: boolean }): boolean { return !r.isError }
+
+describe('tm_upload / tm_download（S5）', () => {
+  const lab = createDeviceLab()
+  let transport: Transport | undefined
+  const roots: string[] = []
+
+  afterEach(async () => {
+    await transport?.close()
+    transport = undefined
+    await lab.cleanup()
+    for (const r of roots.splice(0)) await rm(r, { recursive: true, force: true })
+  })
+
+  /** 起一个 mock SFTP 设备 + 指向它的文件服务；wsRoot 为工作区树根（Telnet 模式不起设备，测 UNSUPPORTED 分派） */
+  const mkFiles = async (protocol: 'ssh' | 'telnet' = 'ssh'): Promise<{ files: FileService; devRoot: string; wsRoot: string }> => {
+    const devRoot = await mkdtemp(join(tmpdir(), 'tm-tl-dev-'))
+    const wsRoot = await mkdtemp(join(tmpdir(), 'tm-tl-ws-'))
+    roots.push(devRoot, wsRoot)
+    let sftp: SftpLike | undefined
+    if (protocol === 'ssh') {
+      const { port } = await lab.startSftpDevice(devRoot)
+      transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+      sftp = await transport.getSftp!()
+    }
+    return {
+      files: new LocalFileService({ get: () => ({ sessionId: 'gw', label: 'd', target: 't', protocol, status: 'open' }), getSftp: async () => sftp! }),
+      devRoot,
+      wsRoot,
+    }
+  }
+
+  it('缺参数 → 报错（不触文件服务）', async () => {
+    const { call } = await setup()
+    expect((await call('tm_upload', { sessionId: 's' })).isError).toBe(true)
+    expect((await call('tm_upload', { sessionId: 's', localPath: 'C:/x' })).isError).toBe(true)
+    expect((await call('tm_download', { sessionId: 's', remotePath: '/x' })).isError).toBe(true)
+  })
+
+  it('tm_upload：工作区内文件上传成功（mock SFTP 设备落位）；presentCall 标题', async () => {
+    const { files, devRoot, wsRoot } = await mkFiles()
+    const { call, tool } = await setup({ files, workspaceRoot: wsRoot })
+    await writeFile(join(wsRoot, 'a.txt'), 'upload-me')
+    const r = await call('tm_upload', { sessionId: 'any', localPath: join(wsRoot, 'a.txt'), remotePath: '/up-a.txt' })
+    expect(r.isError).toBe(false)
+    expect(r.value).toMatchObject({ ok: true, bytes: 9 })
+    expect(await readFile(join(devRoot, 'up-a.txt'), 'utf8')).toBe('upload-me')
+    expect(tool('tm_upload').presentCall!({ sessionId: 's', localPath: 'C:/ws/a.txt', remotePath: '/a.txt' })).toMatchObject({ title: '上传 C:/ws/a.txt → /a.txt', kind: 'execute' })
+  })
+
+  it('tm_upload 树根外 → PATH_OUTSIDE_ROOT；Telnet 会话 → UNSUPPORTED（码折叠进 message）', async () => {
+    const { files, wsRoot } = await mkFiles()
+    const outside = await mkdtemp(join(tmpdir(), 'tm-tl-out-'))
+    roots.push(outside)
+    const { call } = await setup({ files, workspaceRoot: wsRoot })
+    await writeFile(join(outside, 'f.txt'), 'x')
+    const r = await call('tm_upload', { sessionId: 'any', localPath: join(outside, 'f.txt'), remotePath: '/x' })
+    expect(r.isError).toBe(true)
+    expect(JSON.stringify(r)).toContain('PATH_OUTSIDE_ROOT')
+
+    const telnet = (await mkFiles('telnet')).files
+    const { call: call2 } = await setup({ files: telnet, workspaceRoot: wsRoot })
+    await writeFile(join(wsRoot, 't.txt'), 'y')
+    const r2 = await call2('tm_upload', { sessionId: 'any', localPath: join(wsRoot, 't.txt'), remotePath: '/t.txt' })
+    expect(r2.isError).toBe(true)
+    expect(JSON.stringify(r2)).toContain('UNSUPPORTED')
+  })
+
+  it('tm_download：落到工作区、返回字节数；presentCall 标题', async () => {
+    const { files, devRoot, wsRoot } = await mkFiles()
+    const { call, tool } = await setup({ files, workspaceRoot: wsRoot })
+    await writeFile(join(devRoot, 'dl-t.txt'), 'device-data')
+    const r = await call('tm_download', { sessionId: 'any', remotePath: '/dl-t.txt', localPath: join(wsRoot, 'out.txt') })
+    expect(r.isError).toBe(false)
+    expect(r.value).toMatchObject({ ok: true, bytes: 11 })
+    expect(await readFile(join(wsRoot, 'out.txt'), 'utf8')).toBe('device-data')
+    expect(tool('tm_download').presentCall!({ sessionId: 's', remotePath: '/a', localPath: 'C:/ws/a' })).toMatchObject({ title: '下载 /a → C:/ws/a', kind: 'execute' })
+  })
+})

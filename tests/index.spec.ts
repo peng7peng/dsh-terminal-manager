@@ -120,13 +120,15 @@ describe('apply(ctx) 装配', () => {
     expect(deps).toHaveProperty('store')
   })
 
-  it('registerTerminalTools 收到 sessions', async () => {
+  it('registerTerminalTools 收到 { sessions, files, workspaceRoot }', async () => {
     const { apply } = await import('../src/index.ts')
     const { ctx } = fakeCtx()
     apply(ctx as never)
-    // 第二个参数是 sessions（有 closeAll 方法）
-    const sessions = mockRegisterTools.mock.calls[0][1]
-    expect(sessions).toHaveProperty('closeAll')
+    // deps.sessions 有 closeAll；workspaceRoot = 解析后的 cfg（缺省 = 进程 cwd）
+    const deps = mockRegisterTools.mock.calls[0][1]
+    expect(deps.sessions).toHaveProperty('closeAll')
+    expect(deps.files).toBeTruthy()
+    expect(deps.workspaceRoot).toBe(process.cwd())
   })
 
   it('registerRemotes 收到解析后的 config：缺省 workspaceRoot = 进程 cwd，显式值原样透传', async () => {

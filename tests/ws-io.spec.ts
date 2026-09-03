@@ -164,8 +164,9 @@ describe('registerWsIo 降级', () => {
     const fakeSessions = { onStatus: () => () => {} } as unknown as SessionManager
     const ctx = { get: (_name: string) => undefined } as never
     expect(() => registerWsIo(ctx, fakeSessions)).not.toThrow()
-    const disposer = registerWsIo(ctx, fakeSessions)
-    expect(() => disposer()).not.toThrow()
+    const handle = registerWsIo(ctx, fakeSessions)
+    expect(() => handle.disposer()).not.toThrow()
+    expect(() => handle.broadcastFileProgress({ kind: 'file-progress', transferId: 't', op: 'upload', sessionId: 's', remotePath: '/x', transferred: 0 })).not.toThrow()
   })
 })
 
@@ -173,7 +174,7 @@ describe('registerWsIo 心跳与清理', () => {
   let dir: string
   let httpServer: Server
   let port: number
-  let disposer: () => void
+  let handle: ReturnType<typeof registerWsIo>
   let client: WebSocket
 
   beforeAll(async () => {
@@ -204,13 +205,13 @@ describe('registerWsIo 心跳与清理', () => {
       effect: (setup: () => (() => void) | void) => setup(),
     } as never
 
-    disposer = registerWsIo(ctx, sessions)
+    handle = registerWsIo(ctx, sessions)
   })
 
   afterAll(async () => {
     client?.terminate?.()
     await new Promise<void>(resolve => httpServer.close(() => resolve()))
-    disposer?.()
+    handle?.disposer()
     await rm(dir, { recursive: true, force: true })
   })
 
@@ -222,6 +223,24 @@ describe('registerWsIo 心跳与清理', () => {
     })
     return ws
   }
+
+  it('broadcastFileProgress：进度帧广播给所有在线客户端（S5）', async () => {
+    const c1 = await connectClient()
+    const c2 = await connectClient()
+    const got1: string[] = []
+    const got2: string[] = []
+    c1.on('message', (d: Buffer) => got1.push(d.toString()))
+    c2.on('message', (d: Buffer) => got2.push(d.toString()))
+    handle.broadcastFileProgress({ kind: 'file-progress', transferId: 'tx1', op: 'download', sessionId: 's', remotePath: '/a.bin', transferred: 5, total: 10, percent: 50 })
+    await new Promise(r => setTimeout(r, 50))
+    expect(got1).toHaveLength(1)
+    expect(got2).toHaveLength(1)
+    const frame = JSON.parse(got1[0]!) as { kind: string; transferId: string; percent: number }
+    expect(frame).toMatchObject({ kind: 'file-progress', transferId: 'tx1', percent: 50 })
+    c1.terminate()
+    c2.terminate()
+    await new Promise(r => setTimeout(r, 50))
+  })
 
   it('每 30 秒给客户端发一次 ping', async () => {
     // 用 spyOn 拦截 setInterval，手动触发回调 —— 不动真实时钟，不干扰 ws 内部 I/O
@@ -310,7 +329,7 @@ describe('registerWsIo 心跳与清理', () => {
     expect(pings2.n).toBe(1)
 
     // disposer：清掉所有 timer，关所有连接
-    disposer()
+    handle.disposer()
     await new Promise(r => setTimeout(r, 50))
 
     // disposer 之后回调里的 readyState 不是 OPEN，ping 不会发出
@@ -325,6 +344,6 @@ describe('registerWsIo 心跳与清理', () => {
     c2.terminate()
     await new Promise(r => setTimeout(r, 50))
     spy.mockRestore()
-    expect(() => disposer()).not.toThrow()
+    expect(() => handle.disposer()).not.toThrow()
   })
 })

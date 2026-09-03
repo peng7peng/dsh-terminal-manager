@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mockRegisterTools = vi.fn()
 function mockRegisterRemotesImpl() { return () => {} }
 const mockRegisterRemotes = vi.fn(mockRegisterRemotesImpl)
-function mockRegisterWsIoImpl() { return () => {} }
+function mockRegisterWsIoImpl() { return { disposer: () => {}, broadcastFileProgress: () => {} } }
 const mockRegisterWsIo = vi.fn(mockRegisterWsIoImpl)
 const mockRegisterAmbiguity = vi.fn()
 const mockRegisterExtensions = vi.fn()

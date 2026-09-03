@@ -133,11 +133,11 @@ describe('apply(ctx) 装配', () => {
     const { apply } = await import('../src/index.ts')
     apply(fakeCtx().ctx as never)
     const defaults = mockRegisterRemotes.mock.calls[0][1].config
-    expect(defaults).toEqual({ workspaceRoot: process.cwd(), telnetFileTransfer: true })
+    expect(defaults).toEqual({ workspaceRoot: process.cwd() })
 
-    apply(fakeCtx().ctx as never, { workspaceRoot: 'D:/work/dut', telnetFileTransfer: false })
+    apply(fakeCtx().ctx as never, { workspaceRoot: 'D:/work/dut' })
     const explicit = mockRegisterRemotes.mock.calls[1][1].config
-    expect(explicit).toEqual({ workspaceRoot: 'D:/work/dut', telnetFileTransfer: false })
+    expect(explicit).toEqual({ workspaceRoot: 'D:/work/dut' })
   })
 
   it('registerExtensions 收到契约依赖 { sessions, events, dataDir }', async () => {

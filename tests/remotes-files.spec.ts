@@ -45,7 +45,7 @@ function makeDeps(withFiles = true): { deps: RemoteDeps; slots: TransportCallbac
   const sessions = new SessionManager(store, factory)
   const deps: RemoteDeps = {
     sessions, store,
-    config: { workspaceRoot: root, telnetFileTransfer: true },
+    config: { workspaceRoot: root },
     ...(withFiles ? { files: new LocalFileService() } : {}),
   }
   return { deps, slots, written }

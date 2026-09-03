@@ -8,13 +8,15 @@
  * 认证：用户名 admin + 密码（默认 test-pass），或任意密钥（都接受）。
  * 行为：连上发横幅 + prompt；支持 show version / show interface / ping / echo / help / exit；
  *       sftp 子系统把远端路径映射到本地根目录（上传 / 下载 / 列目录，供远端文件面板活测）。
+ * 注意：这是本地测试设备——任意公钥都放行、密码明文在命令行参数里，别用真实密码；
+ *       SFTP 根有越界围栏（`..` 逃不出去），但根目录本身仍以运行者权限可读写。
  *
  * 在插件界面：新建 SSH 连接，主机 127.0.0.1、端口 2222、用户名 admin、密码 test-pass。
  */
 import { generateKeyPairSync } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve as resolvePath } from 'node:path'
+import { join, resolve as resolvePath, sep } from 'node:path'
 
 // ssh2 是 CJS，动态 import 拿 default
 const ssh2mod = await import('ssh2')
@@ -116,8 +118,15 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         const dirs = new Map()
         let seq = 0
 
-        // '/up/x' → SFTP_ROOT/up/x（Windows 上 resolve 同时吃正反斜杠）
-        const toLocal = (p) => resolvePath(SFTP_ROOT, `.${p.startsWith('/') ? p : `/${p}`}`)
+        // '/up/x' → SFTP_ROOT/up/x（Windows 上 resolve 同时吃正反斜杠）。
+        // 越界围栏（审查 2026-09-03）：resolve 会折叠 ..，`/../../..` 能逃出根——
+        // 逃出根的路径一律返回 undefined，由各操作回 PERMISSION_DENIED。
+        const rootAbs = resolvePath(SFTP_ROOT)
+        const toLocal = (p) => {
+          const abs = resolvePath(SFTP_ROOT, `.${p.startsWith('/') ? p : `/${p}`}`)
+          if (abs !== rootAbs && !abs.startsWith(rootAbs + sep)) return undefined
+          return abs
+        }
         const statusOf = (err) => {
           const code = err?.code
           if (code === 'ENOENT' || code === 'ENOTDIR') return STATUS_CODE.NO_SUCH_FILE
@@ -126,15 +135,18 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
         }
         const attrsOf = (st) => ({ mode: st.mode, uid: 0, gid: 0, size: st.size, atime: st.atime, mtime: st.mtime })
         const fail = (reqid, err) => { sftp.status(reqid, statusOf(err), err?.message) }
+        const outside = (reqid) => { sftp.status(reqid, STATUS_CODE.PERMISSION_DENIED, '路径越出 SFTP 根目录') }
 
         sftp.on('OPEN', (reqid, filename, flags) => {
+          const lp = toLocal(filename)
+          if (lp === undefined) { outside(reqid); return }
           let fsFlags = 'r'
           if (flags & OPEN_MODE.WRITE) {
             if (flags & OPEN_MODE.APPEND) fsFlags = 'a'
             else if (flags & (OPEN_MODE.TRUNC | OPEN_MODE.CREAT)) fsFlags = 'w'
             else fsFlags = 'r+'
           }
-          fsp.open(toLocal(filename), fsFlags)
+          fsp.open(lp, fsFlags)
             .then((handle) => {
               const key = `h${++seq}`
               fds.set(key, handle)
@@ -175,10 +187,12 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
           }
         })
         sftp.on('OPENDIR', (reqid, p) => {
-          fsp.readdir(toLocal(p), { withFileTypes: true })
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.readdir(lp, { withFileTypes: true })
             .then((entries) => {
               const key = `h${++seq}`
-              dirs.set(key, { entries, idx: 0, dir: toLocal(p) })
+              dirs.set(key, { entries, idx: 0, dir: lp })
               sftp.handle(reqid, Buffer.from(key))
             })
             .catch((err) => fail(reqid, err))
@@ -201,10 +215,14 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
             .catch(() => sftp.status(reqid, STATUS_CODE.FAILURE))
         })
         sftp.on('STAT', (reqid, p) => {
-          fsp.stat(toLocal(p)).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.stat(lp).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
         })
         sftp.on('LSTAT', (reqid, p) => {
-          fsp.lstat(toLocal(p)).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.lstat(lp).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
         })
         sftp.on('FSTAT', (reqid, handle) => {
           const h = fds.get(handle.toString())
@@ -212,19 +230,30 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
           h.stat().then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
         })
         sftp.on('MKDIR', (reqid, p) => {
-          fsp.mkdir(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.mkdir(lp).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
         })
         sftp.on('RMDIR', (reqid, p) => {
-          fsp.rmdir(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.rmdir(lp).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
         })
         sftp.on('REMOVE', (reqid, p) => {
-          fsp.unlink(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          fsp.unlink(lp).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
         })
         sftp.on('RENAME', (reqid, from, to) => {
-          fsp.rename(toLocal(from), toLocal(to)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+          const lf = toLocal(from)
+          const lt = toLocal(to)
+          if (lf === undefined || lt === undefined) { outside(reqid); return }
+          fsp.rename(lf, lt).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
         })
         sftp.on('REALPATH', (reqid, p) => {
-          sftp.name(reqid, [{ filename: toLocal(p) }])
+          const lp = toLocal(p)
+          if (lp === undefined) { outside(reqid); return }
+          sftp.name(reqid, [{ filename: lp }])
         })
         sftp.on('SETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))
         sftp.on('FSETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))

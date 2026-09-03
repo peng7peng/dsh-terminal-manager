@@ -304,6 +304,34 @@ describe('registerWsIo 心跳与清理', () => {
     })
   })
 
+  it('跨站 Origin 的 WS 升级被拒（审查 2026-09-03：浏览器发 WS 必带 Origin，防跨站 WS 劫持）', async () => {
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: '127.0.0.1', port }, () => {
+        socket.write(
+          'GET /term-io HTTP/1.1\r\n' +
+          `Host: 127.0.0.1:${port}\r\n` +
+          'Origin: http://evil.example\r\n' +
+          'Upgrade: websocket\r\n' +
+          'Connection: Upgrade\r\n' +
+          '\r\n',
+        )
+      })
+      socket.on('close', () => resolve())
+      socket.on('error', reject)
+      setTimeout(() => { socket.destroy(); reject(new Error('恶意 Origin 的 socket 未被销毁')) }, 1000)
+    })
+  })
+
+  it('同源 Origin 的 WS 升级放行', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/term-io`, { headers: { origin: `http://127.0.0.1:${port}` } })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve())
+      ws.on('error', reject)
+    })
+    ws.close()
+    await new Promise(r => setTimeout(r, 50))
+  })
+
   it('多个客户端各自有独立心跳；disposer 统一清理', async () => {
     const original = global.setInterval
     const intervalCbs: Array<() => void> = []

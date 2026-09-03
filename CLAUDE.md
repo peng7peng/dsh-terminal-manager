@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**370 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**376 项全绿是基线**，改挂必须修绿再提交）
 - 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（21 场景，对活服务；前置 mock-device 2323/2324 + mock-ssh-device 2222）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`

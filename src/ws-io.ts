@@ -3,7 +3,8 @@
  *
  * 浏览器经通道②与此处双向通信：上行 attach/input/resize/detach，下行 output/status。
  * 订阅随连接生灭：WS 关闭时清掉该连接挂的所有订阅；30s 心跳探活。
- * MVP 信任栅栏：仅 loopback（127.0.0.1 / localhost / ::1），非 loopback 部署是后续项。
+ * MVP 信任栅栏：仅 loopback + Origin 校验（与 /term-manager 同一 isTrustedOrigin 标准；
+ * 浏览器发 WS 必带 Origin，恶意网页的跨站连接被拒），非 loopback 部署是后续项。
  * @module dsh-terminal-manager/ws-io
  */
 
@@ -13,6 +14,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
 import type { TransferProgress } from './types/file-service.ts'
+import { isTrustedOrigin } from './remotes.ts'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -126,7 +128,10 @@ export function registerWsIo(ctx: Context, sessions: SessionManager): WsIoHandle
   const heartbeats = new Map<WebSocket, NodeJS.Timeout>()
 
   const handler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    if (!isLoopback(req)) {
+    // 浏览器发 WS 必带 Origin（审查 2026-09-03：isLoopback 只看可伪造的 Host 头，挡不住
+    // 跨站 WS 劫持——恶意网页可连上来偷终端输出 / 以人工键入路径注入命令）。与 /term-manager
+    // 的 HTTP 栅栏同一标准：无 Origin（非浏览器客户端）放行，loopback / 同 Host 放行，其余销毁。
+    if (!isTrustedOrigin(req.headers.origin, req.headers.host) || !isLoopback(req)) {
       socket.destroy()
       return
     }

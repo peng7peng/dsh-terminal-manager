@@ -279,7 +279,7 @@ interface ConnectionConfig {
 
 - 挂载：`registerWsIo` → `ctx.effect(() => webServer.registerUpgrade({ path: '/term-io', handler }))`；卸载时清心跳、关全部连接、清订阅。
 - 上行帧：`attach / detach / input / resize`（均带 `sessionId`）；下行帧：`output { sessionId, data }` / `status`（`{ kind:'status' } & SessionSnapshot`，会话状态变化即推全量快照）/ `file-progress`（S5：传输进度 + 终态 `done`/`ok`，带 `transferId`——广播给所有连接，前端按 transferId 过滤；见 B10 远端部分）。
-- `TermIoConnection`：attach 登记「该会话输出 → 本管道」的订阅；detach/关闭时逐条退订。**订阅随连接生灭**：WS 关闭 → 清掉该连接挂的所有订阅。MVP 信任栅栏 `isLoopback`（仅 127.0.0.1 / localhost / ::1）。
+- `TermIoConnection`：attach 登记「该会话输出 → 本管道」的订阅；detach/关闭时逐条退订。**订阅随连接生灭**：WS 关闭 → 清掉该连接挂的所有订阅。MVP 信任栅栏 `isLoopback`（仅 127.0.0.1 / localhost / ::1）**+ Origin 校验**（2026-09-03 审查补：浏览器发 WS 必带 Origin，与 /term-manager 同一 `isTrustedOrigin` 标准——无 Origin 的非浏览器客户端放行，loopback / 同 Host 放行，其余销毁；否则恶意网页可跨站连上 WS 偷终端输出、或以人工键入路径注入命令）。
 - 心跳：每 30s `ws.ping()` 探活（`HEARTBEAT_INTERVAL_MS`）；`input`/`resize` 对不存在/已断会话静默忽略。
 - **回放历史不走 attach 帧**：终端窗格挂载时由客户端经控制面 `sessions.read` 拉缓冲尾部（`client/TermView.tsx` 的 `loadHistory`）。
 

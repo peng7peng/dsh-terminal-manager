@@ -390,6 +390,8 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 
 #### E7 React 扩展工作区（3 天）
 
+**状态：Completed（2026-09-03）；独立侧栏入口、overlay、RPC/SSE store、映射/共享/日志三页签、CSV/排序、风险确认、明暗 token 与响应式样式已接入。**
+
 **实现顺序：**
 
 1. `rpc.ts` 完成 ClientRequest/Response、错误对象、SSE 自动重连；每次 open/reconnect 先全量拉取。

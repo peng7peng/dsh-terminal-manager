@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from '@deepseek-ai/cordis'
-import { registerPortLogClientExtension } from '../client/ext/port-log/index.tsx'
+import { registerPortLogClient } from '../client/ext/port-log/index.tsx'
 import { createEventBus } from '../src/event-bus.ts'
 import { registerPortLogExtension } from '../src/ext/port-log/index.ts'
 import { SessionManager } from '../src/session-manager.ts'
@@ -36,7 +36,7 @@ describe('port-log 扩展空壳', () => {
     const inject = vi.fn((_name: string, setup: () => unknown) => setup())
     const ctx = { slots: { inject, register } } as unknown as ClientContext
 
-    registerPortLogClientExtension(ctx)
+    registerPortLogClient(ctx)
 
     expect(inject).toHaveBeenCalledTimes(2)
     expect(register).toHaveBeenCalledTimes(2)

@@ -7,6 +7,7 @@
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
 - 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
 - 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
+- 2026-09-03：S5 定稿——文件传输只做 SSH/SFTP（Telnet 会话远端操作抛 `UNSUPPORTED`，base64 命令模拟与 `telnetFileTransfer` 开关砍掉）；只做单文件（文件夹传输砍掉）；下载双入口（浏览器另存为 GET `/files/download` + `downloadToLocal` 联动/AI，② 后者行内进度条已拍板要做）；进度走 `/term-io` `file-progress` 帧（transferId 关联 + 终态帧，零契约改动）；Transport 加协议无关 `SftpLike`；传输不设独占锁。详见 B10 远端部分与 plan.md S5 节
 
 ## 需求
 
@@ -224,7 +225,9 @@ interface ConnectionConfig {
 
 #### B2/B3 传输层（`src/transport/`，接口见 `types.ts`）
 
-内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。
+内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void>; getSftp?(): Promise<SftpLike> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。
+
+- **SftpLike（S5 起，协议无关的 SFTP 门面接口）**：声明在 `transport/types.ts`、**不 import ssh2**（串口等未来实现同一接口，Telnet 不实现——远端文件操作对 Telnet 抛 `UNSUPPORTED`）。方法面：`list / stat / mkdirs / put / get / downloadStream`（unlink/rename 留在门面内部）。实现 = `transport/sftp.ts` 的 `SftpFacade`（implements SftpLike，包 ssh2 `SFTPWrapper`）：上传先写远端同目录临时文件 `<目标>.tm-partial-<rand>`（同目录同文件系统，rename 不撞 EXDEV）成功后 rename 落位（v3 rename 不覆盖已存在目标 → 覆盖走「改名失败 → 删旧 → 再改名」）、中断 best-effort 清理；进度回调节流 200ms 并补发终值；错误统一映射（NO_SUCH_FILE → NOT_FOUND、PERMISSION_DENIED → VALIDATION、断连 → DISCONNECTED、其余 REMOTE_IO）。`getSftp` 断连抛 DISCONNECTED、设备未开 sftp 子系统抛 PROTO_ERROR。
 
 - **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。`readyTimeout` = `connectTimeoutMs`（来自连接级 `handshakeTimeoutSec`，默认 15s，UI 可选 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
 - **TelnetTransport**（`telnet.ts`）：`net.connect`。`telnetMode: 'telnet' | 'raw'`：
@@ -269,7 +272,7 @@ interface ConnectionConfig {
 #### B7b 数据面数据流通道（`src/ws-io.ts`）——/term-io WebSocket
 
 - 挂载：`registerWsIo` → `ctx.effect(() => webServer.registerUpgrade({ path: '/term-io', handler }))`；卸载时清心跳、关全部连接、清订阅。
-- 上行帧：`attach / detach / input / resize`（均带 `sessionId`）；下行帧：`output { sessionId, data }` / `status`（`{ kind:'status' } & SessionSnapshot`，会话状态变化即推全量快照）。
+- 上行帧：`attach / detach / input / resize`（均带 `sessionId`）；下行帧：`output { sessionId, data }` / `status`（`{ kind:'status' } & SessionSnapshot`，会话状态变化即推全量快照）/ `file-progress`（S5：传输进度 + 终态 `done`/`ok`，带 `transferId`——广播给所有连接，前端按 transferId 过滤；见 B10 远端部分）。
 - `TermIoConnection`：attach 登记「该会话输出 → 本管道」的订阅；detach/关闭时逐条退订。**订阅随连接生灭**：WS 关闭 → 清掉该连接挂的所有订阅。MVP 信任栅栏 `isLoopback`（仅 127.0.0.1 / localhost / ::1）。
 - 心跳：每 30s `ws.ping()` 探活（`HEARTBEAT_INTERVAL_MS`）；`input`/`resize` 对不存在/已断会话静默忽略。
 - **回放历史不走 attach 帧**：终端窗格挂载时由客户端经控制面 `sessions.read` 拉缓冲尾部（`client/TermView.tsx` 的 `loadHistory`）。
@@ -288,6 +291,18 @@ interface ConnectionConfig {
 - **打开规则（前端 `client/files/openRule.ts`）**：文本类扩展名（txt / md / sh / py / json / ini / csv / log / yaml / xml / conf / toml / bat / ps1 …）双击进编辑器；其余（xlsx / docx / pdf / 图片 / 压缩包 …）双击交给系统程序；右键菜单两项都有。
 - **远端部分**（`listRemote` / `upload` / `download` / `downloadToLocal`）S5 实现；S1 里这四个方法抛 `UNSUPPORTED`。
 - **事件**：本地读写不派发 `file` 事件（S5 远端传输才派发）。
+
+#### B10 FileService 远端部分（`src/file-service.ts`）【S5，2026-09-03 定稿】
+
+- **协议分派**：`listRemote / upload / download / downloadToLocal` 按会话协议分派——SSH → SFTP（经 B4 的 `getSftp(sessionId)` 拿 SftpLike 门面）；Telnet → 抛 `UNSUPPORTED`（base64 命令模拟已砍）。`SessionManager.getSftp` 只做 `requireOpen` + 返回门面，**不设传输独占锁**——SFTP 是 SSH 独立子通道，不碰 PTY 字节流，与 `sendAndWait` 互不干扰（上锁只会造成「传大文件时终端不让打字」）。每次 `getSftp` 开新 SFTP 子通道，并发先不限（sshd 默认 MaxSessions 10）。
+- **远端路径无围栏**：与 SSH 终端同等权限，只做基本规范化（空路径 / `\0` 拒绝），`..` 交设备自己解释；UI 面包屑防误操作。
+- **上传**（`upload`）：来源 = 本地树根内文件（`{kind:'local'}`，经 `resolveInsideRoot` 围栏解析）或流（HTTP 路由把 `req` 直接当流，浏览器直传）。落位用门面的临时文件 + rename（见 B2/B3 SftpLike）。
+- **下载双入口**：
+  - `download`（返回流）→ HTTP GET `/term-manager/files/download?sessionId&remotePath&transferId` 流式 pipe 到响应，`content-disposition: attachment`（文件名 RFC 5987 编码，中文名不乱）+ `cache-control: no-store` → **浏览器另存为**（用户选任意目录，浏览器下载栏原生进度/完成/失败/取消）。`stat` 前置——NOT_FOUND 等在写响应头**之前**返回（响应中途出错无法改状态码）。
+  - `downloadToLocal` → 落到本地树根内（本地面板联动 + AI `tm_download`；树根外拒绝，`PATH_OUTSIDE_ROOT`）。**本地半成品保护**：先写 `<目标>.tm-partial-<rand>`，成功后本地 rename，失败清理（fastGet 直写会在工作区留半个文件）。
+- **HTTP 上传路由**：`POST /term-manager/files/upload?sessionId&remotePath&transferId`，**raw body**（二进制）。`createHttpHandler` **入口内按 path 分流**（upload/download 走专用分支，其余走 JSON dispatch）——分流在入口内做，保证 `isTrustedOrigin` + CORS 回显单处维护（不单独注册路由复制围栏）。CORS 无需新增 allow-headers（octet-stream 是 content-type 的**值**，不是头名）。
+- **进度（`/term-io` `file-progress` 帧）**：FileService 的 `onProgress` 由路由接住 → broadcaster（`registerWsIo` 返回 `{ disposer, broadcastFileProgress }`，index.ts 接线进 RemoteDeps）→ 广播给所有 WS 连接，前端按 `transferId` 过滤（服务端当不透明字符串回显，限长 ≤64）。**零契约改动**：transferId 只在 HTTP query / RPC payload 与 WS 帧（OutFrame 是主线自有类型），路由组装帧时塞入，`TransferProgress` / `events.ts` 不动。路由在响应 `finish`/`close` 补发**终态帧**（`done: true` + `ok`/`error`）——另存为导航式下载前端看不到 HTTP 响应，终态帧是唯一完成/失败信号；XHR/fetch 路径仍以响应 settle 为准（双保险）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03）；另存为要不要行内进度条周五交互会定。
+- **事件**：`file` 结束事件成功 / 失败 / 取消都发（失败也是 `ok:false`）；`path` = 远端路径（upload=远端目标 / download=远端源）。事件总线不发进度（进度是前端 UI 瞬时数据）。
 
 #### B11 TC 脚本解析（`src/tc-parser.ts`，纯函数）【S3，语法按 2026-09-02 真实样例】
 
@@ -388,7 +403,6 @@ interface ConnectionConfig {
 | 本地回显 `localEcho` | false | 开/关 | 连接配置（后端已保存；xterm 本地回显未接通，见「待确认项」） |
 | 本地工作区根 `workspaceRoot` | DSH 进程 cwd | 任意目录 | 插件 Config schema（`cordis.yml` 的 `config:`）；UI「换目录」临时切换 |
 | 编辑器打开上限 | 10 MiB（超出只读 + 截断） | — | `files.read` 的 `maxBytes` |
-| Telnet 文件传输开关 `telnetFileTransfer` | true | 开/关 | 插件 Config schema【S5】 |
 
 ### 订阅与会话的生命周期（谁看、谁连、谁清理）
 
@@ -420,7 +434,7 @@ interface ConnectionConfig {
 | `NOT_FOUND` | 文件 / 目录不存在【B10】 |
 | `FILE_TOO_LARGE` | 超过读取 / 传输上限【B10】 |
 | `REMOTE_IO` | 文件 I/O 失败（本地或 SFTP）【B10】 |
-| `UNSUPPORTED` | 该会话协议 / 当前阶段不支持此文件操作【B10】 |
+| `UNSUPPORTED` | 该操作不被当前协议支持（如 Telnet 会话的远端文件操作）或当前阶段未实现【B10】 |
 
 ### 命令安全防护（AI 发危险命令怎么办）
 
@@ -478,8 +492,9 @@ dsh-terminal-manager/
 │   ├── wait-policy.ts         # B5 完成判定
 │   ├── command-guard.ts       # B8 命令守卫
 │   ├── transport/
-│   │   ├── types.ts           # 传输接口 + TransportError
+│   │   ├── types.ts           # 传输接口（含协议无关 SftpLike）+ TransportError
 │   │   ├── ssh.ts             # B2 SSH 传输
+│   │   ├── sftp.ts            # B2 SFTP 门面（SftpFacade implements SftpLike）【S5】
 │   │   └── telnet.ts          # B3 Telnet 传输（telnet/raw 双模式）
 │   ├── tools.ts               # B6 AI 工具 ×6
 │   ├── remotes.ts             # B7a 指令通道（/term-manager 前缀路由）
@@ -488,7 +503,7 @@ dsh-terminal-manager/
 │   ├── file-service.ts        # B10 文件服务（S1 本地四件套；S5 远端）
 │   ├── path-security.ts       # B10 路径安全（归一化 + realpath + 树根校验）
 │   ├── tc-parser.ts           # B11 TC 脚本解析（纯函数）
-│   ├── config.ts              # 插件 Config schema（workspaceRoot / telnetFileTransfer）
+│   ├── config.ts              # 插件 Config schema（workspaceRoot）
 │   ├── types/                 # 模块间契约（纯声明；改动单独 PR，两人 review）
 │   │   ├── events.ts          #   TmEvent / TmEventBus
 │   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型
@@ -560,6 +575,7 @@ dsh-terminal-manager/
 | Excel（.xlsx）等非文本文件 | **已定（2026-09-02）：不自己编辑，交给用户本机的默认程序打开**——`files.open` 端点（B10）在树根围栏内用系统关联程序打开；面板双击非文本文件即走此路 |
 | better-sidebar 源码位置 | 已拿到：`../DSH-better-sidebar`（MIT，v0.18.0-alpha.0）。抄 path-security / fs-tree / FreeWindow / TabBar / TextEditor+cm-themes，逐文件裁剪，对照表见 plan.md |
 | 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
+| S5 前端交互细节（另存为要不要行内进度条、拖拽行为、脏修改提示、进度条样式） | 周五交互会定；后端能力已留好（transferId + `file-progress` 帧含终态）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03） |
 
 ## 验证计划
 

@@ -5,10 +5,12 @@
  */
 
 import { Client } from 'ssh2'
-import type { ClientChannel, SFTPWrapper } from 'ssh2'
+import type { ClientChannel } from 'ssh2'
+import { SftpFacade } from './sftp.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   TransportError,
+  type SftpLike,
   type Transport,
   type TransportCallbacks,
   type TransportConnectOptions,
@@ -108,7 +110,7 @@ export function connectSsh(
             },
             // 懒开 sftp 子通道：conn 引用从连接期到连接后一直持有，随时可复用同一 Client 开新子通道
             getSftp: () =>
-              new Promise<SFTPWrapper>((resolveSftp, rejectSftp) => {
+              new Promise<SftpLike>((resolveSftp, rejectSftp) => {
                 if (closed) {
                   rejectSftp(new TransportError('DISCONNECTED', 'SSH 连接已断开，无法打开 SFTP'))
                   return
@@ -123,7 +125,7 @@ export function connectSsh(
                     )
                     return
                   }
-                  resolveSftp(sftp)
+                  resolveSftp(new SftpFacade(sftp))
                 })
               }),
             close: async () => {

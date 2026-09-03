@@ -124,11 +124,13 @@ describe('SSH SFTP（S5 步骤1）', () => {
     const out = collector()
     const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
     const sftp = await t.getSftp!()
-    expect(typeof sftp.fastGet).toBe('function')
-    expect(typeof sftp.fastPut).toBe('function')
+    // SftpLike 门面（协议无关），不再是裸 ssh2 SFTPWrapper
+    expect(typeof sftp.list).toBe('function')
+    expect(typeof sftp.put).toBe('function')
+    expect(typeof sftp.get).toBe('function')
     // 同一会话可再次懒开（复用 Client，不互相影响）
     const sftp2 = await t.getSftp!()
-    expect(typeof sftp2.readdir).toBe('function')
+    expect(typeof sftp2.stat).toBe('function')
     await t.close()
   })
 

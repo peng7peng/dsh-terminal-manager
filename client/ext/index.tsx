@@ -7,8 +7,10 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { registerPortLogClientExtension } from './port-log/index.tsx'
 
 /** 挂载全部扩展模块的浏览器半。当前为空壳。 */
-export function registerClientExtensions(_ctx: ClientContext): void {
+export function registerClientExtensions(ctx: ClientContext): void {
+  registerPortLogClientExtension(ctx)
   // 日志管理（扩展模块负责人）：registerLogPanel(ctx)
 }

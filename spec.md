@@ -7,7 +7,7 @@
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
 - 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
 - 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
-- 2026-09-03：补齐扩展模块「端口映射 / 会话共享 / 日志」需求与设计，派生自 `intent/port-mapping-sharing-log.md`（Accepted）；严格遵循 commit `badc5fb` 冻结的契约与挂载点。该增量章节当前状态：**待批准（Draft）**
+- 2026-09-03：补齐扩展模块「端口映射 / 会话共享 / 日志」需求与设计，派生自 `intent/port-mapping-sharing-log.md`（Accepted）；严格遵循 commit `badc5fb` 冻结的契约与挂载点。该增量章节已由产品负责人批准进入 Build。
 
 ## 需求
 
@@ -445,7 +445,7 @@ interface ConnectionConfig {
 3. 挂载点：host 半 `src/ext/index.ts` 的 `registerExtensions(ctx, { sessions, events, files?, dataDir })`；浏览器半 `client/ext/index.tsx` 的 `registerClientExtensions(ctx)`；样式 `client/styles/index.ts` 的 `EXT_CSS`。主线在这三处各留一行调用，扩展模块的代码放 `src/ext/<模块>/`、`client/ext/<模块>/`、`client/styles/<模块>.ts`、`tests/ext-<模块>.spec.ts`。
 4. `dataDir`（`~/.dsh/terminal-manager`）下扩展模块开自己的子目录落盘，不写 `connections.json`。
 
-#### 扩展模块：端口映射 / 会话共享 / 日志（扩展模块负责人）【2026-09-03 Draft】
+#### 扩展模块：端口映射 / 会话共享 / 日志（扩展模块负责人）【2026-09-03 Approved】
 
 **意图与边界。** 本模块实现独立 TCP/UDP 端口映射、已打开终端会话的 TCP 共享、插件应用日志和会话输出日志。它是九月迭代扩展轨道，不修改主线终端、文件、编辑器或 AI 工具。IPOP 文档只提供功能语义和缺陷清单；实现使用 TypeScript、Node 事件循环和当前 DSH 插件接口。
 

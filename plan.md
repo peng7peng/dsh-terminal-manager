@@ -138,7 +138,7 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | **S2 编辑器** | CodeMirror 6 全量打包（`tm:codemirror-css` 虚拟模块）+ 语法高亮（sh/py/json/md）+ 打开/保存（Ctrl+S 原子写）/ 脏标记 / 关 Tab 保存确认 / >10MB 只读 | S1 | 3 天 | ✅ 2026-09-02（步骤 8；偏离：无需虚拟模块） |
 | **S3 选中发送 + TC 执行** | `src/tc-parser.ts`（语法按真实样例，spec B11）；TC 徽章（窗格标题 + 活跃会话项，拖动 = 换编号）；[▶ 执行脚本] + 右键执行选中 / 执行本节 + 映射确认框（"本次会话不再确认"）+ 常驻汇总条；[▶ 发送选中→] 终端多选弹窗 + 逐条 `sessions.send`（source `script`）+ >20 行提示；按钮可用性矩阵（D5） | S2 | 3 天 | ✅ 2026-09-02（步骤 9–12 + 两轮验收修订 R0–R9） |
 | **S4 联调收尾** | 接入扩展模块负责人模块联调、eval 场景补齐、README「文件访问范围」、spec/plan 同步 | S3 + 扩展模块 | 2 天 | ⏳ 部分：README/spec/plan 同步已随步骤 12 完成；**模块联调被同事阻塞**（扩展模块需求文档未成稿），等对方就绪 |
-| **S5 文件传输 + 远端面板** | `transport/ssh.ts` 导出 `getSftp()`（复用 Client 开 sftp 通道）→ `transport/sftp.ts`（协议无关 SftpLike 门面）；`FileService` 远端四件套（SSH/SFTP 路径；Telnet 会话抛 UNSUPPORTED——base64 模拟已砍）；`/files/upload`（POST raw）/ `/files/download`（GET 流式另存为）路由 + `/term-io` `file-progress` 帧（transferId 关联 + 终态帧）；远端文件面板（切终端 chips、3 按钮、同名覆盖/跳过/重命名）+ 本地面板联动上传/下载；`tm_upload` / `tm_download`；`file` 事件派发 | S1（可与 S3 并行，最后合） | 8 天 | 🔨 后端步骤 1–7 ✅、前端步骤 8 ✅（2026-09-03）；剩步骤 9 收尾；**2026-09-03 计划定稿（需求变动见下节）** |
+| **S5 文件传输 + 远端面板** | `transport/ssh.ts` 导出 `getSftp()`（复用 Client 开 sftp 通道）→ `transport/sftp.ts`（协议无关 SftpLike 门面）；`FileService` 远端四件套（SSH/SFTP 路径；Telnet 会话抛 UNSUPPORTED——base64 模拟已砍）；`/files/upload`（POST raw）/ `/files/download`（GET 流式另存为）路由 + `/term-io` `file-progress` 帧（transferId 关联 + 终态帧）；远端文件面板（切终端 chips、3 按钮、同名覆盖/跳过/重命名）+ 本地面板联动上传/下载；`tm_upload` / `tm_download`；`file` 事件派发 | S1（可与 S3 并行，最后合） | 8 天 | ✅ 2026-09-03（步骤 1–9，2f1065a + 收尾提交）；**2026-09-03 计划定稿（需求变动见下节）** |
 
 调整说明（相对设计方案）：本地文件服务和路径安全从 M2 提前到 S1 最前面做——文件面板、编辑器都依赖它，且它是 `FileService` 契约的第一批实现，能尽早验证契约。2026-09-02 下午确认：同事不新增工作区面板，UI 部分不再等对齐会；S1–S3 合在一个分支 `feat/sep-s1-files` 上按下面顺序推进。
 
@@ -232,8 +232,8 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | 5 | ✅ `telnetFileTransfer` 死字段清理（aba30c5；evals 样例 config 一并清） | `src/config.ts`、`tests/config.spec.ts`、`tests/index.spec.ts`、`tests/remotes-files.spec.ts` | build + test 全绿 |
 | 6 | ✅ 控制面：RPC `files.remoteTree` / `files.downloadToLocal`；HTTP `/term-manager/files/upload`（POST raw，`createHttpHandler` 入口内分流，直接 pipe req）/ `/term-manager/files/download`（GET 流式另存为：前置 stat、content-disposition 文件名 RFC 5987 编码、no-store）；`/term-io` `file-progress` 帧（含终态 done/ok）+ broadcaster 接线（`registerWsIo` 返回 `{ disposer, broadcastFileProgress }`）（0d57f67） | `src/remotes.ts`、`src/ws-io.ts`、`src/index.ts` | `tests/remotes-files.spec.ts` 增 upload/download 路由（假 deps）；`tests/ws-io-extra.spec.ts` 增进度帧 |
 | 7 | ✅（0fdd925）AI 工具 `tm_upload`（localPath 绝对路径 + `resolveInsideRoot` 围栏，工具描述教 AI 先 `files.root`）/ `tm_download`（localPath 必填：AI 先 `files.root` → `downloadToLocal` 进树根 → `files.read`）；guard:{}，presentCall 卡片 = 方向 + 源/目标路径（偏离 12） | `src/tools.ts` | `tests/tools-extra.spec.ts` 增：参数校验、成功/失败分支、presentCall |
-| 8 | ✅（hash 由步骤 9 回填）前端：远端面板 3 按钮 + chips（仅在线 SSH 会话，无 SSH 提示「请先连接 SSH 设备」）+ 面包屑/刷新 + 同名冲突（覆盖/跳过/重命名）+ 进度条（② downloadToLocal 确定行内；③ 另存为行也进传输条、终态帧收尾）+ OS 拖拽单文件直传 + 本地面板联动上传/下载按钮 + 编辑器上传入口（实际落地细节见偏离 13/14） | `client/files/RemoteFilePanel.tsx`、`client/files/remoteFs.ts`、`client/ws.ts`（file-progress 帧）、`client/files/FilePanel.tsx`（联动按钮）、`client/styles/files.ts`、`client/TerminalWorkspace.tsx`（挂载 + 进度帧接线） | `tests/client-files.spec.ts` 增 8 项（remoteFs 纯函数 + store + 传输/冲突/进度帧）；`tests/remotes-files.spec.ts` 增 `files.uploadLocal`；手工：对 mock SSH 设备传/取文件（随步骤 9 冒烟补） |
-| 9 | 收尾：spec/plan/CLAUDE/README 同步（远端面板 + 文件传输 + tm_upload/tm_download）、`scripts/mock-ssh-device.mjs` 加 sftp 支持、smoke-e2e 加 SSH 传输场景、CLAUDE 测试基线数字 | 文档、scripts | build + test 全绿 + 手工验收清单补条目 |
+| 8 | ✅（2f1065a）前端：远端面板 3 按钮 + chips（仅在线 SSH 会话，无 SSH 提示「请先连接 SSH 设备」）+ 面包屑/刷新 + 同名冲突（覆盖/跳过/重命名）+ 进度条（② downloadToLocal 确定行内；③ 另存为行也进传输条、终态帧收尾）+ OS 拖拽单文件直传 + 本地面板联动上传/下载按钮 + 编辑器上传入口（实际落地细节见偏离 13/14） | `client/files/RemoteFilePanel.tsx`、`client/files/remoteFs.ts`、`client/ws.ts`（file-progress 帧）、`client/files/FilePanel.tsx`（联动按钮）、`client/styles/files.ts`、`client/TerminalWorkspace.tsx`（挂载 + 进度帧接线） | `tests/client-files.spec.ts` 增 8 项（remoteFs 纯函数 + store + 传输/冲突/进度帧）；`tests/remotes-files.spec.ts` 增 `files.uploadLocal`；手工：对 mock SSH 设备传/取文件（随步骤 9 冒烟补） |
+| 9 | ✅（本提交）收尾：spec（B6 八只手 + F7b 远端面板 + B7a 传输路由/端点订正）/plan/CLAUDE（基线 370 + 坑 11）/README（远端面板 + 文件访问范围 + 已知限制）同步；`scripts/mock-ssh-device.mjs` 加 SFTP 子系统（远端 / 映射到本地根目录，参数第三个位指定）；smoke-e2e 加 E-S5 两场景（remoteTree + uploadLocal/downloadToLocal 往返） | 文档、`scripts/mock-ssh-device.mjs`、`scripts/smoke-e2e.mjs` | build + test 全绿；手工验收清单见下节 |
 
 **偏离记录（相对 2026-09-02 原十步计划，规则 6）**：
 
@@ -258,6 +258,15 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 - GET `/files/download` 另存为在 3180 实测：若插件 UI 跑在 iframe 里，anchor 下载需宿主 sandbox 含 `allow-downloads`（同页挂载无此问题）；不行则退 fetch+blob（大文件内存压力）或与宿主沟通。
 - 上传中设备掉线：远端可能残留 `.tm-partial` 文件（best-effort 清理的物理上限），文档记一句。
 - `TerminalWorkspace.tsx` 仍是最小改动：远端面板插在本地面板上方一行。
+
+**S5 手工验收清单（DSH 3180 + `node scripts/mock-ssh-device.mjs 2222`；SFTP 根 = 系统临时目录 `mock-ssh-device-files`）**
+
+1. 连 SSH mock 设备 → 远端面板出现会话 chip；点开面板 → chips 单选切换，面包屑从 `/` 开始，双击进目录 / 上一级 / 刷新正常；Telnet 会话不出现 chip。
+2. 选中远端文件点 [⬇ 下载] → 浏览器另存为弹出，文件落选目录（中文文件名不乱码）。
+3. 远端选中文件 → 本地面板 [⬇] → 文件落本地面板当前目录，远端面板传输条出现行内进度条并 ✓ 收尾；同名时弹冲突框：覆盖替换、跳过不传、重命名落 `a (1).txt`。
+4. 本地面板选中文件 [⬆] → 远端当前目录出现文件（host 端读盘路径）；编辑器打开文件 → 底栏 [⬆ 上传到设备] 同样生效。
+5. 从资源管理器拖一个文件进远端面板 → 直传成功（多文件取第一个并提示）。
+6. `node scripts/smoke-e2e.mjs` 对 3180 跑 21 场景全过（含 E-S5 两个传输场景）。
 
 ### 扩展模块轨道（扩展模块负责人）——待补充
 

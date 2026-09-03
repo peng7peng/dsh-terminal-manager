@@ -8,6 +8,7 @@
 - 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
 - 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
 - 2026-09-03：S5 定稿——文件传输只做 SSH/SFTP（Telnet 会话远端操作抛 `UNSUPPORTED`，base64 命令模拟与 `telnetFileTransfer` 开关砍掉）；只做单文件（文件夹传输砍掉）；下载双入口（浏览器另存为 GET `/files/download` + `downloadToLocal` 联动/AI，② 后者行内进度条已拍板要做）；进度走 `/term-io` `file-progress` 帧（transferId 关联 + 终态帧，零契约改动）；Transport 加协议无关 `SftpLike`；传输不设独占锁。详见 B10 远端部分与 plan.md S5 节
+- 2026-09-03（S5 落地）：B6 工具加 `tm_upload` / `tm_download`（八只手）；B7a 加传输路由（`/files/upload` POST raw、`/files/download` GET 流式）与 `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（本地源上传，联动用）端点；前端加 F7b 远端文件面板（chips / 3 按钮 / 传输条 / 同名冲突 / 联动 / 编辑器上传入口）。行内进度条先做 ②（确定项），③ 另存为与拖拽细节等周五交互会；见 plan.md S5 偏离记录 9–14
 
 ## 需求
 
@@ -243,9 +244,9 @@ interface ConnectionConfig {
 
 纯逻辑。默认黑名单（`DEFAULT_DANGEROUS_RULES`，大小写不敏感）：`rm -rf /` 类、`mkfs*`、`dd of=/dev/…`、`shutdown|reboot|halt|poweroff`、`init 0`、fork 炸弹。`GuardOptions { extraRules?, whitelist? }`，白名单优先豁免（含连接级 `guardWhitelist`）。**只检查 AI 发起的发送**（`tm_send`/`tm_send_all`，`guard` 参数）；人的键盘输入不经过它。
 
-#### B6 AI 工具层（`src/tools.ts`）——AI 的六只"手"
+#### B6 AI 工具层（`src/tools.ts`）——AI 的八只"手"
 
-全部经 `defineTool` 注册到 `ctx.tools`，`execute` 遵守 `exec.signal` 取消；AI 路径发送必传 `guard: {}`。注册 `ctx.systemPrompt.section`（name: `tool:term-manager`）：「先用 tm_list 查看会话；同一会话一次只跑一条命令；waitReason: 'timeout' 不代表命令失败，用 tm_read 复查；危险命令会被拦截」。`presentCall` 用 `card: 'generic'`（`tm_send` 例外为 `card: 'terminal'`），`presentResult` 返回原始输出卡片。
+全部经 `defineTool` 注册到 `ctx.tools`，`execute` 遵守 `exec.signal` 取消；AI 路径发送必传 `guard: {}`。注册 `ctx.systemPrompt.section`（name: `tool:term-manager`）：「先用 tm_list 查看会话；同一会话一次只跑一条命令；waitReason: 'timeout' 不代表命令失败，用 tm_read 复查；危险命令会被拦截；文件在工作区与 SSH 设备间用 tm_upload / tm_download 传输（localPath 是绝对路径，先用 files.root 工具查工作区树根；Telnet 会话不支持文件传输）」。`presentCall` 用 `card: 'generic'`（`tm_send` 例外为 `card: 'terminal'`，`tm_upload` / `tm_download` 为 `kind: 'execute'` 的方向+路径卡片），`presentResult` 返回原始输出卡片。工具层错误折叠成 `CODE: 消息`（AI 可自纠）；`registerTerminalTools(ctx, { sessions, files, workspaceRoot })`（传输需要文件服务与树根）。
 
 | 工具 | 参数 | 返回 |
 |---|---|---|
@@ -255,18 +256,23 @@ interface ConnectionConfig {
 | `tm_send_all` | `command, sessionIds?`（逗号分隔串，缺省=全部 open）, `wait?` | `[{ sessionId, outcome:'ok'\|'busy'\|'disconnected'\|'error', output?, waitReason?, code? }]` |
 | `tm_read` | `sessionId, count?`（缺省 500） | `{ text, totalLines, truncated }` |
 | `tm_disconnect` | `sessionId` | `{ sessionId, outcome:'closed' }` |
+| `tm_upload` | `sessionId, localPath`（工作区树根内绝对路径）, `remotePath` | `{ ok, bytes, durationMs }`；树根外 `PATH_OUTSIDE_ROOT`、Telnet `UNSUPPORTED` |
+| `tm_download` | `sessionId, remotePath, localPath`（落工作区树根内） | `{ ok, bytes, durationMs }`；下载后可用 `files.read` 读 |
 
 #### B7a 控制面指令通道（`src/remotes.ts`）——/term-manager 前缀路由
 
 - 挂载：`registerRemotes(ctx, deps)` → `ctx.effect(() => webServer.register({ kind: 'prefix', path: '/term-manager', handler }))`。⚠️ `ctx.effect(fn)` 的 fn 是 setup、返回值是清理函数——把 `webServer.register(...)` 的 disposer 直接当 fn 传会立即删掉路由（405）。绕开 `connection.rpc.handle`（ctx 作用域问题）与 `/api`（api-gateway 冲突）。
 - `createHttpHandler(deps)`（可独立单测）：
-  - `OPTIONS` 预检 → `204` + `access-control-allow-origin: *` + `allow-methods: POST, OPTIONS` + `allow-headers: content-type`；
+  - 来源围栏先行：`isTrustedOrigin`（无 Origin / loopback / 与 Host 相同放行，其余 403）；允许的来源原样回显 CORS 头（**不用 `*`**——`files.*` 能读写本机文件，通配等于给互联网网页开 CSRF 写通道）；
+  - S5 传输路由在 JSON 分流**之前**按 path 处理（共用同一围栏，不单独注册路由）：`POST /files/upload`（raw body 直传）、`GET /files/download`（流式另存为），方法不对 → `405`，错误 NOT_FOUND → `404` / 其余 → `400`（`{ok:false, error}` 裸信封）；
+  - `OPTIONS` 预检 → `204` + 回显来源 + `allow-methods: POST, GET, OPTIONS` + `allow-headers: content-type`；
   - 非 POST → `405`；
   - 坏 JSON → `400`（返回 `bad-request`）；
   - POST → 解析 `{ type: 'client-request', rpcId, method, payload }`，endpoint 取 body.method 或 URL 路径，经纯函数 `dispatch(endpoint, payload, deps, signal)` 调度，返回 `{ type: 'server-response', rpcId, result }`。
 - 端点：
   - `connections.list` / `connections.create` / `connections.update({id, patch})` / `connections.remove({id})`
   - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
+  - 文件：`files.tree` / `files.read` / `files.write` / `files.dirs` / `files.root` / `files.open`（本地，B10）+ `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（S5 远端；`uploadLocal` 给本地面板 / 编辑器联动用——文件在 host 磁盘上，浏览器拿不到字节，由后端按树根围栏读盘再推 SFTP）
 - 错误折叠：领域异常 → `RpcResult.error`，其中 HTTP 层 `code` 统一为 `internal`、领域 code 编进 message（`{ code, message }` 格式，message 永不含凭据）；`AbortSignal` 已中止 → `cancelled`；未知端点 → `internal`（message 带端点名）。
 
 #### B7b 数据面数据流通道（`src/ws-io.ts`）——/term-io WebSocket
@@ -356,7 +362,8 @@ interface ConnectionConfig {
 
 | 模块 | 文件 | 职责 | 状态归属 |
 |---|---|---|---|
-| F7 本地文件面板 | `client/files/FilePanel.tsx` + `client/files/useLocalFs.ts` | 广播栏下方的收起条 / 展开面板：面包屑、上一级、刷新、换目录（目录选择弹窗，走 `files.dirs`）、列表单击选中 / 双击目录进入 / 双击文件 → 编辑器打开。远端面板 S5 复用同一列表组件 | 树根 + 折叠态 + 当前目录：localStorage（UI 偏好）；选中项：组件内 |
+| F7 本地文件面板 | `client/files/FilePanel.tsx` + `client/files/localFs.ts` | 广播栏下方的收起条 / 展开面板：面包屑、上一级、刷新、换目录（目录选择弹窗，走 `files.dirs`）、列表单击选中 / 双击目录进入 / 双击文件 → 编辑器打开。远端面板复用同一列表组件。S5 联动按钮：⬆ 上传选中文件到远端当前目录、⬇ 下载远端选中文件到本地当前目录 | 树根 + 折叠态 + 当前目录：localStorage（UI 偏好）；选中项：组件内 |
+| F7b 远端文件面板（S5） | `client/files/RemoteFilePanel.tsx` + `client/files/remoteFs.ts` | 本地面板**上方**的收起条：chips 切换在线 SSH 会话（无会话提示「请先连接 SSH 设备」，Telnet 不支持）；3 按钮 = ⬆ 上传文件（本机文件选择 + OS 拖拽直传，HTTP `/files/upload` raw）/ ⬇ 下载（另存为，GET `/files/download`）/ 刷新；POSIX 面包屑 + 列表（双击目录进入、双击文件另存为、右键菜单含「下载到工作区」）；传输条（transferId 关联 `file-progress` 帧，② `downloadToLocal` 行内进度，终态 ✓/✗）；同名冲突弹窗（覆盖 / 跳过 / 重命名 `a (1).txt`）；`EditorUploadButton` 注入编辑器底栏 actions 槽 | 会话选择 / cwd（每会话记忆）/ 传输列表 / 冲突：`remoteFs.ts` store（内存，不落盘）；折叠态：localStorage |
 | F8 浮动编辑器窗 | `client/editor/EditorWindow.tsx` + `client/editor/useFloatWindow.ts` | `position: fixed` 窗体，z-index 60–90：标题条拖动、右下角缩放、最大化、最小化成底部标签；每次打开居中偏下默认尺寸（D3 不记忆几何）；内部 TabBar（开 / 关 / 切换 / 脏点 / 关前保存确认） | Tab 列表 + 激活 Tab + 脏标记：`client/editor/editorStore.ts`（内存，不落盘） |
 | F9 代码编辑器 | `client/editor/CodeEditor.tsx` | CodeMirror 6 封装：按扩展名装语言包（sh / py / json / md，csv 与其余走纯文本）、Ctrl/Cmd+S 保存（`files.write`）、选区变化回调、只读模式（>10MB）。CSS 走虚拟模块 `tm:codemirror-css`（同 `tm:xterm-css` 机制） | 文档内容在 CodeMirror state 内 |
 | F10 TC 执行 | `client/tc/TcConfirmDialog.tsx`、`client/tc/TcSummaryBar.tsx`、`client/tc/runScript.ts` | [▶ 执行脚本] / 右键「执行选中脚本」/「执行本节」→ 解析（B11）→ 冻结映射快照 → 确认框（逐条命令将发往哪些终端、无对应终端标 ✗、「本次会话不再确认」）→ 逐条 `sessions.send`（source `script`）→ 常驻汇总条（逐端口 ✓ / ✗ / waitReason，可关闭）。执行中窗格闪烁（复用现有 focus-flash） | 「不再确认」：sessionStorage；执行进度：`runScript` 内部状态机 |
@@ -575,7 +582,7 @@ dsh-terminal-manager/
 | Excel（.xlsx）等非文本文件 | **已定（2026-09-02）：不自己编辑，交给用户本机的默认程序打开**——`files.open` 端点（B10）在树根围栏内用系统关联程序打开；面板双击非文本文件即走此路 |
 | better-sidebar 源码位置 | 已拿到：`../DSH-better-sidebar`（MIT，v0.18.0-alpha.0）。抄 path-security / fs-tree / FreeWindow / TabBar / TextEditor+cm-themes，逐文件裁剪，对照表见 plan.md |
 | 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
-| S5 前端交互细节（另存为要不要行内进度条、拖拽行为、脏修改提示、进度条样式） | 周五交互会定；后端能力已留好（transferId + `file-progress` 帧含终态）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03） |
+| S5 前端交互细节（另存为要不要行内进度条、拖拽行为、脏修改提示、进度条样式） | 周五交互会定；后端能力已留好（transferId + `file-progress` 帧含终态）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03），步骤 8 已落地：② 行内进度 + ③ 另存为也进传输条（进度只有终态帧）；OS 拖拽先做单文件直传；脏修改上传按已保存版本处理并提示——正式交互待周五 |
 
 ## 验证计划
 

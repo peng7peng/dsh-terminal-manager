@@ -1,24 +1,30 @@
 #!/usr/bin/env node
 /**
- * 本地模拟 SSH 设备——给终端管理插件活测 SSH 连接用，无需真实 SSH 服务器。
+ * 本地模拟 SSH 设备——给终端管理插件活测 SSH 连接 / 文件传输用，无需真实 SSH 服务器。
  *
- * 用法：node scripts/mock-ssh-device.mjs [端口] [密码]
- *   默认端口 2222，密码 test-pass。
+ * 用法：node scripts/mock-ssh-device.mjs [端口] [密码] [SFTP 根目录]
+ *   默认端口 2222，密码 test-pass，SFTP 根 = 系统临时目录下 mock-ssh-device-files。
  *
  * 认证：用户名 admin + 密码（默认 test-pass），或任意密钥（都接受）。
- * 行为：连上发横幅 + prompt；支持 show version / show interface / ping / echo / help / exit。
+ * 行为：连上发横幅 + prompt；支持 show version / show interface / ping / echo / help / exit；
+ *       sftp 子系统把远端路径映射到本地根目录（上传 / 下载 / 列目录，供远端文件面板活测）。
  *
  * 在插件界面：新建 SSH 连接，主机 127.0.0.1、端口 2222、用户名 admin、密码 test-pass。
  */
-import { createServer } from 'node:net'
 import { generateKeyPairSync } from 'node:crypto'
+import { promises as fsp } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve as resolvePath } from 'node:path'
 
 // ssh2 是 CJS，动态 import 拿 default
 const ssh2mod = await import('ssh2')
-const Server = ssh2mod.default?.Server ?? ssh2mod.Server
+const ssh2 = ssh2mod.default ?? ssh2mod
+const Server = ssh2.Server
+const { STATUS_CODE, OPEN_MODE } = ssh2.utils.sftp
 
 const PORT = Number(process.argv[2] ?? 2222)
 const PASSWORD = process.argv[3] ?? 'test-pass'
+const SFTP_ROOT = process.argv[4] ?? join(tmpdir(), 'mock-ssh-device-files')
 const LABEL = `Mock SSH :${PORT}`
 
 const hostKey = generateKeyPairSync('ec', {
@@ -103,13 +109,135 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
           }
         })
       })
+      // sftp 子系统：远端路径映射到 SFTP_ROOT（插件远端文件面板 / 文件传输活测用）
+      session.on('sftp', (acceptSftp) => {
+        const sftp = acceptSftp()
+        const fds = new Map()
+        const dirs = new Map()
+        let seq = 0
+
+        // '/up/x' → SFTP_ROOT/up/x（Windows 上 resolve 同时吃正反斜杠）
+        const toLocal = (p) => resolvePath(SFTP_ROOT, `.${p.startsWith('/') ? p : `/${p}`}`)
+        const statusOf = (err) => {
+          const code = err?.code
+          if (code === 'ENOENT' || code === 'ENOTDIR') return STATUS_CODE.NO_SUCH_FILE
+          if (code === 'EACCES' || code === 'EPERM') return STATUS_CODE.PERMISSION_DENIED
+          return STATUS_CODE.FAILURE
+        }
+        const attrsOf = (st) => ({ mode: st.mode, uid: 0, gid: 0, size: st.size, atime: st.atime, mtime: st.mtime })
+        const fail = (reqid, err) => { sftp.status(reqid, statusOf(err), err?.message) }
+
+        sftp.on('OPEN', (reqid, filename, flags) => {
+          let fsFlags = 'r'
+          if (flags & OPEN_MODE.WRITE) {
+            if (flags & OPEN_MODE.APPEND) fsFlags = 'a'
+            else if (flags & (OPEN_MODE.TRUNC | OPEN_MODE.CREAT)) fsFlags = 'w'
+            else fsFlags = 'r+'
+          }
+          fsp.open(toLocal(filename), fsFlags)
+            .then((handle) => {
+              const key = `h${++seq}`
+              fds.set(key, handle)
+              sftp.handle(reqid, Buffer.from(key))
+            })
+            .catch((err) => fail(reqid, err))
+        })
+        sftp.on('READ', (reqid, handle, filePos, len) => {
+          const h = fds.get(handle.toString())
+          if (h === undefined) { sftp.status(reqid, STATUS_CODE.FAILURE); return }
+          const buf = Buffer.alloc(len)
+          h.read(buf, 0, len, filePos)
+            .then(({ bytesRead }) => sftp.data(reqid, buf.subarray(0, bytesRead)))
+            .catch((err) => fail(reqid, err))
+        })
+        sftp.on('WRITE', (reqid, handle, filePos, data) => {
+          const h = fds.get(handle.toString())
+          if (h === undefined) { sftp.status(reqid, STATUS_CODE.FAILURE); return }
+          h.write(data, 0, data.length, filePos)
+            .then(() => sftp.status(reqid, STATUS_CODE.OK))
+            .catch((err) => fail(reqid, err))
+        })
+        sftp.on('CLOSE', (reqid, handle) => {
+          const key = handle.toString()
+          const file = fds.get(key)
+          const isDir = dirs.has(key)
+          fds.delete(key)
+          dirs.delete(key)
+          if (file !== undefined) {
+            file.close()
+              .then(() => sftp.status(reqid, STATUS_CODE.OK))
+              .catch(() => sftp.status(reqid, STATUS_CODE.OK))
+          } else if (isDir) {
+            // 目录句柄：entries 在内存里，无需真正关闭（客户端 readdir 收完 EOF 会 close）
+            sftp.status(reqid, STATUS_CODE.OK)
+          } else {
+            sftp.status(reqid, STATUS_CODE.FAILURE)
+          }
+        })
+        sftp.on('OPENDIR', (reqid, p) => {
+          fsp.readdir(toLocal(p), { withFileTypes: true })
+            .then((entries) => {
+              const key = `h${++seq}`
+              dirs.set(key, { entries, idx: 0, dir: toLocal(p) })
+              sftp.handle(reqid, Buffer.from(key))
+            })
+            .catch((err) => fail(reqid, err))
+        })
+        sftp.on('READDIR', (reqid, handle) => {
+          const d = dirs.get(handle.toString())
+          if (!d) { sftp.status(reqid, STATUS_CODE.FAILURE); return }
+          if (d.idx >= d.entries.length) { sftp.status(reqid, STATUS_CODE.EOF); return }
+          const batch = d.entries.slice(d.idx, d.idx + 50)
+          d.idx += batch.length
+          Promise.all(batch.map(async (e) => {
+            const st = await fsp.lstat(join(d.dir, e.name)).catch(() => undefined)
+            return {
+              filename: e.name,
+              longname: `${e.isDirectory() ? 'd' : '-'}rw-r--r--  1 owner group ${st ? String(st.size).padStart(8) : '       -'} Jan  1 00:00 ${e.name}`,
+              ...(st ? { attrs: attrsOf(st) } : {}),
+            }
+          }))
+            .then((items) => sftp.name(reqid, items))
+            .catch(() => sftp.status(reqid, STATUS_CODE.FAILURE))
+        })
+        sftp.on('STAT', (reqid, p) => {
+          fsp.stat(toLocal(p)).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
+        })
+        sftp.on('LSTAT', (reqid, p) => {
+          fsp.lstat(toLocal(p)).then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
+        })
+        sftp.on('FSTAT', (reqid, handle) => {
+          const h = fds.get(handle.toString())
+          if (h === undefined) { sftp.status(reqid, STATUS_CODE.FAILURE); return }
+          h.stat().then((st) => sftp.attrs(reqid, attrsOf(st))).catch((err) => fail(reqid, err))
+        })
+        sftp.on('MKDIR', (reqid, p) => {
+          fsp.mkdir(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+        })
+        sftp.on('RMDIR', (reqid, p) => {
+          fsp.rmdir(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+        })
+        sftp.on('REMOVE', (reqid, p) => {
+          fsp.unlink(toLocal(p)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+        })
+        sftp.on('RENAME', (reqid, from, to) => {
+          fsp.rename(toLocal(from), toLocal(to)).then(() => sftp.status(reqid, STATUS_CODE.OK)).catch((err) => fail(reqid, err))
+        })
+        sftp.on('REALPATH', (reqid, p) => {
+          sftp.name(reqid, [{ filename: toLocal(p) }])
+        })
+        sftp.on('SETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))
+        sftp.on('FSETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))
+      })
     })
   })
   client.on('error', () => { /* 客户端断开 */ })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
   const actual = server.address().port
+  await fsp.mkdir(SFTP_ROOT, { recursive: true }).catch(() => {})
   console.log(`[mock-ssh-device] ${LABEL} 已启动，监听 127.0.0.1:${actual}`)
   console.log(`[mock-ssh-device] 在插件里新建 SSH 连接：主机 127.0.0.1 端口 ${actual} 用户名 admin 密码 ${PASSWORD}`)
+  console.log(`[mock-ssh-device] SFTP 根目录（面板远端 / 即这里）：${SFTP_ROOT}`)
 })

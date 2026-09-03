@@ -328,17 +328,32 @@ describe('remoteFs store（S5）', () => {
     expect(store.getState().transfers[0]).toMatchObject({ done: true, ok: true, transferred: 100 })
   })
 
-  it('clearFinished 保留进行中；setSession(null) 清空状态', async () => {
+  it('clearFinished 保留进行中并收缩 id 集；掉线 setSession(null) 保留传输行、终态帧仍能落到行上', async () => {
     const store = createRemoteFsStore({ rpc: remoteRpcFake(), uuid: uuidSeq() })
     await store.setSession('s1')
-    store.saveAs('/b.txt')
+    store.saveAs('/b.txt')                                                    // t1
     store.pushFrame({ kind: 'file-progress', transferId: 't1', done: true, ok: true, transferred: 5 })
-    store.saveAs('/etc/host.conf')
+    store.saveAs('/etc/host.conf')                                            // t2 进行中
     store.pushFrame({ kind: 'file-progress', transferId: 't2', transferred: 1 })
     store.clearFinished()
     expect(store.getState().transfers.map(t => t.transferId)).toEqual(['t2'])
+    // 掉线：只清界面状态，保留传输行（审查 M3：清掉会吞掉在途传输的终态反馈）
     await store.setSession(null)
-    expect(store.getState()).toMatchObject({ sessionId: null, cwd: '/', entries: [], transfers: [], conflict: null })
-    await store.refresh()                            // 无会话时 no-op 不抛
+    expect(store.getState()).toMatchObject({ sessionId: null, cwd: '/', entries: [] })
+    expect(store.getState().transfers.map(t => t.transferId)).toEqual(['t2'])
+    store.pushFrame({ kind: 'file-progress', transferId: 't2', done: true, ok: false, error: '传输被取消', transferred: 0 })
+    expect(store.getState().transfers[0]).toMatchObject({ done: true, ok: false, error: '传输被取消', transferred: 1 }) // 审查 L4：失败帧不清零已传字节
+    await store.refresh()                                                     // 无会话时 no-op 不抛
+  })
+
+  it('切会话使未决的冲突决策作废（审查 L2：pending 绑定旧会话/旧目录）', async () => {
+    const rpc = remoteRpcFake((method) => method === 'files.uploadLocal' ? { bytes: 3 } : undefined)
+    const store = createRemoteFsStore({ rpc, uuid: uuidSeq() })
+    await store.setSession('s1')
+    expect(store.uploadLocalFile({ root: 'D:/ws', path: 'D:/ws/b.txt', name: 'b.txt' })).toBe('conflict')
+    await store.setSession('s2')
+    expect(store.getState().conflict).toBeNull()
+    store.resolveConflict('overwrite')
+    expect(store.getState().transfers).toHaveLength(0)                        // 决策已作废，不会传到旧会话
   })
 })

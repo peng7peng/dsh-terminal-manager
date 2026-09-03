@@ -8,6 +8,7 @@ import * as nodePath from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import { connectSsh } from '../src/transport/ssh.ts'
+import { SftpFacade } from '../src/transport/sftp.ts'
 import type { SftpLike, Transport } from '../src/transport/types.ts'
 import { createDeviceLab } from './helpers.ts'
 
@@ -155,5 +156,47 @@ describe('SFTP 门面（S5 步骤2）', () => {
     })
     expect(Buffer.concat(chunks)).toEqual(data)
     expect(seen[seen.length - 1]).toEqual({ t: data.length, total: data.length })
+  })
+})
+
+describe('SFTP 门面：下载取消传播（审查 M1，stub SFTPWrapper 直测门面）', () => {
+  it('消费端中止返回流 → 底层 SFTP 读流被销毁（不再从设备拉数据）', async () => {
+    const rs = new Readable({ read() { /* 挂起等数据 */ } })
+    const wrapper = {
+      lstat: (_p: string, cb: (e: unknown, st?: unknown) => void) => cb(undefined, {
+        isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: 100,
+      }),
+      createReadStream: () => rs,
+    }
+    const facade = new SftpFacade(wrapper as never)
+    const { stream } = await facade.downloadStream('/big.bin')
+    expect(rs.destroyed).toBe(false)
+    // 浏览器取消下载 / 响应断开 → pipeline 销毁消费流
+    stream.destroy()
+    await new Promise(r => setTimeout(r, 20))
+    expect(rs.destroyed).toBe(true)
+  })
+
+  it('正常读到 EOF 不误销毁（close 时 readableEnded 为真，不走 destroy 分支）', async () => {
+    const payload = Buffer.from('done-data')
+    const rs = Readable.from([payload])
+    const wrapper = {
+      lstat: (_p: string, cb: (e: unknown, st?: unknown) => void) => cb(undefined, {
+        isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false, size: payload.length,
+      }),
+      createReadStream: () => rs,
+    }
+    const facade = new SftpFacade(wrapper as never)
+    const { stream } = await facade.downloadStream('/ok.bin')
+    const chunks: Buffer[] = []
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (c: Buffer) => chunks.push(c))
+      stream.on('end', () => resolve())
+      stream.on('error', reject)
+    })
+    expect(Buffer.concat(chunks)).toEqual(payload)
+    // rs 自身 autoDestroy 会在 EOF 后自毁（流的默认行为），这里验证的是：
+    // out 的 close 到来时 rs 已完整读完（readableEnded），门面的守卫不会提前掐断它
+    expect(rs.readableEnded).toBe(true)
   })
 })

@@ -184,6 +184,8 @@ export class SftpFacade implements SftpLike {
     })
     rs.on('end', () => opts.onProgress?.(transferred, size))
     rs.on('error', (err: unknown) => out.destroy(mapSftpError(err, `下载 ${remotePath}`)))
+    // 消费端中止（浏览器取消下载 / 响应断开）→ 停止从设备拉数据（审查 M1：否则整个文件后台拉完）
+    out.on('close', () => { if (!rs.readableEnded) rs.destroy() })
     rs.pipe(out)
     return { stream: out, ...(size !== undefined ? { size } : {}) }
   }

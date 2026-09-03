@@ -299,11 +299,11 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
     return new Set(state.entries.map(e => e.name))
   }
 
-  /** 进度帧 → 行更新（别人的 transferId 忽略）。 */
+  /** 进度帧 → 行更新（别人的 transferId 忽略）。失败终态帧的 transferred=0 不采纳（审查 L4：别把已传字节清零）。 */
   function applyProgressFrame(frame: FileProgressFrame): void {
     if (frame.kind !== 'file-progress' || !mine.has(frame.transferId)) return
     const patch: Partial<TransferItem> = {}
-    if (frame.transferred !== undefined) patch.transferred = frame.transferred
+    if (frame.transferred !== undefined && !(frame.done === true && frame.ok === false)) patch.transferred = frame.transferred
     if (frame.total !== undefined) patch.total = frame.total
     const percent = frame.percent ?? (frame.total !== undefined && frame.total > 0 && frame.transferred !== undefined
       ? Math.min(100, Math.round((frame.transferred / frame.total) * 100))
@@ -324,13 +324,15 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
       if (sessionId === null) {
         loadSeq += 1
         pending = undefined
-        mine.clear()
-        set({ sessionId: null, cwd: '/', entries: [], selected: null, loading: false, error: null, transfers: [], conflict: null })
+        // 传输行保留（审查 M3：掉线瞬间清空会吞掉在途传输的终态反馈——
+        // 服务端的失败终态帧随后到达，行上能看到 ✗ 与原因；cleared 只清界面状态）
+        set({ sessionId: null, cwd: '/', entries: [], selected: null, loading: false, error: null, conflict: null })
         return
       }
       if (state.sessionId === sessionId) return
       const cwd = cwdBySession.get(sessionId) ?? '/'
-      set({ sessionId })
+      pending = undefined // 冲突决策绑定旧会话/旧目录，切走即作废（审查 L2）
+      set({ sessionId, ...(state.conflict !== null ? { conflict: null } : {}) })
       await load(sessionId, cwd)
     },
     refresh: () => {
@@ -417,7 +419,12 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
     pushFrame(frame) { applyProgressFrame(frame) },
 
     clearFinished() {
-      set({ transfers: state.transfers.filter(t => !t.done) })
+      const kept = state.transfers.filter(t => !t.done)
+      // 同步收缩 mine：已结束行的 id 不再放行帧（防集合无界增长）
+      for (const id of mine) {
+        if (!kept.some(t => t.transferId === id)) mine.delete(id)
+      }
+      set({ transfers: kept })
     },
   }
 }

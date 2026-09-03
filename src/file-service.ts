@@ -12,8 +12,9 @@ import { open, readdir, readFile, rename, stat, unlink, writeFile } from 'node:f
 import { basename, dirname, join } from 'node:path'
 import { FileServiceError, mapFsError } from './file-errors.ts'
 import { requireAbsolute, resolveInsideRoot, resolveWritePathInsideRoot } from './path-security.ts'
-import type { SftpLike } from './transport/types.ts'
+import type { SftpLike, SftpProgress, SftpPutSource } from './transport/types.ts'
 import type { SessionSnapshot } from './types/session-api.ts'
+import type { TmEventBus } from './types/events.ts'
 import type { FileEntry, FileService, LocalPathRef, ReadResult, TransferProgress, TransferResult, UploadSource } from './types/file-service.ts'
 
 /** 编辑器打开上限（超出只读 + 截断）。 */
@@ -42,10 +43,6 @@ async function entryOf(dir: string, name: string, dirent: { isDirectory(): boole
   return { name, path, kind: 'other' }
 }
 
-function unsupported(): never {
-  throw new FileServiceError('UNSUPPORTED', '远端文件操作尚未实现（S5）')
-}
-
 /** 远端操作所需的会话侧依赖（index.ts 注入 SessionManager；结构化最小面，测试可注入假实现）。 */
 export interface FileSessionGateway {
   /** 会话快照（协议 / 状态判断用） */
@@ -59,6 +56,8 @@ export class LocalFileService implements FileService {
   constructor(
     /** 会话池依赖（远端操作用；不注入则远端四方法抛 UNSUPPORTED，本地能力不受影响） */
     private readonly sessions: FileSessionGateway | undefined,
+    /** 事件总线（契约 src/types/events.ts；传输结束处 emit `file`事件，成功/失败/取消都发） */
+    private readonly events: TmEventBus | undefined,
     private readonly maxReadBytes: number = DEFAULT_MAX_READ_BYTES,
   ) {}
 
@@ -163,22 +162,126 @@ export class LocalFileService implements FileService {
   }
 
   async listRemote(req: { sessionId: string; path: string }): Promise<FileEntry[]> {
-    await this.requireSftp(req.sessionId)
-    return unsupported() // 步骤 4 实装
+    const sftp = await this.requireSftp(req.sessionId)
+    // 与本地面板一致：目录在前、名字不分大小写（门面按 readdir 原序返回）
+    return (await sftp.list(req.path)).sort(compareEntries)
   }
 
   async upload(req: { sessionId: string; remotePath: string; source: UploadSource; onProgress?: (p: TransferProgress) => void }): Promise<TransferResult> {
-    await this.requireSftp(req.sessionId)
-    return unsupported() // 步骤 4 实装
+    const sftp = await this.requireSftp(req.sessionId)
+    const started = Date.now()
+    try {
+      // 树根围栏：local 来源的文件必须在本地面板当前树根内
+      const source: SftpPutSource = req.source.kind === 'local'
+        ? { kind: 'path', path: await resolveInsideRoot(req.source.ref.root, req.source.ref.path) }
+        : {
+          kind: 'stream',
+          stream: req.source.stream,
+          ...(req.source.size !== undefined ? { size: req.source.size } : {}),
+        }
+      const { onProgress, transferred } = this.progressMapper('upload', req.sessionId, req.remotePath, req.onProgress)
+      const { bytes } = await sftp.put(source, req.remotePath, { ...(onProgress !== undefined ? { onProgress } : {}) })
+      this.emitFile(req.sessionId, 'upload', req.remotePath, true, bytes)
+      return { ok: true, bytes, durationMs: Date.now() - started }
+    } catch (error) {
+      this.emitFile(req.sessionId, 'upload', req.remotePath, false, undefined, error)
+      throw error
+    }
   }
 
   async download(req: { sessionId: string; remotePath: string; onProgress?: (p: TransferProgress) => void }): Promise<{ stream: import('node:stream').Readable; size?: number }> {
-    await this.requireSftp(req.sessionId)
-    return unsupported() // 步骤 4 实装
+    const sftp = await this.requireSftp(req.sessionId)
+    const { onProgress, transferred } = this.progressMapper('download', req.sessionId, req.remotePath, req.onProgress)
+    const { stream, size } = await sftp.downloadStream(req.remotePath, { ...(onProgress !== undefined ? { onProgress } : {}) })
+    this.watchStreamEnd(req.sessionId, req.remotePath, stream, transferred)
+    return { stream, ...(size !== undefined ? { size } : {}) }
   }
 
   async downloadToLocal(req: { sessionId: string; remotePath: string; target: LocalPathRef; onProgress?: (p: TransferProgress) => void }): Promise<TransferResult> {
-    await this.requireSftp(req.sessionId)
-    return unsupported() // 步骤 4 实装
+    const sftp = await this.requireSftp(req.sessionId)
+    const started = Date.now()
+    let temp: string | undefined
+    try {
+      // 围栏：目标必须在本地面板当前树根内（可尚不存在，父目录存在即可）
+      const { path: targetPath, missingSegments } = await resolveWritePathInsideRoot(req.target.root, req.target.path)
+      if (missingSegments.length > 1) throw new FileServiceError('NOT_FOUND', '父目录不存在（不自动创建目录）')
+      // 本地半成品保护：先下到同目录临时文件再改名，中断/失败自动清理、旧文件不受影响
+      temp = join(dirname(targetPath), `.${basename(targetPath)}.tm-partial-${randomBytes(4).toString('hex')}`)
+      const { onProgress } = this.progressMapper('download', req.sessionId, req.remotePath, req.onProgress)
+      const { bytes } = await sftp.get(req.remotePath, temp, { ...(onProgress !== undefined ? { onProgress } : {}) })
+      await rename(temp, targetPath)
+      this.emitFile(req.sessionId, 'download', req.remotePath, true, bytes)
+      return { ok: true, bytes, durationMs: Date.now() - started }
+    } catch (error) {
+      if (temp !== undefined) await unlink(temp).catch(() => {})
+      this.emitFile(req.sessionId, 'download', req.remotePath, false, undefined, error)
+      throw error
+    }
+  }
+
+  // ── 远端辅助 ──────────────────────────────────────────
+
+  /** 把 SftpProgress 转成契约 TransferProgress 回调；transferred() 取终值（供结束事件的 bytes）。 */
+  private progressMapper(
+    op: 'upload' | 'download',
+    sessionId: string,
+    remotePath: string,
+    cb?: (p: TransferProgress) => void,
+  ): { onProgress?: SftpProgress; transferred: () => number } {
+    let transferred = 0
+    if (cb === undefined) return { transferred: () => transferred }
+    return {
+      onProgress: (t, total) => {
+        transferred = t
+        cb({
+          op,
+          sessionId,
+          remotePath,
+          transferred: t,
+          ...(total !== undefined ? { total } : {}),
+          ...(total > 0 ? { percent: Math.min(100, Math.round((t / total) * 100)) } : {}),
+        })
+      },
+      transferred: () => transferred,
+    }
+  }
+
+  /** 流式下载的结束事件：end=成功；error=失败；close 而未 end=被取消（如 HTTP 响应中止）。 */
+  private watchStreamEnd(
+    sessionId: string,
+    remotePath: string,
+    stream: import('node:stream').Readable,
+    transferred: () => number,
+  ): void {
+    let settled = false
+    stream.once('end', () => {
+      if (settled) return
+      settled = true
+      this.emitFile(sessionId, 'download', remotePath, true, transferred())
+    })
+    stream.once('error', (error: unknown) => {
+      if (settled) return
+      settled = true
+      this.emitFile(sessionId, 'download', remotePath, false, undefined, error)
+    })
+    stream.once('close', () => {
+      if (settled) return
+      settled = true
+      this.emitFile(sessionId, 'download', remotePath, false, undefined, new Error('传输被取消'))
+    })
+  }
+
+  /** 传输结束事件（成功/失败/取消都发；path = 远端路径，upload=目标 / download=源）。 */
+  private emitFile(sessionId: string, op: 'upload' | 'download', path: string, ok: boolean, bytes?: number, error?: unknown): void {
+    this.events?.emit({
+      type: 'file',
+      sessionId,
+      op,
+      path,
+      ok,
+      ...(bytes !== undefined ? { bytes } : {}),
+      ...(error !== undefined ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      ts: Date.now(),
+    })
   }
 }

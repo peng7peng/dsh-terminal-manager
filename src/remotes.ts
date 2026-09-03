@@ -191,6 +191,31 @@ export async function dispatch(
           throw error
         }
       }
+      // 本地源上传（S5 联动）：本地面板 / 编辑器的文件在 host 磁盘上，浏览器拿不到字节，
+      // 由后端按树根围栏读盘再推给 SFTP；进度同样走 file-progress 帧
+      case 'files.uploadLocal': {
+        const { sessionId, remotePath, root, path, transferId } = payload as {
+          sessionId: string; remotePath: string; root: string; path: string; transferId?: string
+        }
+        const id = transferIdOf(transferId)
+        try {
+          const result = await requireFiles(deps).upload({
+            sessionId,
+            remotePath,
+            source: { kind: 'local', ref: { root, path } },
+            onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, ...p }),
+          })
+          deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, op: 'upload', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
+          return ok({ ...result, transferId: id })
+        } catch (error) {
+          deps.broadcastFileProgress?.({
+            kind: 'file-progress', transferId: id, op: 'upload', sessionId, remotePath,
+            transferred: 0, done: true, ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          throw error
+        }
+      }
       default:
         return { ok: false, error: { code: 'internal', message: `未知方法: ${endpoint}`, details: {} } }
     }

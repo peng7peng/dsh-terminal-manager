@@ -263,6 +263,15 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     expect(errMsg(r)).toMatch(/^VALIDATION:/)
   })
 
+  it('RPC files.uploadLocal：树根内本地文件上传到远端（联动上传）、终态帧 ok', async () => {
+    await writeFile(join(root, 'up-local.txt'), 'from-workspace')
+    const r = await dispatch('files.uploadLocal', { sessionId: SESSION, remotePath: '/up-local.txt', root, path: join(root, 'up-local.txt'), transferId: 'tLocal' }, deps, abort)
+    expect(r.ok).toBe(true)
+    expect(value<{ bytes: number; transferId: string }>(r)).toMatchObject({ bytes: 14, transferId: 'tLocal' })
+    expect(await readFile(join(devRoot, 'up-local.txt'), 'utf8')).toBe('from-workspace')
+    expect(frames.filter((f) => f.transferId === 'tLocal').at(-1)).toMatchObject({ transferId: 'tLocal', op: 'upload', done: true, ok: true, transferred: 14 })
+  })
+
   it('POST /files/upload（raw body）：直传落设备、value 带字节与 transferId、进度帧 + 终态帧', async () => {
     const res = fakeRes()
     await handler(fakeReq('POST', `/term-manager/files/upload?sessionId=${SESSION}&remotePath=%2Fup.txt&transferId=t1`, 'hello upload') as never, res as never)

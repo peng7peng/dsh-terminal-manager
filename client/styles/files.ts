@@ -33,4 +33,23 @@ export const FILES_CSS = `
 .tm-fpRow .sz { margin-left:auto; color:var(--dsw-alias-label-tertiary, #888); font-size:11px; flex:none; font-family:var(--dsw-font-code, monospace); }
 .tm-fpEmpty { color:var(--dsw-alias-label-tertiary, #888); padding:10px; font-size:12px; }
 .tm-fpErr { color:var(--dsw-alias-state-error-primary, #ef4444); padding:10px; font-size:12px; }
+
+/* ── S5 远端文件面板（chips + 传输条；列表/工具栏/面包屑复用上面的类） ── */
+.tm-rfChips { flex:none; display:flex; align-items:center; gap:6px; padding:6px 10px 0; flex-wrap:wrap; }
+.tm-rfChips .lb { color:var(--dsw-alias-label-tertiary, #888); font-size:11.5px; flex:none; }
+.tm-rfChips .none { color:var(--dsw-alias-label-tertiary, #888); font-size:11.5px; }
+.tm-rchip { display:inline-flex; align-items:center; padding:2px 10px; border-radius:999px; font-size:11.5px; cursor:pointer; user-select:none; background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06)); color:var(--dsw-alias-label-primary, #000); }
+.tm-rchip:hover { background:var(--dsw-alias-interactive-bg-active, rgba(38,49,72,.12)); }
+.tm-rchip.on { background:var(--dsw-alias-state-business-primary, #4170e6); color:#fff; }
+.tm-fpXfers { flex:none; border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); max-height:132px; overflow:auto; padding:4px 10px 6px; }
+.tm-fpXferHead { display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--dsw-alias-label-tertiary, #888); padding-bottom:2px; }
+.tm-fpXfer { display:flex; align-items:center; gap:6px; font-size:11.5px; padding:2px 0; color:var(--dsw-alias-label-primary, #000); }
+.tm-fpXfer .ico { flex:none; }
+.tm-fpXfer .nm { flex:none; max-width:40%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tm-fpXfer .bar { flex:1; height:5px; border-radius:3px; background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.1)); overflow:hidden; }
+.tm-fpXfer .bar > span { display:block; height:100%; background:var(--dsw-alias-state-business-primary, #4170e6); border-radius:3px; transition:width .15s; }
+.tm-fpXfer .pct { flex:none; min-width:34px; text-align:right; font-family:var(--dsw-font-code, monospace); font-size:10.5px; color:var(--dsw-alias-label-tertiary, #888); }
+.tm-fpXfer.ok .pct { color:var(--dsw-alias-state-success-primary, #16a34a); }
+.tm-fpXfer.fail .pct { color:var(--dsw-alias-state-error-primary, #ef4444); }
+.tm-fpXfer.fail .bar > span { background:var(--dsw-alias-state-error-primary, #ef4444); }
 `

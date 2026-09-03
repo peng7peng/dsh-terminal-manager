@@ -6,6 +6,8 @@ import type { MappingStore } from './mapping-store.ts'
 import type { MappingManager } from './mapping-manager.ts'
 import { localAddresses } from './network.ts'
 import type { RuntimeEventHub } from './sse.ts'
+import type { ShareManager } from './share-manager.ts'
+import type { SessionManagerApi } from '../../types/session-api.ts'
 import type { PortMappingInput } from './types.ts'
 
 const PREFIX = '/term-manager/ext/port-log'
@@ -14,6 +16,8 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024
 interface RouterDeps {
   store: MappingStore
   mappings?: MappingManager
+  shares?: ShareManager
+  sessions?: SessionManagerApi
   logger: AppLogger
   events: RuntimeEventHub
   ready: Promise<void>
@@ -109,6 +113,27 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
       case 'mappings.stop': {
         if (deps.mappings === undefined) throw new PortLogError('MAPPING_STATE', '映射运行时尚未就绪')
         return ok(await deps.mappings.stop(requireString(payload, 'id')))
+      }
+      case 'sessions.list':
+        if (deps.sessions === undefined) throw new PortLogError('MAPPING_STATE', '会话服务尚未就绪')
+        return ok(deps.sessions.list())
+      case 'shares.list':
+        return ok(deps.shares?.list() ?? [])
+      case 'shares.start': {
+        if (deps.shares === undefined) throw new PortLogError('MAPPING_STATE', '共享服务尚未就绪')
+        return ok(await deps.shares.start({
+          sessionId: requireString(payload, 'sessionId'),
+          localAddr: typeof payload.localAddr === 'string' ? payload.localAddr : '0.0.0.0',
+          sharePort: payload.sharePort as number,
+          maxClients: payload.maxClients === undefined ? 0 : payload.maxClients as number,
+          welcomeMessage: payload.welcomeMessage === undefined ? '' : payload.welcomeMessage as string,
+        }))
+      }
+      case 'shares.stop': {
+        if (deps.shares === undefined) throw new PortLogError('MAPPING_STATE', '共享服务尚未就绪')
+        const sessionId = requireString(payload, 'sessionId')
+        await deps.shares.stop(sessionId)
+        return ok({ sessionId })
       }
       default:
         throw new PortLogError('VALIDATION', '未知方法')

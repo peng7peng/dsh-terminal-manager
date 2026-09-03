@@ -36,3 +36,25 @@ export interface AppLogStatus {
   files: Array<{ path: string; bytes: number }>
   lastError?: string
 }
+
+export interface ShareConfig {
+  sessionId: string
+  localAddr: string
+  sharePort: number
+  maxClients: number
+  welcomeMessage: string
+}
+
+export interface ShareClientSnapshot {
+  id: string
+  remoteAddress: string
+  connectedAtMs: number
+  bytesToClient: number
+  bytesFromClient: number
+}
+
+export interface ShareSnapshot extends ShareConfig {
+  state: 'running' | 'stopped' | 'error'
+  clients: ShareClientSnapshot[]
+  lastError?: string
+}

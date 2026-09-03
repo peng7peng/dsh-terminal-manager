@@ -354,6 +354,8 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 
 #### E5 会话共享（2 天）
 
+**状态：Completed（2026-09-03）；真实本地双客户端、实时输出、公开 `write` 输入路径、无历史回放、Telnet IAC/UTF-8/CR 处理及会话关闭清理均有回归。**
+
 **先写失败测试：**
 
 - `ext-port-log-telnet-codec.spec.ts`：跨 chunk IAC、SB/SE、IAC 转义、UTF-8、CRLF/CR-NUL。

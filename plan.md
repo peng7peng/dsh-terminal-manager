@@ -372,6 +372,8 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 
 #### E6 会话输出日志（2 天）
 
+**状态：Completed（2026-09-03）；默认关闭、仅 output、跨块 ANSI/CR/退格、半行 flush、运行时选项、1 MiB 积压保护及无轮转/无删除均有回归。**
+
 **先写失败测试：**
 
 - `ext-port-log-normalizer.spec.ts`：ANSI 跨块、OSC/CSI、退格、CR 覆盖、CRLF、UTF-8 半字符、时间戳和半行 flush。

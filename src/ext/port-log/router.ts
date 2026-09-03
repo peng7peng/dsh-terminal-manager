@@ -8,6 +8,7 @@ import { localAddresses } from './network.ts'
 import type { RuntimeEventHub } from './sse.ts'
 import type { ShareManager } from './share-manager.ts'
 import type { SessionManagerApi } from '../../types/session-api.ts'
+import type { SessionLogManager } from './session-log-manager.ts'
 import type { PortMappingInput } from './types.ts'
 
 const PREFIX = '/term-manager/ext/port-log'
@@ -18,6 +19,7 @@ interface RouterDeps {
   mappings?: MappingManager
   shares?: ShareManager
   sessions?: SessionManagerApi
+  sessionLogs?: SessionLogManager
   logger: AppLogger
   events: RuntimeEventHub
   ready: Promise<void>
@@ -133,6 +135,28 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
         if (deps.shares === undefined) throw new PortLogError('MAPPING_STATE', '共享服务尚未就绪')
         const sessionId = requireString(payload, 'sessionId')
         await deps.shares.stop(sessionId)
+        return ok({ sessionId })
+      }
+      case 'sessionLogs.list':
+        return ok(deps.sessionLogs?.list() ?? [])
+      case 'sessionLogs.start': {
+        if (deps.sessionLogs === undefined) throw new PortLogError('MAPPING_STATE', '会话日志服务尚未就绪')
+        return ok(await deps.sessionLogs.start(requireString(payload, 'sessionId'), {
+          timestamp: payload.timestamp === true,
+          stripAnsi: payload.stripAnsi !== false,
+        }))
+      }
+      case 'sessionLogs.update': {
+        if (deps.sessionLogs === undefined) throw new PortLogError('MAPPING_STATE', '会话日志服务尚未就绪')
+        return ok(await deps.sessionLogs.update(requireString(payload, 'sessionId'), {
+          timestamp: payload.timestamp === true,
+          stripAnsi: payload.stripAnsi !== false,
+        }))
+      }
+      case 'sessionLogs.stop': {
+        if (deps.sessionLogs === undefined) throw new PortLogError('MAPPING_STATE', '会话日志服务尚未就绪')
+        const sessionId = requireString(payload, 'sessionId')
+        await deps.sessionLogs.stop(sessionId)
         return ok({ sessionId })
       }
       default:

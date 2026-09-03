@@ -58,3 +58,16 @@ export interface ShareSnapshot extends ShareConfig {
   clients: ShareClientSnapshot[]
   lastError?: string
 }
+
+export interface SessionLogOptions {
+  timestamp: boolean
+  stripAnsi: boolean
+}
+
+export interface SessionLogSnapshot extends SessionLogOptions {
+  sessionId: string
+  state: 'running' | 'error'
+  path: string
+  bytesWritten: number
+  lastError?: string
+}

@@ -8,6 +8,7 @@ import { MappingManager } from './mapping-manager.ts'
 import { createPortLogHttpHandler, PORT_LOG_ROUTE_PREFIX } from './router.ts'
 import { RuntimeEventHub } from './sse.ts'
 import { ShareManager } from './share-manager.ts'
+import { SessionLogManager } from './session-log-manager.ts'
 
 export interface PortLogExtensionDeps {
   sessions: SessionManagerApi
@@ -28,6 +29,7 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
   const events = new RuntimeEventHub()
   const mappings = new MappingManager(store, logger, events)
   const shares = new ShareManager(deps.sessions, deps.events, logger, events)
+  const sessionLogs = new SessionLogManager(join(root, 'session_logs'), deps.sessions, deps.events, logger, events)
   const ready = mappings.initialize()
     .then(() => logger.log('info', 'extension.started'))
     .then(() => mappings.autoStart())
@@ -38,13 +40,14 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
       const unregister = webServer?.register({
         kind: 'prefix' as const,
         path: PORT_LOG_ROUTE_PREFIX,
-        handler: createPortLogHttpHandler({ store, mappings, shares, sessions: deps.sessions, logger, events, ready }),
+        handler: createPortLogHttpHandler({ store, mappings, shares, sessions: deps.sessions, sessionLogs, logger, events, ready }),
       }) ?? (() => undefined)
       return async () => {
         unregister()
         events.close()
         await ready.catch(() => undefined)
         await shares.stopAll()
+        await sessionLogs.closeAll()
         await mappings.stopAll()
         await logger.log('info', 'extension.stopped')
         await logger.close()

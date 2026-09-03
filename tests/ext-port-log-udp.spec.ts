@@ -70,4 +70,20 @@ describe('port-log UDP 映射', () => {
     cleanups.push(() => closeUdp(client))
     expect((await udpRoundTrip(client, Buffer.from('ipv6'), localPort, '::1')).toString()).toBe('ipv6')
   })
+
+  it('统一 sweep 回收空闲来源端点', async () => {
+    const target = await listenUdpEcho()
+    cleanups.push(() => closeUdp(target.socket))
+    const localPort = await freeUdpPort()
+    let latest: ForwarderStats | undefined
+    const forwarder = new UdpForwarder(config(localPort, target.port), (stats) => { latest = stats }, 10, 5)
+    await forwarder.start()
+    cleanups.push(() => forwarder.stop())
+    const client = createSocket('udp4')
+    cleanups.push(() => closeUdp(client))
+    await udpRoundTrip(client, Buffer.from('idle'), localPort)
+    expect(latest?.activeCount).toBe(1)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(latest?.activeCount).toBe(0)
+  })
 })

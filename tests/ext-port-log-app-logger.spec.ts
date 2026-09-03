@@ -25,15 +25,16 @@ describe('port-log 应用日志', () => {
 
   it('轮转后总文件数不超过配置上限', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'tm-port-log-'))
-    const logger = new AppLogger(directory, { maxBytes: 100, maxFiles: 3 })
-    for (let index = 0; index < 10; index += 1) {
+    const logger = new AppLogger(directory, { maxBytes: 100, maxFiles: 5 })
+    for (let index = 0; index < 12; index += 1) {
       await logger.log('info', `event-${index}`, { value: 'x'.repeat(40) })
     }
     await logger.close()
 
     const files = (await readdir(directory)).filter((name) => name.startsWith('app.log'))
-    expect(files.length).toBeLessThanOrEqual(3)
+    expect(files).toHaveLength(5)
     expect(files).toContain('app.log')
+    expect(files).toContain('app.log.4')
   })
 
   it('日志目录不可写时安全降级且不抛出原始错误', async () => {

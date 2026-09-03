@@ -412,6 +412,8 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 
 #### E8 联调、审查与交付证据（1.5 天）
 
+**状态：Automated checks completed（2026-09-03）；`pnpm build`、232 项测试、覆盖率阈值（79.86/66.75/81.93/83.95）和 3180 真实 DSH TCP/UDP/CSV/敏感串 smoke 已通过。浏览器环境不可用，明暗主题与风险确认截图待人工验收，因此尚未越过 PR/发布门。**
+
 1. 扩展 `scripts/smoke-e2e.mjs` 会修改主线脚本，违反隔离；因此新建 `scripts/ext-port-log-smoke.mjs`，不碰原脚本。
 2. 对活 DSH 使用 3180，绝不占用用户 3080；验证 client.js 200 和插件注入。
 3. 完成 TCP/UDP echo、CSV 往返、autoStart 重启、两个共享客户端、慢客户端、会话日志、应用轮转和敏感串扫描。

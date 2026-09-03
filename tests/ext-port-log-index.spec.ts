@@ -1,3 +1,6 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from '@deepseek-ai/cordis'
@@ -7,28 +10,27 @@ import { registerPortLogExtension } from '../src/ext/port-log/index.ts'
 import { SessionManager } from '../src/session-manager.ts'
 
 describe('port-log 扩展空壳', () => {
-  it('host 只注册一次生命周期，并在卸载时只清理一次', () => {
-    let dispose: (() => void) | undefined
-    const teardown = vi.fn()
-    const effect = vi.fn((setup: () => () => void) => {
-      const registeredCleanup = setup()
-      dispose = () => {
-        registeredCleanup()
-        teardown()
-      }
+  it('host 只注册一次生命周期，并在卸载时只清理一次', async () => {
+    let dispose: (() => Promise<void>) | undefined
+    const unregister = vi.fn()
+    const register = vi.fn(() => unregister)
+    const effect = vi.fn((setup: () => () => Promise<void>) => {
+      dispose = setup()
     })
-    const ctx = { effect } as unknown as Context
+    const ctx = { effect, get: vi.fn(() => ({ register })) } as unknown as Context
+    const dataDir = await mkdtemp(join(tmpdir(), 'tm-index-'))
 
     registerPortLogExtension(ctx, {
       sessions: new SessionManager(undefined),
       events: createEventBus(),
-      dataDir: 'D:/tmp/tm',
+      dataDir,
     })
 
     expect(effect).toHaveBeenCalledOnce()
     expect(dispose).toBeTypeOf('function')
-    dispose?.()
-    expect(teardown).toHaveBeenCalledOnce()
+    await dispose?.()
+    expect(register).toHaveBeenCalledOnce()
+    expect(unregister).toHaveBeenCalledOnce()
   })
 
   it('client 各注册一次侧边栏与 overlay 空槽位', () => {

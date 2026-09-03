@@ -107,9 +107,13 @@ export class UdpForwarder {
     }
     peer.pendingPackets += 1
     peer.pendingBytes += message.length
-    peer.socket.send(message, this.config.redirectPort, target.address, () => {
+    peer.socket.send(message, this.config.redirectPort, target.address, (error) => {
       peer!.pendingPackets -= 1
       peer!.pendingBytes -= message.length
+      if (error !== null) {
+        this.removePeer(key)
+        this.reportError('UDP 目标通信失败')
+      }
     })
     this.stats.bytesClientToTarget += message.length
     this.emitStats()

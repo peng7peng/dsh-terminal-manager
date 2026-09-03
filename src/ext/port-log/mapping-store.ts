@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { PortLogError } from './errors.ts'
 import { validateLocalAddress, validatePort, validateTarget } from './network.ts'
@@ -129,13 +129,18 @@ export class MappingStore {
     const directory = dirname(this.path)
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`
-    const file = await open(temporary, 'wx', 0o600)
     try {
-      await file.writeFile(JSON.stringify({ version: 1, mappings: this.mappings }, null, 2), 'utf8')
-      await file.sync()
-    } finally {
-      await file.close()
+      const file = await open(temporary, 'wx', 0o600)
+      try {
+        await file.writeFile(JSON.stringify({ version: 1, mappings: this.mappings }, null, 2), 'utf8')
+        await file.sync()
+      } finally {
+        await file.close()
+      }
+      await rename(temporary, this.path)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined)
+      throw error
     }
-    await rename(temporary, this.path)
   }
 }

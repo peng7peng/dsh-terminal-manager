@@ -106,7 +106,7 @@ export class SessionLogManager {
   private enqueueWrite(runtime: LogRuntime, text: string): void {
     const bytes = Buffer.byteLength(text)
     if (runtime.pendingBytes + bytes > this.maxPendingBytes) {
-      this.fail(runtime, '会话日志写入积压超过限制')
+      this.fail(runtime, '会话日志写入积压超过限制', 'IO_BACKPRESSURE')
       return
     }
     runtime.pendingBytes += bytes
@@ -118,16 +118,16 @@ export class SessionLogManager {
       this.publish(runtime)
     }).catch(() => {
       runtime.pendingBytes -= bytes
-      this.fail(runtime, '会话日志写入失败')
+      this.fail(runtime, '会话日志写入失败', 'IO_ERROR')
     })
   }
 
-  private fail(runtime: LogRuntime, message: string): void {
+  private fail(runtime: LogRuntime, message: string, code: 'IO_ERROR' | 'IO_BACKPRESSURE' = 'IO_ERROR'): void {
     if (runtime.failed || runtime.stopping) return
     runtime.failed = true
     runtime.lastError = message
     this.publish(runtime)
-    void this.logger.log('error', 'session_log.failed', { sessionId: runtime.sessionId, code: 'IO_BACKPRESSURE' })
+    void this.logger.log('error', 'session_log.failed', { sessionId: runtime.sessionId, code })
     void this.stopRuntime(runtime)
   }
 

@@ -76,4 +76,23 @@ describe('port-log 会话共享', () => {
     await vi.waitFor(() => expect(manager.list()).toEqual([]))
     await logger.close()
   })
+
+  it('慢客户端超过背压上限时单独断开，停止保持幂等', async () => {
+    const events = createEventBus()
+    const snapshot: SessionSnapshot = { sessionId: 'session-1', label: '设备', target: 'target', protocol: 'ssh', status: 'open' }
+    const sessions = { events, get: () => snapshot, list: () => [snapshot], write: vi.fn() } as unknown as SessionManagerApi
+    const directory = await mkdtemp(join(tmpdir(), 'tm-share-'))
+    const logger = new AppLogger(join(directory, 'log'))
+    const manager = new ShareManager(sessions, events, logger, new RuntimeEventHub(), 64)
+    const port = await freeTcpPort()
+    await manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' })
+    const client = await connectTcp(port)
+    sockets.push(client)
+    await vi.waitFor(() => expect(manager.list()[0]?.clients).toHaveLength(1))
+    events.emit({ type: 'output', sessionId: 'session-1', data: 'x'.repeat(2 * 1024 * 1024), ts: Date.now() })
+    await vi.waitFor(() => expect(manager.list()[0]?.clients).toHaveLength(0))
+    await manager.stop('session-1')
+    await expect(manager.stop('session-1')).resolves.toBeUndefined()
+    await logger.close()
+  })
 })

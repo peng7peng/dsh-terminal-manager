@@ -65,7 +65,7 @@ export class ShareManager {
 
   async stop(sessionId: string): Promise<void> {
     const runtime = this.shares.get(sessionId)
-    if (runtime === undefined) throw new PortLogError('SHARE_NOT_FOUND', '会话共享不存在')
+    if (runtime === undefined) return
     await this.stopRuntime(runtime)
   }
 
@@ -127,14 +127,17 @@ export class ShareManager {
     if (event.type !== 'output') return
     const payload = escapeTelnetOutput(event.data)
     for (const [id, client] of runtime.clients) {
-      if (client.socket.writableLength > this.maxBufferedBytes || !client.socket.write(payload)) {
-        if (client.socket.writableLength > this.maxBufferedBytes) {
-          runtime.clients.delete(id)
-          client.socket.destroy()
-        }
+      if (client.socket.writableLength + payload.length > this.maxBufferedBytes) {
+        runtime.clients.delete(id)
+        client.socket.destroy()
         continue
       }
       client.snapshot.bytesToClient += payload.length
+      client.socket.write(payload)
+      if (client.socket.writableLength > this.maxBufferedBytes) {
+        runtime.clients.delete(id)
+        client.socket.destroy()
+      }
     }
     this.publish(runtime)
   }

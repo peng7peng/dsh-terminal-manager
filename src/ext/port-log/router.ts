@@ -3,6 +3,7 @@ import type { AppLogger } from './app-logger.ts'
 import { exportMappingsCsv, parseMappingsCsv } from './csv.ts'
 import { PortLogError, safeError } from './errors.ts'
 import type { MappingStore } from './mapping-store.ts'
+import type { MappingManager } from './mapping-manager.ts'
 import { localAddresses } from './network.ts'
 import type { RuntimeEventHub } from './sse.ts'
 import type { PortMappingInput } from './types.ts'
@@ -12,6 +13,7 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024
 
 interface RouterDeps {
   store: MappingStore
+  mappings?: MappingManager
   logger: AppLogger
   events: RuntimeEventHub
   ready: Promise<void>
@@ -62,9 +64,11 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
       case 'network.localAddresses':
         return ok(localAddresses())
       case 'mappings.list':
-        return ok(deps.store.list())
+        return ok(deps.mappings?.list() ?? deps.store.list())
       case 'mappings.create': {
-        const created = await deps.store.create(payload as unknown as PortMappingInput)
+        const created = deps.mappings === undefined
+          ? await deps.store.create(payload as unknown as PortMappingInput)
+          : await deps.mappings.create(payload as unknown as PortMappingInput)
         deps.events.publish({ type: 'mapping-status', data: created })
         await deps.logger.log('info', 'mapping.created', { id: created.id, protocol: created.protocol, localAddr: created.localAddr, localPort: created.localPort })
         return ok(created)
@@ -73,27 +77,39 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
         const id = requireString(payload, 'id')
         const patch = payload.patch
         if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) throw new PortLogError('VALIDATION', 'patch 无效')
-        const updated = await deps.store.update(id, patch as Partial<PortMappingInput>)
+        const updated = deps.mappings === undefined
+          ? await deps.store.update(id, patch as Partial<PortMappingInput>)
+          : await deps.mappings.update(id, patch as Partial<PortMappingInput>)
         deps.events.publish({ type: 'mapping-status', data: updated })
         await deps.logger.log('info', 'mapping.updated', { id })
         return ok(updated)
       }
       case 'mappings.remove': {
         const id = requireString(payload, 'id')
-        await deps.store.remove(id)
+        if (deps.mappings === undefined) await deps.store.remove(id)
+        else await deps.mappings.remove(id)
         deps.events.publish({ type: 'mapping-removed', data: { id } })
         await deps.logger.log('info', 'mapping.removed', { id })
         return ok({ id })
       }
       case 'mappings.importCsv': {
         const csv = requireString(payload, 'csv')
-        const created = await deps.store.merge(parseMappingsCsv(csv))
+        const inputs = parseMappingsCsv(csv)
+        const created = deps.mappings === undefined ? await deps.store.merge(inputs) : await deps.mappings.merge(inputs)
         for (const item of created) deps.events.publish({ type: 'mapping-status', data: item })
         await deps.logger.log('info', 'mapping.csv_imported', { count: created.length })
         return ok({ count: created.length, mappings: created })
       }
       case 'mappings.exportCsv':
-        return ok({ csv: exportMappingsCsv(deps.store.list()) })
+        return ok({ csv: exportMappingsCsv(deps.mappings?.list() ?? deps.store.list()) })
+      case 'mappings.start': {
+        if (deps.mappings === undefined) throw new PortLogError('MAPPING_STATE', '映射运行时尚未就绪')
+        return ok(await deps.mappings.start(requireString(payload, 'id')))
+      }
+      case 'mappings.stop': {
+        if (deps.mappings === undefined) throw new PortLogError('MAPPING_STATE', '映射运行时尚未就绪')
+        return ok(await deps.mappings.stop(requireString(payload, 'id')))
+      }
       default:
         throw new PortLogError('VALIDATION', '未知方法')
     }

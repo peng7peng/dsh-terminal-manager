@@ -22,6 +22,13 @@ export interface MappingSnapshot extends PortMappingConfig {
   lastError?: string
 }
 
+export interface ForwarderStats {
+  activeCount: number
+  bytesClientToTarget: number
+  bytesTargetToClient: number
+  lastError?: string
+}
+
 export interface AppLogStatus {
   level: LogLevel
   directory: string

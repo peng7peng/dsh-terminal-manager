@@ -4,6 +4,7 @@ import type { SessionManagerApi } from '../../types/session-api.ts'
 import { join } from 'node:path'
 import { AppLogger } from './app-logger.ts'
 import { MappingStore } from './mapping-store.ts'
+import { MappingManager } from './mapping-manager.ts'
 import { createPortLogHttpHandler, PORT_LOG_ROUTE_PREFIX } from './router.ts'
 import { RuntimeEventHub } from './sse.ts'
 
@@ -24,7 +25,10 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
   const logger = new AppLogger(join(root, 'log'))
   const store = new MappingStore(join(root, 'mappings.json'))
   const events = new RuntimeEventHub()
-  const ready = store.ensureLoaded().then(() => logger.log('info', 'extension.started'))
+  const mappings = new MappingManager(store, logger, events)
+  const ready = mappings.initialize()
+    .then(() => logger.log('info', 'extension.started'))
+    .then(() => mappings.autoStart())
 
   ctx.effect(
     () => {
@@ -32,12 +36,13 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
       const unregister = webServer?.register({
         kind: 'prefix' as const,
         path: PORT_LOG_ROUTE_PREFIX,
-        handler: createPortLogHttpHandler({ store, logger, events, ready }),
+        handler: createPortLogHttpHandler({ store, mappings, logger, events, ready }),
       }) ?? (() => undefined)
       return async () => {
         unregister()
         events.close()
         await ready.catch(() => undefined)
+        await mappings.stopAll()
         await logger.log('info', 'extension.stopped')
         await logger.close()
       }

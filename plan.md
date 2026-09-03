@@ -226,7 +226,7 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | # | 步骤 | 文件 | 测试 / 证据 |
 |---|---|---|---|
 | 1 | ✅ Transport 接口加可选 `getSftp()`；SSH 懒开 sftp 子通道；断连 DISCONNECTED / 设备未开子系统 PROTO_ERROR（fa3e3fd；返回类型修订 SftpLike 随步骤 2） | `src/transport/types.ts`、`src/transport/ssh.ts` | `tests/transport-extra.spec.ts` 增 3 项：open 会话可取 sftp；close 后 DISCONNECTED；未开子系统 PROTO_ERROR |
-| 2 | 🔨 SFTP 门面 SftpFacade（list / stat / mkdirs / put / get / downloadStream）+ SftpLike 接口修订（types.ts 删 ssh2 import、ssh.ts 返回门面）+ 上传临时文件 `<目标>.tm-partial-<rand>` + rename 落位 + 进度节流 200ms | `src/transport/sftp.ts`、`src/transport/types.ts`、`src/transport/ssh.ts` | `tests/sftp.spec.ts`（mock SFTP 设备进 `tests/helpers.ts`）：put（路径 / 流 / 覆盖 / 中断清理）/ get（NOT_FOUND / FILE_TOO_LARGE / 目录）/ list / stat / mkdirs / downloadStream / 进度终值 |
+| 2 | ✅ SFTP 门面 SftpFacade（list / stat / mkdirs / put / get / downloadStream）+ SftpLike 接口修订（types.ts 删 ssh2 import、ssh.ts 返回门面）+ 上传临时文件 `<目标>.tm-partial-<rand>` + rename 落位 + 进度节流 200ms（2e77c1f；mock 设备目录句柄 CLOSE 修复随本步） | `src/transport/sftp.ts`、`src/transport/types.ts`、`src/transport/ssh.ts` | `tests/sftp.spec.ts`（mock SFTP 设备进 `tests/helpers.ts`）：put（路径 / 流 / 覆盖 / 中断清理）/ get（NOT_FOUND / FILE_TOO_LARGE / 目录）/ list / stat / mkdirs / downloadStream / 进度终值 |
 | 3 | SessionManager `getSftp(sessionId)`（无锁版：requireOpen + 返回门面）+ FileService 协议分派骨架（Telnet → UNSUPPORTED） | `src/session-manager.ts`、`src/file-service.ts` | 会话相关测试增：telnet → UNSUPPORTED、closed → DISCONNECTED |
 | 4 | FileService 远端四件套（SSH 路径）+ `file` 结束事件（构造加 `events: TmEventBus`，成功/失败/取消都发）+ downloadToLocal 本地半成品保护（temp + rename） | `src/file-service.ts`、`src/index.ts`（接线 events） | `tests/file-service.spec.ts` 增：四方法（挂 mock SFTP 会话）+ file 事件 + 树根围栏（downloadToLocal） |
 | 5 | `telnetFileTransfer` 死字段清理 | `src/config.ts`、`tests/config.spec.ts`、`tests/index.spec.ts`、`tests/remotes-files.spec.ts` | build + test 全绿 |
@@ -245,6 +245,7 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 6. 进度帧带终态（done + ok/error）：另存为导航式下载没有 HTTP 响应可看，终态帧是唯一完成/失败信号。
 7. downloadToLocal 补本地半成品保护（temp + rename）——原计划 fastGet 直写目标，中断留半个本地文件。
 8. mock SFTP 设备放 `tests/helpers.ts`（原计划「tests/sftp.spec.ts 内嵌」；helpers 按约定只增不改）。
+9. 步骤 3 的依赖注入形状：`LocalFileService` 构造加 `sessions?: FileSessionGateway`（结构化最小面 = `get` + `getSftp`，index.ts 注入 SessionManager，避免 file-service ↔ session-manager 互相 import）；SessionManager.getSftp 的 Telnet 防御分支用 DISCONNECTED 码 + 说明消息——契约 `SessionErrorCode` 无 UNSUPPORTED（零契约改动），协议分派的 UNSUPPORTED 由 FileService 按会话快照 protocol 给出，直调 SessionManager.getSftp 的场景正常不存在。
 
 **S5 风险与对策**
 - ssh2 的 sftp 依赖服务端开 sftp 子系统：真实网络设备很多没有 sftp——面板按钮失败时提示「设备未开 SFTP」（Telnet 兜底已砍，见需求变动 1）。

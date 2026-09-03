@@ -43,7 +43,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const dataDir = resolveDataDir()
   const store = new ConnectionStore(join(dataDir, 'connections.json'))
   const sessions = new SessionManager(store)
-  const files = new LocalFileService()
+  const files = new LocalFileService(sessions)
 
   registerTerminalTools(ctx, sessions)
   registerAmbiguityHandling(ctx, sessions)

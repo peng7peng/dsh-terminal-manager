@@ -6,7 +6,9 @@ import * as fsp from 'node:fs/promises'
 import type { Dirent, FileHandle, Stats as FsStats } from 'node:fs'
 import { createServer, type Server as NetServer } from 'node:net'
 import * as nodePath from 'node:path'
+import { Readable } from 'node:stream'
 import { Server as SshServer, utils } from 'ssh2'
+import type { SftpLike } from '../src/transport/types.ts'
 
 // 测试用主机密钥（EC P-256）
 export const HOST_KEY = generateKeyPairSync('ec', {
@@ -343,6 +345,23 @@ export function createDeviceLab() {
       while (cleanups.length > 0) {
         await cleanups.pop()!()
       }
+    },
+  }
+}
+
+/** 假 SftpLike 门面（协议无关接口的最小实现）：记录调用名供断言，本身不产生 IO。 */
+export function fakeSftpLike(): SftpLike & { calls: string[] } {
+  const calls: string[] = []
+  return {
+    calls,
+    list: async (p) => { calls.push(`list ${p}`); return [] },
+    stat: async (p) => { calls.push(`stat ${p}`); return { isDirectory: false, isFile: true, isSymlink: false } },
+    mkdirs: async (p) => { calls.push(`mkdirs ${p}`) },
+    put: async (_source, remotePath) => { calls.push(`put ${remotePath}`); return { bytes: 0 } },
+    get: async (remotePath) => { calls.push(`get ${remotePath}`); return { bytes: 0 } },
+    downloadStream: async (remotePath) => {
+      calls.push(`downloadStream ${remotePath}`)
+      return { stream: new Readable({ read() {} }) }
     },
   }
 }

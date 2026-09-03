@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
-import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
-import { createDeviceLab } from './helpers.ts'
+import type { SftpLike, Transport, TransportCallbacks } from '../src/transport/types.ts'
+import { createDeviceLab, fakeSftpLike } from './helpers.ts'
 
 /** ── 假传输工厂：每次 connect 一个独立槽位，完全可控 ── */
 
@@ -287,5 +287,68 @@ describe('SessionManager × 真实模拟设备（端到端）', () => {
     expect(sm.read(snap.sessionId).text).toContain('ping')
     await sm.disconnect(snap.sessionId)
     expect(sm.list()).toHaveLength(0)
+  })
+})
+
+describe('SessionManager SFTP 门面（S5 步骤3）', () => {
+  /** ssh 目标带 getSftp、telnet 目标不带的假传输工厂 */
+  function sftpFakeFactory(): { rec: FakeRec; factory: TransportFactory } {
+    const rec: FakeRec = { written: [], resized: [], sessions: [], closeCount: 0 }
+    const factory: TransportFactory = async (target, callbacks) => {
+      rec.sessions.push({ callbacks })
+      const transport: Transport = {
+        write: (data) => { rec.written.push(data) },
+        close: async () => { rec.closeCount += 1; callbacks.onClose('本端主动断开') },
+        ...(target.protocol === 'ssh' ? { getSftp: async () => fakeSftpLike() } : {}),
+      }
+      return transport
+    }
+    return { rec, factory }
+  }
+
+  it('ssh 会话：返回传输层的 SFTP 门面', async () => {
+    const { rec, factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'ssh', host: '127.0.0.1', port: 22, label: 'sftp-dev' })
+    const sftp = await sm.getSftp(snap.sessionId)
+    expect(typeof sftp.list).toBe('function')
+    // 懒开：每次调用走 transport.getSftp，会话内可重复取
+    expect(typeof (await sm.getSftp(snap.sessionId)).stat).toBe('function')
+    expect(rec.sessions).toHaveLength(1)
+    await sm.disconnect(snap.sessionId)
+  })
+
+  it('closed 会话 → DISCONNECTED（被动断开后记录保留，状态不是 open）', async () => {
+    const { rec, factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'ssh', host: '127.0.0.1', port: 22, label: 'sftp-dev' })
+    rec.sessions[0].callbacks.onClose('设备掉线')
+    expect(sm.get(snap.sessionId)?.status).toBe('closed')
+    await expect(sm.getSftp(snap.sessionId)).rejects.toMatchObject({ code: 'DISCONNECTED' })
+  })
+
+  it('telnet 会话：防御分支报「不支持 SFTP」（UNSUPPORTED 协议分派在 FileService）', async () => {
+    const { factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 23, label: 'tty-dev' })
+    await expect(sm.getSftp(snap.sessionId)).rejects.toMatchObject({
+      code: 'DISCONNECTED',
+      message: expect.stringContaining('不支持 SFTP'),
+    })
+    await sm.disconnect(snap.sessionId)
+  })
+
+  it('会话不存在 → SESSION_NOT_FOUND', async () => {
+    const { factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    await expect(sm.getSftp('no-such')).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' })
+  })
+
+  // SftpLike 类型引用（避免仅类型导入被裁掉的告警；真实形状测试在 file-service.spec.ts）
+  it('门面形状：SftpLike 六个方法齐全', async () => {
+    const sftp: SftpLike = fakeSftpLike()
+    for (const name of ['list', 'stat', 'mkdirs', 'put', 'get', 'downloadStream'] as const) {
+      expect(typeof sftp[name]).toBe('function')
+    }
   })
 })

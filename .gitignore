@@ -5,3 +5,5 @@ lib/
 coverage/
 *.tgz
 .vscode/evals/manual-files/big.txt
+.agent-kernel/
+.claude/worktrees/

@@ -74,11 +74,17 @@ export function SendSelectionDialog(props: {
   sessions: TcSession[]
   tcMap: ReadonlyMap<string, number>
   lines: string[]
-  onConfirm: (sessionIds: string[]) => void
+  /** 默认勾选（跟随广播栏当前所选；与在线会话的交集） */
+  defaultPicked: string[]
+  onConfirm: (sessionIds: string[], skipNext: boolean) => void
   onCancel: () => void
 }): React.JSX.Element {
   const online = props.sessions.filter(s => s.status === 'open')
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(online.slice(0, 1).map(s => s.sessionId)))
+  const [picked, setPicked] = useState<Set<string>>(() => {
+    const def = props.defaultPicked.filter(id => online.some(s => s.sessionId === id))
+    return new Set(def.length > 0 ? def : online.slice(0, 1).map(s => s.sessionId))
+  })
+  const [skip, setSkip] = useState(false)
   const toggle = (sid: string): void => setPicked(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n })
   const many = props.lines.length > 20
   return (
@@ -100,9 +106,18 @@ export function SendSelectionDialog(props: {
             ? `⚠ 选中 ${props.lines.length} 行，逐条发送预计约 ${Math.ceil(props.lines.length * 0.6)} 秒（每条等静默 500ms+），确认继续？`
             : `逐条发送 ${props.lines.length} 行：每条等回显 / 静默后再发下一条；超时可跳过。`}
         </div>
+        {skip && (
+          <div className="tm-mNote warn" style={{ padding: '4px 8px 0' }}>
+            勾选「不再提示」后：点「发送选中 →」按钮和右键都<b>直接发送</b>，目标 = <b>广播栏当前所选</b>的终端（广播栏没勾就发第一台在线），不再弹框；重新打开工作区后恢复弹框。
+          </div>
+        )}
         <div className="tm-mFoot">
+          <label title="下次点「发送选中 →」不再弹框，直接按广播栏当前所选的终端发送；右键「发送选中到终端…」仍会弹框">
+            <input type="checkbox" checked={skip} onChange={e => setSkip(e.target.checked)} /> 不再提示
+          </label>
+          <span className="sp" />
           <button className="tm-btnPlain" onClick={props.onCancel}>取消</button>
-          <button className="tm-btnPrimary" disabled={picked.size === 0} onClick={() => props.onConfirm([...picked])}>发送（{picked.size}）</button>
+          <button className="tm-btnPrimary" disabled={picked.size === 0} onClick={() => props.onConfirm([...picked], skip)}>发送（{picked.size}）</button>
         </div>
       </div>
     </div>

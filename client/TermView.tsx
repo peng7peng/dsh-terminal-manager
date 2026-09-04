@@ -123,10 +123,16 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
     }
     void loadHistory()
 
+    // 布局抖动期间（拖文件面板顶栏 / 拖聊天宽度 / 改列数）ResizeObserver 每帧都触发：
+    // 停稳后再把尺寸同步给设备。高频 resize 会把弱 telnetd 打糊涂（NAWS 协商字节被当输入回显成乱码）。
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined
     const ro = new ResizeObserver(() => {
       try { fit.fit() } catch { /* ignore */ }
-      const cols = term.cols, rows = term.rows
-      if (Number.isFinite(cols) && Number.isFinite(rows)) ws.resize(sessionId, cols, rows)
+      clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => {
+        const cols = term.cols, rows = term.rows
+        if (Number.isFinite(cols) && Number.isFinite(rows)) ws.resize(sessionId, cols, rows)
+      }, 150)
     })
     ro.observe(container)
     ws.resize(sessionId, term.cols, term.rows)
@@ -139,6 +145,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
 
     return () => {
       unsub()
+      clearTimeout(resizeTimer)
       ro.disconnect()
       themeMo.disconnect()
       container.removeEventListener('contextmenu', onContext)

@@ -6,11 +6,11 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { ContextMenu } from '../tc/ContextMenu.tsx'
-import { breadcrumbs, createLocalFsStore, formatSize, humanError, parentDir, useLocalFsState, type FileEntryView, type LocalFsStore } from './localFs.ts'
+import { breadcrumbs, createLocalFsStore, formatSize, humanError, parentDir, samePath, useLocalFsState, type FileEntryView, type LocalFsStore } from './localFs.ts'
 import { openTargetFor } from './openRule.ts'
 import { remoteFsStore } from './RemoteFilePanel.tsx'
 import { useRemoteFsState } from './remoteFs.ts'
@@ -152,6 +152,9 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
 
   const onBarDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return
+    // 必须 preventDefault：否则按下图标/文字可能触发浏览器原生拖拽，
+    // 拖到终端上松手会被 xterm 的 drop 处理当成输入打出去（拖动顶栏却往终端"打字"）
+    e.preventDefault()
     dragRef.current = { y: e.clientY, h: height, moved: false }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
@@ -223,6 +226,13 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
           <div className="tm-fpToolbar">
             <button className="tm-tbtn icon" disabled={atRoot} onClick={() => void store.up()} title="上一级" aria-label="上一级"><IconChevronUpOutline14 /></button>
             <button className="tm-tbtn icon" onClick={() => setPicking(true)} title="换目录（切换本地根目录）" aria-label="换目录"><IconFolderOpen16 /></button>
+            <button
+              className="tm-tbtn icon"
+              disabled={!s.ready || s.workspaceRoot.length === 0 || samePath(s.root, s.workspaceRoot)}
+              onClick={() => { void store.goWorkspace().then(() => toast('已回到工作区目录')) }}
+              title="回到工作区目录（Config 里配置的 workspaceRoot）"
+              aria-label="回到工作区目录"
+            ><IconGoalOutline16 /></button>
             <button className="tm-tbtn icon" onClick={() => { void store.refresh(); toast('本地列表已刷新') }} title="刷新" aria-label="刷新"><IconRefreshOutline14 /></button>
             <button
               className="tm-tbtn icon"

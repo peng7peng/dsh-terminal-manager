@@ -122,3 +122,23 @@ describe('resolveWritePathInsideRoot（写围栏）', () => {
     expect(await codeOf(resolveWritePathInsideRoot(root, join(linkToOutside!, 'new.txt')))).toBe('PATH_OUTSIDE_ROOT')
   })
 })
+
+describe('Windows 专项：长路径 / UNC（非 Windows 跳过）', () => {
+  it('长路径 \\\\?\\ 前缀归一化后与普通路径等价', async ({ skip }) => {
+    if (process.platform !== 'win32') skip()
+    // requireAbsolute 会把 \\?\D:\... resolve 成普通形态
+    const long = `\\\\?\\${root}\\a\\b.txt`
+    const r = await resolveInsideRoot(root, long)
+    expect(isWithin(root, r)).toBe(true)
+  })
+
+  it('UNC 路径 \\\\server\\share 不在树根内 → 被拒绝（不崩、不返回 OK）', async ({ skip }) => {
+    if (process.platform !== 'win32') skip()
+    // UNC 路径与本地树根必然不同盘，应被拒（具体码视 realpath 能否访问而定，关键是不能放进根内）
+    const readCode = await codeOf(resolveInsideRoot(root, '\\\\localhost\\c$\\windows\\notepad.exe'))
+    expect(readCode).not.toBe('OK')
+    // 写围栏同样拒绝（即便文件不存在也不泄露）
+    const writeCode = await codeOf(resolveWritePathInsideRoot(root, '\\\\somewhere\\share\\new.txt'))
+    expect(writeCode).not.toBe('OK')
+  })
+})

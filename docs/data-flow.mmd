@@ -1,0 +1,108 @@
+%% dsh-terminal-manager 数据流图（数据流转路径）
+%% 覆盖 8 条主数据流：人工键入 / 设备输出 / AI 发命令 / 广播 / 控制面 / 文件读写 / TC 执行 / 事件总线
+%% 生成日期：2026-09-03
+graph TB
+
+  %% ===== 外部 =====
+  User([用户])
+  AI([AI Agent])
+  Device[("远端设备")]
+  Store[("connections.json")]
+  Disk[("本地文件系统")]
+
+  %% ===== 浏览器半 =====
+  subgraph Browser["浏览器半 (client/)"]
+    direction TB
+    F4["F4 TermView<br/>xterm 渲染"]
+    F3["F3 广播栏 / 终端网格"]
+    F2["F2 连接面板"]
+    F7["F7 文件面板"]
+    F9["F9 编辑器"]
+    F10["F10 TC 执行"]
+    F5["F5 ws.ts<br/>帧分发 / 重连"]
+    FRpc["rpc.ts<br/>POST 封包"]
+  end
+
+  %% ===== host 半 =====
+  subgraph Host["host 半 (src/)"]
+    direction TB
+    B7b["B7b /term-io WS<br/>订阅随管道生灭"]
+    B7a["B7a /term-manager HTTP<br/>dispatch 纯函数"]
+    B6["B6 tm_* 工具"]
+    B4(("B4 SessionManager<br/>环形缓冲 · 独占 · 分发"))
+    B8["B8 CommandGuard"]
+    B5["B5 WaitPolicy<br/>feed / poll"]
+    B1["B1 ConnectionStore"]
+    B10["B10 FileService<br/>+ path-security"]
+    B9["B9 EventBus"]
+    B2["B2/B3 传输层<br/>SSH / Telnet"]
+    Ext["扩展模块<br/>日志 / 共享端口"]
+  end
+
+  %% ===== 流①：人工键入（键盘 → 设备） =====
+  User -->|"① 键盘按键"| F4
+  F4 -->|"① input 帧"| F5
+  F5 -->|"① WS /term-io"| B7b
+  B7b -->|"① write() 不过守卫"| B4
+  B4 -->|"① transport.write"| B2
+  B2 -->|"① TCP 字节"| Device
+
+  %% ===== 流②：设备输出（设备 → 屏幕） =====
+  Device -->|"② 输出字节"| B2
+  B2 -->|"② onData(utf8)"| B4
+  B4 -->|"② 写环形缓冲 + 推订阅者"| B7b
+  B7b -->|"② output 帧"| F5
+  F5 -->|"② 渲染"| F4
+
+  %% ===== 流③：AI 发命令（一问一答） =====
+  AI -->|"③ tm_send"| B6
+  B6 -->|"③ sendAndWait(guard={})"| B4
+  B4 -->|"③ checkCommand"| B8
+  B4 -->|"③ transport.write"| B2
+  B2 -->|"③ 命令→设备"| Device
+  Device -->|"③ 输出流"| B2
+  B2 -->|"③ feed(chunk)"| B4
+  B4 -->|"③ feed/poll"| B5
+  B5 -->|"③ waitReason"| B4
+  B4 -->|"③ 整段输出"| B6
+  B6 -->|"③ 结果"| AI
+
+  %% ===== 流④：广播 =====
+  AI -->|"④ tm_send_all"| B6
+  B6 -->|"④ broadcast 逐台"| B4
+  User -->|"④ 广播栏输入"| F3
+  F3 -->|"④ 逐台 ws.input 并行"| F5
+
+  %% ===== 流⑤：控制面 RPC（连接配置 / 会话管理） =====
+  F2 -->|"⑤ connections.* / sessions.connect"| FRpc
+  FRpc -->|"⑤ HTTP POST /term-manager"| B7a
+  B7a -->|"⑤ CRUD"| B1
+  B1 -->|"⑤ 读写 0600"| Store
+  B7a -->|"⑤ connect/disconnect/read/send"| B4
+
+  %% ===== 流⑥：文件读写（本地） =====
+  F7 -->|"⑥ files.tree / files.read"| FRpc
+  F9 -->|"⑥ Ctrl+S files.write"| FRpc
+  B7a -->|"⑥ listLocal/readLocal/writeLocal"| B10
+  B10 -->|"⑥ realpath + 树根校验"| Disk
+
+  %% ===== 流⑦：TC 脚本执行 =====
+  User -->|"⑦ 执行脚本"| F10
+  F10 -->|"⑦ parseTcScript 纯函数(前端)"| F10
+  F10 -->|"⑦ 逐条 sessions.send"| FRpc
+  B7a -->|"⑦ sendAndWait(source=script)"| B4
+
+  %% ===== 流⑧：事件总线 + 状态推送 =====
+  B4 -->|"⑧ emit output/input/status"| B9
+  B9 -->|"⑧ on() 订阅"| Ext
+  B4 -->|"⑧ notify 状态变化"| B7b
+  B7b -->|"⑧ status 帧(全量快照)"| F5
+  F5 -->|"⑧ 更新列表/徽标"| F3
+
+  %% ===== 样式 =====
+  classDef heart fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#1c1917
+  classDef actor fill:#fef3c7,stroke:#d97706,color:#1c1917
+  classDef store fill:#e2e8f0,stroke:#475569,color:#1e293b
+  class B4 heart
+  class User,AI,Device actor
+  class Store,Disk store

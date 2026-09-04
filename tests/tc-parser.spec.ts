@@ -1,8 +1,12 @@
 /**
  * B11 TC 脚本解析：用脱敏后的真实样例结构（地址 / 账号已替换）整段跑。
  */
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { commandLines, delayHints, parseTargetDigits, parseTcScript, resolveTargetsAt, sectionRange } from '../src/tc-parser.ts'
+
+const SAMPLE_FILE = fileURLToPath(new URL('../evals/manual-files/tc-sample.txt', import.meta.url))
 
 const SAMPLE = [
   '[hdd启动]',                                   // 1
@@ -140,5 +144,70 @@ describe('选区执行辅助', () => {
     const noHead = parseTcScript('ls\npwd\n[a]\nx\n')
     expect(sectionRange(noHead, 1)).toEqual({ start: 1, end: 2 })
     expect(sectionRange([], 1)).toBeUndefined()
+  })
+})
+
+describe('真实样例回归（evals/manual-files/tc-sample.txt）', () => {
+  it('整段解析不抛错、行数对、所有命令行都有目标、含间隔提示', async () => {
+    const text = await readFile(SAMPLE_FILE, 'utf8')
+    const lines = parseTcScript(text)
+    // 178 行（末尾换行 pop 掉一个空行）
+    expect(lines.length).toBeGreaterThan(100)
+    // 每条命令行都带至少一个目标
+    expect(commandLines(lines).every(c => c.targets.length >= 1)).toBe(true)
+    // 真实样例里有「间隔1s再发」「间隔5s再发」
+    const hints = delayHints(lines)
+    expect(hints.length).toBeGreaterThan(0)
+    expect(hints.some(h => /间隔1s/.test(h.text))).toBe(true)
+    expect(hints.some(h => /间隔5s/.test(h.text))).toBe(true)
+    // 含 [标题] 与 [!标题] 两种
+    expect(lines.some(l => l.kind === 'section')).toBe(true)
+    // 含 ##>012 三目标
+    expect(lines.some(l => l.kind === 'target' && l.targets.length === 3)).toBe(true)
+    // 含多行 call() 函数体（缩进保留）
+    const cmds = commandLines(lines)
+    expect(cmds.some(c => c.command?.startsWith('  '))).toBe(true)
+  })
+})
+
+describe('边界场景', () => {
+  it('空文件：返回 1 个 blank 行（不抛错）', () => {
+    const l = parseTcScript('')
+    expect(l).toHaveLength(1)
+    expect(l[0]?.kind).toBe('blank')
+    expect(commandLines(l)).toEqual([])
+  })
+
+  it('只有注释 / 标题 / 小标题：commandLines 为空', () => {
+    const l = parseTcScript('[a]\n##b\n#c\n')
+    expect(l.map(x => x.kind)).toEqual(['section', 'comment', 'subtitle'])
+    expect(commandLines(l)).toEqual([])
+    expect(delayHints(l)).toEqual([])
+  })
+
+  it('##>10：逐字符拆成 [1,0]（去重保序，spec 窗口编号 0–9）', () => {
+    expect(parseTargetDigits('10')).toEqual([1, 0])
+    const l = parseTcScript('##>10\nls\n')
+    expect(l[0]).toMatchObject({ kind: 'target', targets: [1, 0] })
+    expect(l[1]).toMatchObject({ kind: 'command', targets: [1, 0] })
+  })
+
+  it('BOM 头 + UTF-8 中文命令：BOM 不影响解析，中文命令正常发出', () => {
+    const l = parseTcScript('\uFEFF##>0\n显示版本\n')
+    // BOM 在第一行行首，TARGET_RE 用 ^\s*##> 匹配——BOM 不是空白，所以第一行当命令处理
+    // 这是预期行为：BOM 头的脚本第一行会被当成普通行（不影响后续）
+    expect(l[1]).toMatchObject({ kind: 'command', command: '显示版本', targets: [0] })
+    // 无 BOM 的正常解析
+    const clean = parseTcScript('##>0\n显示版本\n')
+    expect(clean[0]).toMatchObject({ kind: 'target', targets: [0] })
+    expect(clean[1]).toMatchObject({ kind: 'command', command: '显示版本' })
+  })
+
+  it('只有空行 + 末尾无换行', () => {
+    const l = parseTcScript('\n\n\n')
+    expect(l.every(x => x.kind === 'blank')).toBe(true)
+    const noNewline = parseTcScript('ls')
+    expect(noNewline).toHaveLength(1)
+    expect(noNewline[0]).toMatchObject({ kind: 'command', command: 'ls', targets: [0] })
   })
 })

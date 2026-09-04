@@ -215,3 +215,62 @@ describe('editorStore', () => {
     expect(store.getState().minimized).toBe(false)
   })
 })
+
+describe('多 Tab 边界', () => {
+  it('开 5 个 Tab 逐个关闭：每次关激活 Tab 后切到左邻；关非激活 Tab 激活不变', async () => {
+    const files: Record<string, string> = {}
+    for (let i = 1; i <= 5; i++) files[`D:/ws/f${i}.txt`] = `content-${i}`
+    const { deps } = fakeDeps(files)
+    const store = createEditorStore(deps)
+    for (let i = 1; i <= 5; i++) await store.openFile(`D:/ws/f${i}.txt`)
+    expect(store.getState().tabs.map(t => t.name)).toEqual(['f1.txt', 'f2.txt', 'f3.txt', 'f4.txt', 'f5.txt'])
+    expect(store.getState().activeId).toBe('D:/ws/f5.txt')
+
+    // 关激活 Tab（f5）→ 切到左邻 f4
+    store.requestClose('D:/ws/f5.txt')
+    expect(store.getState().tabs.map(t => t.name)).toEqual(['f1.txt', 'f2.txt', 'f3.txt', 'f4.txt'])
+    expect(store.getState().activeId).toBe('D:/ws/f4.txt')
+
+    // 关非激活 Tab（f2，激活是 f4）→ 激活不变
+    store.requestClose('D:/ws/f2.txt')
+    expect(store.getState().tabs.map(t => t.name)).toEqual(['f1.txt', 'f3.txt', 'f4.txt'])
+    expect(store.getState().activeId).toBe('D:/ws/f4.txt')
+
+    // 关激活 Tab（f4）→ 切到左邻 f3
+    store.requestClose('D:/ws/f4.txt')
+    expect(store.getState().activeId).toBe('D:/ws/f3.txt')
+
+    // 关第一个 Tab（f1，激活是 f3）→ 激活不变
+    store.requestClose('D:/ws/f1.txt')
+    expect(store.getState().tabs.map(t => t.name)).toEqual(['f3.txt'])
+    expect(store.getState().activeId).toBe('D:/ws/f3.txt')
+
+    // 关最后一个 → 窗口关闭
+    store.requestClose('D:/ws/f3.txt')
+    expect(store.getState().tabs).toEqual([])
+    expect(store.getState().open).toBe(false)
+  })
+
+  it('全部 Tab 都脏，requestCloseWindow → confirmClose(discard) 一次性全关', async () => {
+    const files: Record<string, string> = {}
+    for (let i = 1; i <= 3; i++) files[`D:/ws/d${i}.txt`] = `orig-${i}`
+    const { deps, writes } = fakeDeps(files)
+    const store = createEditorStore(deps)
+    for (let i = 1; i <= 3; i++) {
+      await store.openFile(`D:/ws/d${i}.txt`)
+      store.setContent(`D:/ws/d${i}.txt`, `dirty-${i}`)
+    }
+    // 全脏
+    expect(store.getState().tabs.every(t => t.dirty)).toBe(true)
+    // 关窗 → 进入 '*' 确认
+    store.requestCloseWindow()
+    expect(store.getState().pendingClose).toBe('*')
+    // discard 一次性全关，不逐个确认
+    await store.confirmClose('discard')
+    expect(store.getState().tabs).toEqual([])
+    expect(store.getState().open).toBe(false)
+    expect(store.getState().pendingClose).toBeNull()
+    // 没有写盘
+    expect(writes).toEqual([])
+  })
+})

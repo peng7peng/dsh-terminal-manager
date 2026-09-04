@@ -6,7 +6,7 @@ show ip interface brief
 ##间隔1s再发
 show clock
 [接口检查]
-##>1
+##>0
 show interfaces
 ###echo 可发送注释
 ##>5

@@ -1,7 +1,7 @@
 /**
  * B10 文件服务本地四件套：在临时目录里跑，不碰用户文件。
  */
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -103,5 +103,47 @@ describe('远端（S5 前）', () => {
     expect(await codeOf(svc.download({ sessionId: 's', remotePath: '/x' }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.downloadToLocal({ sessionId: 's', remotePath: '/x', target: { root, path: root } }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.upload({ sessionId: 's', remotePath: '/x', source: { kind: 'local', ref: { root, path: root } } }))).toBe('UNSUPPORTED')
+  })
+})
+
+describe('边界：中文文件名 / 并发写 / symlink 不跟随', () => {
+  it('中文文件名读写往返', async () => {
+    const p = join(root, '测试文件.txt')
+    const r = await svc.writeLocal({ root, path: p }, '中文内容你好')
+    expect(r.bytes).toBe(Buffer.byteLength('中文内容你好', 'utf8'))
+    const read = await svc.readLocal({ root, path: p })
+    expect(read.content).toBe('中文内容你好')
+    expect(read.truncated).toBe(false)
+    // listLocal 也能列出中文文件名
+    const entries = await svc.listLocal({ root, path: root })
+    expect(entries.some(e => e.name === '测试文件.txt')).toBe(true)
+  })
+
+  it('并发写同一文件：最终内容是其中一次，无临时文件残留', async () => {
+    const p = join(root, 'concurrent.txt')
+    await Promise.all([
+      svc.writeLocal({ root, path: p }, 'version-a'),
+      svc.writeLocal({ root, path: p }, 'version-b'),
+    ])
+    const final = await readFile(p, 'utf8')
+    expect(['version-a', 'version-b']).toContain(final)
+    // 不留临时文件
+    const files = await readdir(root)
+    expect(files.filter(n => n.includes('.tm-tmp-'))).toEqual([])
+  })
+
+  it('listLocal：symlink 标 symlink 不跟随（指向目录也不递归）', async ({ skip }) => {
+    const linkPath = join(root, 'a-link')
+    try {
+      await symlink(join(root, 'zdir'), linkPath, 'junction')
+    } catch {
+      skip() // Windows 无权限建 junction 时跳过
+    }
+    const entries = await svc.listLocal({ root, path: root })
+    const link = entries.find(e => e.name === 'a-link')
+    expect(link).toBeDefined()
+    expect(link?.kind).toBe('symlink')
+    // 不带 size / mtimeMs（没 stat 跟随）
+    expect(link?.size).toBeUndefined()
   })
 })

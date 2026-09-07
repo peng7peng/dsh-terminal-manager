@@ -115,6 +115,71 @@ describe('SSH 补充', () => {
   }, 10_000)
 })
 
+describe('SSH SFTP（S5 步骤1）', () => {
+  const lab = createDeviceLab()
+  afterEach(() => lab.cleanup())
+
+  it('open 会话可取 sftp（懒开子通道，复用同一连接）', async () => {
+    const { port } = await lab.startSshDeviceWithSftp()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    const sftp = await t.getSftp!()
+    // SftpLike 门面（协议无关），不再是裸 ssh2 SFTPWrapper
+    expect(typeof sftp.list).toBe('function')
+    expect(typeof sftp.put).toBe('function')
+    expect(typeof sftp.get).toBe('function')
+    // 同一会话可再次懒开（复用 Client，不互相影响）
+    const sftp2 = await t.getSftp!()
+    expect(typeof sftp2.stat).toBe('function')
+    await t.close()
+  })
+
+  it('同一连接重复 getSftp 复用同一条子通道（审查 H1：每操作新开会在真实设备耗尽 MaxSessions）', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const root = await mkdtemp(join(tmpdir(), 'tm-sftp-reuse-'))
+    try {
+      const { port } = await lab.startSftpDevice(root)
+      const out = collector()
+      const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+      const a = await t.getSftp!()
+      const b = await t.getSftp!()
+      expect(b).toBe(a)
+      await a.list('/')          // 走一次真操作，缓存不被正常操作失效
+      const c = await t.getSftp!()
+      expect(c).toBe(a)
+      await t.close()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('close 后取用抛 DISCONNECTED', async () => {
+    const { port } = await lab.startSshDeviceWithSftp()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    await t.close()
+    await expect(t.getSftp!()).rejects.toMatchObject({ code: 'DISCONNECTED' })
+  })
+
+  it('设备未开 sftp 子系统 → PROTO_ERROR（消息不含凭据）', async () => {
+    const { port } = await lab.startSshDevice()
+    const out = collector()
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    await out.waitFor('Welcome to test device')
+    try {
+      await t.getSftp!()
+      throw new Error('should fail')
+    } catch (e) {
+      expect(e).toBeInstanceOf(TransportError)
+      expect((e as TransportError).code).toBe('PROTO_ERROR')
+      expect((e as TransportError).message).not.toContain('test-pass')
+    }
+    await t.close()
+  })
+})
+
 describe('Telnet NAWS 防抖与转义', () => {
   /** 数收到的 IAC SB NAWS 子协商条数 */
   const nawsCount = (buf: Buffer): number => {

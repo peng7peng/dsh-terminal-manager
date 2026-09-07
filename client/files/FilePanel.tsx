@@ -12,6 +12,8 @@ import { toast } from '../toast.ts'
 import { ContextMenu } from '../tc/ContextMenu.tsx'
 import { breadcrumbs, createLocalFsStore, formatSize, humanError, parentDir, samePath, useLocalFsState, type FileEntryView, type LocalFsStore } from './localFs.ts'
 import { openTargetFor } from './openRule.ts'
+import { remoteFsStore } from './RemoteFilePanel.tsx'
+import { useRemoteFsState } from './remoteFs.ts'
 
 let singleton: LocalFsStore | undefined
 /** 模块级单例：面板收起 / 重开不丢状态。 */
@@ -135,6 +137,10 @@ function readStoredHeight(): number {
 export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void }): React.JSX.Element {
   const store = localFsStore()
   const s = useLocalFsState(store)
+  // S5 联动：上传 = 本地选中 → 远端当前目录；下载 = 远端选中 → 本地当前目录
+  const remoteStore = remoteFsStore()
+  const remote = useRemoteFsState(remoteStore)
+  const remoteSelected = remote.entries.find(e => e.path === remote.selected) ?? null
   const [picking, setPicking] = useState(false)
   const [ctx, setCtx] = useState<{ entry: FileEntryView; x: number; y: number } | null>(null)
   const [height, setHeight] = useState<number>(() => (typeof localStorage === 'undefined' ? PANEL_DEFAULT_H : readStoredHeight()))
@@ -185,6 +191,22 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
     else void openWithSystemApp(s.root, entry.path, entry.name)
   }
 
+  /** 联动上传：本地选中的文件 → 远端当前目录（host 端读盘，经 files.uploadLocal） */
+  const uploadSelected = (): void => {
+    const entry = s.entries.find(e => e.path === s.selected)
+    if (entry === undefined || entry.kind !== 'file') return
+    const r = remoteStore.uploadLocalFile({ root: s.root, path: entry.path, name: entry.name, size: entry.size })
+    if (r === 'started') toast(`已开始上传 ${entry.name}（进度见远端面板传输条）`)
+    else if (r === 'blocked') toast('无法上传：请先在远端面板选择在线 SSH 会话', 'error')
+  }
+  /** 联动下载：远端选中的文件 → 本地当前目录（路径② downloadToLocal，行内进度条） */
+  const downloadFromRemote = (): void => {
+    if (remoteSelected === null || remoteSelected.kind !== 'file') return
+    const r = remoteStore.downloadToWorkspace(remoteSelected.path)
+    if (r === 'started') toast(`已开始下载 ${remoteSelected.name} → ${s.cwd}（进度见远端面板传输条）`)
+    else if (r === 'blocked') toast('无法下载：远端面板未选择会话，或本地目录未就绪', 'error')
+  }
+
   return (
     <div className={`tm-fpanel ${s.expanded ? 'open' : ''} ${resizing ? 'resizing' : ''}`}>
       <div
@@ -212,6 +234,20 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
               aria-label="回到工作区目录"
             ><IconGoalOutline16 /></button>
             <button className="tm-tbtn icon" onClick={() => { void store.refresh(); toast('本地列表已刷新') }} title="刷新" aria-label="刷新"><IconRefreshOutline14 /></button>
+            <button
+              className="tm-tbtn icon"
+              disabled={remote.sessionId === null || s.selected === null || (s.entries.find(e => e.path === s.selected)?.kind ?? 'dir') !== 'file'}
+              onClick={uploadSelected}
+              title="上传选中文件到远端当前目录（需先在远端面板选择 SSH 会话）"
+              aria-label="上传到设备"
+            >⬆</button>
+            <button
+              className="tm-tbtn icon"
+              disabled={remote.sessionId === null || !s.ready || remoteSelected === null || remoteSelected.kind !== 'file'}
+              onClick={downloadFromRemote}
+              title="把远端面板选中的文件下载到本地当前目录"
+              aria-label="从设备下载"
+            >⬇</button>
             <span className="hint">双击：文本文件进编辑器，其他文件用系统程序打开</span>
           </div>
           <div className="tm-fpPath">

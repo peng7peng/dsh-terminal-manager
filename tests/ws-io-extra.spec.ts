@@ -41,10 +41,11 @@ describe('TermIoConnection 容错', () => {
 })
 
 describe('registerWsIo', () => {
-  it('没有 webServer → 返回空卸载函数', () => {
+  it('没有 webServer → 返回空卸载函数与空广播', () => {
     const ctx = { get: () => undefined } as unknown as Context
-    const off = registerWsIo(ctx, new SessionManager(undefined, factory))
-    expect(() => off()).not.toThrow()
+    const handle = registerWsIo(ctx, new SessionManager(undefined, factory))
+    expect(() => handle.disposer()).not.toThrow()
+    expect(() => handle.broadcastFileProgress({ kind: 'file-progress', transferId: 't', op: 'upload', sessionId: 's', remotePath: '/x', transferred: 0 })).not.toThrow()
   })
 
   it('注册 /term-io 升级路由；非 loopback 的 Host 直接销毁 socket；卸载调用 disposer', () => {
@@ -54,12 +55,13 @@ describe('registerWsIo', () => {
       get: (name: string) => (name === 'webServer' ? { registerUpgrade: (r: typeof registered) => { registered = r; return () => { disposed++ } } } : undefined),
       effect: (fn: () => () => void) => fn(),
     } as unknown as Context
-    const off = registerWsIo(ctx, new SessionManager(undefined, factory))
+    const handle = registerWsIo(ctx, new SessionManager(undefined, factory))
     expect(registered?.path).toBe('/term-io')
+    expect(typeof handle.broadcastFileProgress).toBe('function')
     let destroyed = 0
     registered!.handler({ headers: { host: 'evil.example:80' } }, { destroy: () => { destroyed++ } }, Buffer.alloc(0))
     expect(destroyed).toBe(1)
-    off()
+    handle.disposer()
     expect(disposed).toBe(1)
   })
 })

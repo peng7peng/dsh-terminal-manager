@@ -43,15 +43,20 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const dataDir = resolveDataDir()
   const store = new ConnectionStore(join(dataDir, 'connections.json'))
   const sessions = new SessionManager(store)
-  const files = new LocalFileService()
+  const files = new LocalFileService(sessions, sessions.events)
 
-  registerTerminalTools(ctx, sessions)
+  registerTerminalTools(ctx, { sessions, files, workspaceRoot: cfg.workspaceRoot })
   registerAmbiguityHandling(ctx, sessions)
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
   // 不能再把它们的返回值传给 ctx.effect（那会立即调用清理、删掉刚注册的路由）
-  registerRemotes(ctx, { sessions, store, config: cfg, files, openExternal: (p) => openWithSystem(p) })
-  registerWsIo(ctx, sessions)
+  // B7a→B7b 依赖边：传输路由的进度帧经 /term-io 广播，所以 wsIo 要先于 registerRemotes
+  const wsIo = registerWsIo(ctx, sessions)
+  registerRemotes(ctx, {
+    sessions, store, config: cfg, files,
+    openExternal: (p) => openWithSystem(p),
+    broadcastFileProgress: wsIo.broadcastFileProgress,
+  })
 
   // 扩展模块（日志管理 / 共享端口）：只拿契约里的东西，主线不知道它们的内部
   registerExtensions(ctx, { sessions, events: sessions.events, files, dataDir })

@@ -13,7 +13,7 @@ import type { ConnectionStore } from './connection-store.ts'
 import { createEventBus } from './event-bus.ts'
 import { connectSsh } from './transport/ssh.ts'
 import { connectTelnet } from './transport/telnet.ts'
-import type { Transport, TransportCallbacks } from './transport/types.ts'
+import type { SftpLike, Transport, TransportCallbacks } from './transport/types.ts'
 import type { TmEventBus, TmInputSource } from './types/events.ts'
 import type {
   BroadcastEntry,
@@ -302,6 +302,23 @@ export class SessionManager implements SessionManagerApi {
   resize(sessionId: string, cols: number, rows: number): void {
     const record = this.requireOpen(sessionId)
     record.transport?.resize?.(cols, rows)
+  }
+
+  /**
+   * 取会话的 SFTP 门面（S5）。SFTP 走 SSH 独立子通道，不占 PTY 字节流，
+   * 与 sendAndWait / 人工键入互不干扰，因此无 SESSION_BUSY 独占锁。
+   * 协议分派在 FileService（Telnet → UNSUPPORTED）；本方法只面向「会话 → 门面」。
+   */
+  async getSftp(sessionId: string): Promise<SftpLike> {
+    const record = this.requireOpen(sessionId)
+    const transport = record.transport
+    const getSftp = transport?.getSftp
+    // SessionErrorCode 契约无 UNSUPPORTED（零契约改动）；Telnet 会话正常走不到这里
+    // （FileService 先按 protocol 分派），此防御分支给直调者一个可读错误。
+    if (transport === undefined || getSftp === undefined) {
+      throw new SessionError('DISCONNECTED', '该会话不支持 SFTP（仅 SSH 会话提供文件传输）')
+    }
+    return getSftp.call(transport)
   }
 
   /** 读当前缓冲（回看）。 */

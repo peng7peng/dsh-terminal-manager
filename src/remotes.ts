@@ -10,10 +10,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { randomUUID } from 'node:crypto'
+import { basename as posixBasename } from 'node:path/posix'
+import { pipeline } from 'node:stream/promises'
 import type { Config } from './config.ts'
 import type { ConnectionConfig, ConnectionInput } from './connection-store.ts'
 import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
+import type { FileProgressFrame } from './ws-io.ts'
 import type { FileService, LocalPathRef } from './types/file-service.ts'
 import type { SendOptions } from './types/session-api.ts'
 import { stat } from 'node:fs/promises'
@@ -31,6 +35,8 @@ export interface RemoteDeps {
   files?: FileService
   /** 用系统默认程序打开本机文件（files.open）；未注入时返回 UNSUPPORTED */
   openExternal?: (path: string) => Promise<void>
+  /** 文件传输进度帧广播（B7b /term-io；未注入时传输仍可用，只是没有进度帧） */
+  broadcastFileProgress?: (frame: FileProgressFrame) => void
 }
 
 function requireFiles(deps: RemoteDeps): FileService {
@@ -157,6 +163,59 @@ export async function dispatch(
         await deps.openExternal(real)
         return ok({ path: real })
       }
+      // ── 远端（S5）：SSH 会话 → SFTP；Telnet → UNSUPPORTED（FileService 按协议分派）──
+      case 'files.remoteTree': {
+        const { sessionId, path } = payload as { sessionId: string; path: string }
+        return ok(await requireFiles(deps).listRemote({ sessionId, path }))
+      }
+      case 'files.downloadToLocal': {
+        const { sessionId, remotePath, root, path, transferId } = payload as {
+          sessionId: string; remotePath: string; root: string; path: string; transferId?: string
+        }
+        const id = transferIdOf(transferId)
+        try {
+          const result = await requireFiles(deps).downloadToLocal({
+            sessionId,
+            remotePath,
+            target: { root, path },
+            onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, ...p }),
+          })
+          deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, op: 'download', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
+          return ok({ ...result, transferId: id })
+        } catch (error) {
+          deps.broadcastFileProgress?.({
+            kind: 'file-progress', transferId: id, op: 'download', sessionId, remotePath,
+            transferred: 0, done: true, ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          throw error
+        }
+      }
+      // 本地源上传（S5 联动）：本地面板 / 编辑器的文件在 host 磁盘上，浏览器拿不到字节，
+      // 由后端按树根围栏读盘再推给 SFTP；进度同样走 file-progress 帧
+      case 'files.uploadLocal': {
+        const { sessionId, remotePath, root, path, transferId } = payload as {
+          sessionId: string; remotePath: string; root: string; path: string; transferId?: string
+        }
+        const id = transferIdOf(transferId)
+        try {
+          const result = await requireFiles(deps).upload({
+            sessionId,
+            remotePath,
+            source: { kind: 'local', ref: { root, path } },
+            onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, ...p }),
+          })
+          deps.broadcastFileProgress?.({ kind: 'file-progress', transferId: id, op: 'upload', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
+          return ok({ ...result, transferId: id })
+        } catch (error) {
+          deps.broadcastFileProgress?.({
+            kind: 'file-progress', transferId: id, op: 'upload', sessionId, remotePath,
+            transferred: 0, done: true, ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          throw error
+        }
+      }
       default:
         return { ok: false, error: { code: 'internal', message: `未知方法: ${endpoint}`, details: {} } }
     }
@@ -187,9 +246,119 @@ export function isTrustedOrigin(origin: string | undefined, host: string | undef
   return host !== undefined && url.host.toLowerCase() === host.toLowerCase()
 }
 
+/** 前端生成的传输关联 id（不透明回显，≤64 字符；缺省时服务端生成）。 */
+function transferIdOf(raw: string | null | undefined): string {
+  const id = (raw ?? '').trim()
+  if (id.length > 64) throw new FileServiceError('VALIDATION', 'transferId 过长（上限 64 字符）')
+  return id.length > 0 ? id : randomUUID()
+}
+
+/** 传输路由的公共查询参数校验（upload / download 共用）。 */
+function transferQueryOf(url: URL): { sessionId: string; remotePath: string; transferId: string } {
+  const sessionId = url.searchParams.get('sessionId') ?? ''
+  const remotePath = url.searchParams.get('remotePath') ?? ''
+  if (sessionId.length === 0) throw new FileServiceError('VALIDATION', '缺少 sessionId')
+  if (remotePath.length === 0) throw new FileServiceError('VALIDATION', '缺少 remotePath')
+  return { sessionId, remotePath, transferId: transferIdOf(url.searchParams.get('transferId')) }
+}
+
+/** 传输路由的错误响应：NOT_FOUND → 404，其余 → 400（body 仍带错误码，前端按 code 展示）。 */
+function transferErrorStatus(error: unknown): number {
+  return error instanceof FileServiceError && error.code === 'NOT_FOUND' ? 404 : 400
+}
+
+/** writeJson 的小包装。 */
+function respondJson(res: ServerResponse, status: number, cors: Record<string, string>, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json', ...cors })
+  res.end(JSON.stringify(body))
+}
+
+/**
+ * POST /term-manager/files/upload —— 浏览器直传（XHR 发 raw 二进制）。
+ * req 本体就是流，直接交给 FileService（SFTP 远端带临时文件 + rename 半成品保护）；
+ * 不把 body 读成字符串。进度经 WS file-progress 帧广播；响应 settle 为准（双保险）。
+ */
+async function handleFileUpload(deps: RemoteDeps, req: IncomingMessage, res: ServerResponse, url: URL, cors: Record<string, string>): Promise<void> {
+  try {
+    const { sessionId, remotePath, transferId } = transferQueryOf(url)
+    const contentLength = Number(req.headers['content-length'])
+    const size = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : undefined
+    const result = await requireFiles(deps).upload({
+      sessionId,
+      remotePath,
+      source: { kind: 'stream', stream: req, ...(size !== undefined ? { size } : {}) },
+      onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p }),
+    })
+    deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
+    respondJson(res, 200, cors, { ok: true, value: { ...result, transferId } })
+  } catch (error) {
+    const { sessionId, remotePath, transferId } = safeQueryOf(url)
+    deps.broadcastFileProgress?.({
+      kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath,
+      transferred: 0, done: true, ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    respondJson(res, transferErrorStatus(error), cors, { ok: false, error: toError(error) })
+  }
+}
+
+/** 失败路径上尽量还原查询参数（校验失败时字段可能缺失，回显空串即可）。 */
+function safeQueryOf(url: URL): { sessionId: string; remotePath: string; transferId: string } {
+  const sessionId = url.searchParams.get('sessionId') ?? ''
+  const remotePath = url.searchParams.get('remotePath') ?? ''
+  const raw = url.searchParams.get('transferId') ?? ''
+  return { sessionId, remotePath, transferId: raw.length > 0 && raw.length <= 64 ? raw : '' }
+}
+
+/**
+ * GET /term-manager/files/download —— 浏览器另存为（导航式下载，可选任意本机目录）。
+ * 前置 stat 在 FileService.download 里完成（不存在 → 进 404 分支，头未发）；
+ * 文件名 RFC 5987 编码支持中文；no-store 防缓存。终态帧是前端唯一的完成/失败信号。
+ */
+async function handleFileDownload(deps: RemoteDeps, req: IncomingMessage, res: ServerResponse, url: URL, cors: Record<string, string>): Promise<void> {
+  try {
+    const { sessionId, remotePath, transferId } = transferQueryOf(url)
+    let transferred = 0
+    const { stream, size } = await requireFiles(deps).download({
+      sessionId,
+      remotePath,
+      onProgress: (p) => {
+        transferred = p.transferred
+        deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p })
+      },
+    })
+    const filename = posixBasename(remotePath) || 'download'
+    const asciiFallback = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
+    const encoded = encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    res.writeHead(200, {
+      ...cors,
+      'content-type': 'application/octet-stream',
+      ...(size !== undefined ? { 'content-length': String(size) } : {}),
+      'content-disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
+      'cache-control': 'no-store',
+    })
+    await pipeline(stream, res)
+    deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'download', sessionId, remotePath, transferred, done: true, ok: true })
+  } catch (error) {
+    const { sessionId, remotePath, transferId } = safeQueryOf(url)
+    deps.broadcastFileProgress?.({
+      kind: 'file-progress', transferId, op: 'download', sessionId, remotePath,
+      transferred: 0, done: true, ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    if (res.headersSent) {
+      res.destroy() // 流已开写，只能断开（浏览器报下载失败）
+      return
+    }
+    respondJson(res, transferErrorStatus(error), cors, { ok: false, error: toError(error) })
+  }
+}
+
 /**
  * 构造 HTTP 路由 handler（便于独立测试）。
  * 返回一个 (req, res) => void 的异步函数。
+ * S5 传输路由（/files/upload POST raw、/files/download GET 流式）在 JSON RPC 之前分流，
+ * 与 RPC 共用 isTrustedOrigin / CORS 栅栏（单一来源，不允许绕过）。
  */
 export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res: ServerResponse) => void {
   return async (req, res) => {
@@ -205,10 +374,28 @@ export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res:
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         ...cors,
-        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-methods': 'POST, GET, OPTIONS',
         'access-control-allow-headers': 'content-type',
       })
       res.end()
+      return
+    }
+    // S5 文件传输路由（raw body / GET 流式），在 JSON RPC 分流之前处理
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname === '/term-manager/files/upload') {
+      if (req.method !== 'POST') {
+        respondJson(res, 405, cors, { error: 'method not allowed' })
+        return
+      }
+      await handleFileUpload(deps, req, res, url, cors)
+      return
+    }
+    if (url.pathname === '/term-manager/files/download') {
+      if (req.method !== 'GET') {
+        respondJson(res, 405, cors, { error: 'method not allowed' })
+        return
+      }
+      await handleFileDownload(deps, req, res, url, cors)
       return
     }
     if (req.method !== 'POST') {

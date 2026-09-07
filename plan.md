@@ -139,7 +139,7 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | **S2 编辑器** | CodeMirror 6 全量打包（`tm:codemirror-css` 虚拟模块）+ 语法高亮（sh/py/json/md）+ 打开/保存（Ctrl+S 原子写）/ 脏标记 / 关 Tab 保存确认 / >10MB 只读 | S1 | 3 天 | ✅ 2026-09-02（步骤 8；偏离：无需虚拟模块） |
 | **S3 选中发送 + TC 执行** | `src/tc-parser.ts`（语法按真实样例，spec B11）；TC 徽章（窗格标题 + 活跃会话项，拖动 = 换编号）；[▶ 执行脚本] + 右键执行选中 / 执行本节 + 映射确认框（"本次会话不再确认"）+ 常驻汇总条；[▶ 发送选中→] 终端多选弹窗 + 逐条 `sessions.send`（source `script`）+ >20 行提示；按钮可用性矩阵（D5） | S2 | 3 天 | ✅ 2026-09-02（步骤 9–12 + 两轮验收修订 R0–R9） |
 | **S4 联调收尾** | 接入扩展模块负责人模块联调、eval 场景补齐、README「文件访问范围」、spec/plan 同步 | S3 + 扩展模块 | 2 天 | ⏳ 部分：README/spec/plan 同步已随步骤 12 完成；**模块联调被同事阻塞**（扩展模块需求文档未成稿），等对方就绪 |
-| **S5 文件传输 + 远端面板** | `transport/ssh.ts` 导出 `getSftp()`（复用 Client 开 sftp 通道）→ `transport/sftp.ts`；`FileService` 远端四件套；Telnet base64 命令模拟（≤1MB，Config `telnetFileTransfer` 开关，UI 标实验性）；`/files/upload`（POST raw）/ `/files/download`（GET 流式）路由 + `/term-io` `file-progress` 帧；远端文件面板（切终端 chips、6 按钮、同名覆盖/跳过/重命名）；`tm_upload` / `tm_download`；`file` 事件派发 | S1（可与 S3 并行，最后合） | 8 天 | ⬜ 未开工 → **2026-09-02 开工，细化计划见下** |
+| **S5 文件传输 + 远端面板** | `transport/ssh.ts` 导出 `getSftp()`（复用 Client 开 sftp 通道）→ `transport/sftp.ts`（协议无关 SftpLike 门面）；`FileService` 远端四件套（SSH/SFTP 路径；Telnet 会话抛 UNSUPPORTED——base64 模拟已砍）；`/files/upload`（POST raw）/ `/files/download`（GET 流式另存为）路由 + `/term-io` `file-progress` 帧（transferId 关联 + 终态帧）；远端文件面板（切终端 chips、3 按钮、同名覆盖/跳过/重命名）+ 本地面板联动上传/下载；`tm_upload` / `tm_download`；`file` 事件派发 | S1（可与 S3 并行，最后合） | 8 天 | ✅ 2026-09-03（步骤 1–9，2f1065a + 收尾提交）；**2026-09-03 计划定稿（需求变动见下节）** |
 
 调整说明（相对设计方案）：本地文件服务和路径安全从 M2 提前到 S1 最前面做——文件面板、编辑器都依赖它，且它是 `FileService` 契约的第一批实现，能尽早验证契约。2026-09-02 下午确认：同事不新增工作区面板，UI 部分不再等对齐会；S1–S3 合在一个分支 `feat/sep-s1-files` 上按下面顺序推进。
 
@@ -203,28 +203,72 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | R9 | 本地文件面板高度可改：顶部横条上下拖 | 展开时拖横条改高度（120 到视口 70%），记在 localStorage；没拖动只是点击 = 展开 / 收起 | ✅ |
 | R0 | Excel（.xlsx）不自己编辑，交给系统默认程序打开 | 新端点 `files.open`：路径围栏内的文件 → `start` / `open` / `xdg-open`；面板双击非文本文件即走此路（右键也有「用系统程序打开」） | ✅ |
 
-### 分支 `feat/sep-s1-files` S5 细化计划（文件传输 + 远端面板，2026-09-02 开工）
+### 分支 `feat/sep-s5-transfer` S5 细化计划（文件传输 + 远端面板，2026-09-02 开工；2026-09-03 定稿）
 
 设计源：设计方案 3.2（模块三：文件上传 / 下载）+ 2.3（远端文件面板，已确认 2026-09-01）。归属已定：后端由本插件自研，扩展模块负责人复用。每步「代码 + 测试」一个提交，`pnpm build` + `pnpm test` 全绿才进下一步；偏离本表即同提交改本文。
 
+**2026-09-03 定稿的需求变动（用户确认）**：
+
+1. **砍 Telnet 文件传输**：原 base64 命令模拟兜底不做，Telnet 会话远端操作一律 `UNSUPPORTED`；`telnetFileTransfer` 死字段清理。
+2. **砍文件夹传输**：本期只做单文件。远端面板 3 按钮（上传文件 / 下载文件 / 刷新）；本地面板补「上传文件 / 下载文件」联动按钮。
+3. **下载双入口**：远端面板 [📥 下载] → GET `/files/download` 流式路由，浏览器另存为（用户选任意目录）；本地面板 [📥 下载] → `downloadToLocal`（联动存到工作区当前目录，即「路径②」）；AI `tm_download` 也走 `downloadToLocal`。另存为（「路径③」）要不要行内进度条周五交互会再定。
+4. **路径② `downloadToLocal` 要行内进度条（用户 2026-09-03 拍板）**：WS `file-progress` 帧 + transferId 机制确定保留，不是可裁项。
+5. 交互细节（③ 行内进度条、拖拽行为、脏修改提示、进度条样式）周五开会定，前端步骤（8）留占位。
+
+**关键架构决定**：
+
+- **零契约改动**：transferId 只出现在 HTTP query / RPC payload 与 WS 帧（OutFrame 是主线自有类型），由路由组装帧时塞入；`TransferProgress` / `events.ts` 均不动，无需契约 PR。`SessionManager.getSftp` 是主线方法，不进 session-api 契约（扩展模块走 FileService 拿文件能力）。
+- **无传输独占锁**：SFTP 是 SSH 独立子通道，不碰 PTY 字节流，与 `sendAndWait` 互不干扰；原计划的 `runTransfer` SESSION_BUSY 锁砍掉——上锁只会造成「传大文件时终端不让打字」。
+- **协议无关接口**：`transport/types.ts` 声明纯接口 `SftpLike`（list / stat / mkdirs / put / get / downloadStream，不 import ssh2）；`SftpFacade`（`transport/sftp.ts`）implements；ssh.ts 的 `getSftp` 返回门面实例。unlink/rename 暂不进接口（门面内部用）。
+- **进度帧广播 + 前端过滤**：`registerWsIo` 返回 `{ disposer, broadcastFileProgress }`（新增 B7a→B7b 依赖边，index.ts 接线进 RemoteDeps）；帧广播给所有 WS 连接，前端按 transferId 过滤（服务端当不透明字符串回显，限长 ≤64）；路由在响应 finish/close 补发**终态帧**（`done` + `ok`/`error`）——另存为导航式下载前端看不到 HTTP 响应，终态帧是唯一完成/失败信号；XHR/fetch 路径仍以响应 settle 为准（双保险）。
+- **`file` 结束事件**：成功 / 失败 / 取消都发（失败也是 ok:false）；`path` = 远端路径（upload=目标 / download=源）。事件总线不发进度。
+- **并发先不限**：每次 getSftp 开新 SFTP 子通道（sshd 默认 MaxSessions 10），观察后再说。
+
 | # | 步骤 | 文件 | 测试 / 证据 |
 |---|---|---|---|
-| 1 | Transport 接口加可选 `getSftp()`；`transport/ssh.ts` 保存 Client 引用（连接期与连接后都持有），实现懒开 sftp 子通道；断连后取用报 DISCONNECTED | `src/transport/types.ts`、`src/transport/ssh.ts` | `tests/transport-extra.spec.ts` 增：open 会话可取 sftp；close 后取用抛 DISCONNECTED |
-| 2 | `src/transport/sftp.ts`：Sftp 门面（list / put / get / mkdirs），fastPut/fastGet step 进度节流 200ms，上传中断清理远端半成品，错误映射 REMOTE_IO / FILE_TOO_LARGE | `src/transport/sftp.ts` | `tests/sftp.spec.ts`：内嵌 ssh2 mock sftp 服务器（复用 mock-ssh-device 思路）测 list/put/get/进度回调/失败清理 |
-| 3 | SessionManager：`getSftp(sessionId)`（要求 open 且 ssh，telnet 抛 UNSUPPORTED）+ `runTransfer(sessionId, fn)` 独占锁（传输期间外部 sendAndWait/sendImmediate 报 SESSION_BUSY，传输内部命令免检直写） | `src/session-manager.ts` | `tests/session-manager.spec.ts`（或 transport 相关）增：busy 隔离、telnet 会话取 sftp 抛 UNSUPPORTED、断开会话传输中止 |
-| 4 | FileService 远端四件套（SSH 路径）：listRemote → sftp.list；upload（来源 local ref / stream）；download（流，HTTP 直管响应）；downloadToLocal（限本地树根）；传输结束派发 `file` 事件（契约 events.ts） | `src/file-service.ts`、`src/index.ts`（接线 events） | `tests/file-service.spec.ts` 增：挂 mock sftp 会话测四方法 + 树根逃逸拒绝 + file 事件 |
-| 5 | Telnet 命令模拟（实验性）：分块上传（~48KB 原文 → 64KB base64 → `printf '%s' '<块>' >> /tmp/.tm-<rand>.b64` → `base64 -d` → `rm`）/ 分块下载（`tail -c +N \| head -c C \| base64`）；单文件 ≤1MB（超出 FILE_TOO_LARGE）；`telnetFileTransfer=false` → UNSUPPORTED；文件夹传输 Telnet 拒绝 | `src/file-service.ts`（内部分派） | `tests/telnet-transfer.spec.ts`：mock-device 加 base64/printf/od 命令，往返一致性 + 超 1MB 拒绝 |
-| 6 | 控制面：RPC `files.remoteTree`（= listRemote）；HTTP `/term-manager/files/upload`（POST raw body，query sessionId/remotePath/name）与 `/term-manager/files/download`（GET 流式 + content-disposition）；`/term-io` 下行 `file-progress` 帧（节流后转发） | `src/remotes.ts`、`src/ws-io.ts`、`src/index.ts` | `tests/remotes-files.spec.ts` 增 upload/download 路由（假 deps）；`tests/ws-io-extra.spec.ts` 增进度帧 |
-| 7 | AI 工具 `tm_upload`（sessionId/localPath/remotePath）/ `tm_download`（sessionId/remotePath/localPath?；无 localPath 返回浏览器下载 URL）；guard:{}，presentCall 卡片 = 文件名 + 方向 + 大小 | `src/tools.ts` | `tests/tools-extra.spec.ts` 增：参数校验、成功/失败分支、presentCall |
-| 8 | 前端远端文件面板：收起条/展开（同本地面板交互）、切终端 chips（只列 open 会话，Telnet 且关开关时按钮禁用并标实验性）、面包屑/上一级/刷新、6 按钮（上传文件/上传文件夹/下载文件/下载文件夹/刷新），与本地面板联动（本地选中 → 上传到远端当前目录；远端选中 → 下载到本地当前目录）、同名冲突（覆盖/跳过/重命名）、进度条（WS 帧 + toast） | `client/files/RemoteFilePanel.tsx`、`client/files/remoteFs.ts`、`client/styles/files.ts`、`client/TerminalWorkspace.tsx`（一行挂载） | `tests/client-files.spec.ts` 增（remoteFs 纯逻辑）；手工：对 mock SSH 设备传/取文件、对 mock Telnet 设备跑 base64 往返 |
-| 9 | 编辑器底部 [📤 上传]：当前编辑文件 → 终端多选弹窗（复用发送选中的弹窗样式）→ 进度 | `client/editor/EditorWindow.tsx` | 手工 |
-| 10 | 收尾：spec/plan/CLAUDE/README 同步（远端面板 + 文件传输 + tm_upload/tm_download）、`scripts/mock-ssh-device.mjs` 加 sftp 支持、smoke-e2e 加传输场景 | 文档、scripts | build + test 全绿 + 手工验收清单补条目 |
+| 1 | ✅ Transport 接口加可选 `getSftp()`；SSH 懒开 sftp 子通道；断连 DISCONNECTED / 设备未开子系统 PROTO_ERROR（fa3e3fd；返回类型修订 SftpLike 随步骤 2） | `src/transport/types.ts`、`src/transport/ssh.ts` | `tests/transport-extra.spec.ts` 增 3 项：open 会话可取 sftp；close 后 DISCONNECTED；未开子系统 PROTO_ERROR |
+| 2 | ✅ SFTP 门面 SftpFacade（list / stat / mkdirs / put / get / downloadStream）+ SftpLike 接口修订（types.ts 删 ssh2 import、ssh.ts 返回门面）+ 上传临时文件 `<目标>.tm-partial-<rand>` + rename 落位 + 进度节流 200ms（2e77c1f；mock 设备目录句柄 CLOSE 修复随本步） | `src/transport/sftp.ts`、`src/transport/types.ts`、`src/transport/ssh.ts` | `tests/sftp.spec.ts`（mock SFTP 设备进 `tests/helpers.ts`）：put（路径 / 流 / 覆盖 / 中断清理）/ get（NOT_FOUND / FILE_TOO_LARGE / 目录）/ list / stat / mkdirs / downloadStream / 进度终值 |
+| 3 | ✅ SessionManager `getSftp(sessionId)`（无锁版：requireOpen + 返回门面）+ FileService 协议分派骨架（Telnet → UNSUPPORTED）（7cdab30） | `src/session-manager.ts`、`src/file-service.ts` | 会话相关测试增：telnet → UNSUPPORTED、closed → DISCONNECTED |
+| 4 | ✅ FileService 远端四件套（SSH 路径）+ `file` 结束事件（构造加 `events: TmEventBus`，成功/失败/取消都发）+ downloadToLocal 本地半成品保护（temp + rename）（1a68d41） | `src/file-service.ts`、`src/index.ts`（接线 events） | `tests/file-service.spec.ts` 增：四方法（挂 mock SFTP 会话）+ file 事件 + 树根围栏（downloadToLocal） |
+| 5 | ✅ `telnetFileTransfer` 死字段清理（aba30c5；evals 样例 config 一并清） | `src/config.ts`、`tests/config.spec.ts`、`tests/index.spec.ts`、`tests/remotes-files.spec.ts` | build + test 全绿 |
+| 6 | ✅ 控制面：RPC `files.remoteTree` / `files.downloadToLocal`；HTTP `/term-manager/files/upload`（POST raw，`createHttpHandler` 入口内分流，直接 pipe req）/ `/term-manager/files/download`（GET 流式另存为：前置 stat、content-disposition 文件名 RFC 5987 编码、no-store）；`/term-io` `file-progress` 帧（含终态 done/ok）+ broadcaster 接线（`registerWsIo` 返回 `{ disposer, broadcastFileProgress }`）（0d57f67） | `src/remotes.ts`、`src/ws-io.ts`、`src/index.ts` | `tests/remotes-files.spec.ts` 增 upload/download 路由（假 deps）；`tests/ws-io-extra.spec.ts` 增进度帧 |
+| 7 | ✅（0fdd925）AI 工具 `tm_upload`（localPath 绝对路径 + `resolveInsideRoot` 围栏，工具描述教 AI 先 `files.root`）/ `tm_download`（localPath 必填：AI 先 `files.root` → `downloadToLocal` 进树根 → `files.read`）；guard:{}，presentCall 卡片 = 方向 + 源/目标路径（偏离 12） | `src/tools.ts` | `tests/tools-extra.spec.ts` 增：参数校验、成功/失败分支、presentCall |
+| 8 | ✅（2f1065a）前端：远端面板 3 按钮 + chips（仅在线 SSH 会话，无 SSH 提示「请先连接 SSH 设备」）+ 面包屑/刷新 + 同名冲突（覆盖/跳过/重命名）+ 进度条（② downloadToLocal 确定行内；③ 另存为行也进传输条、终态帧收尾）+ OS 拖拽单文件直传 + 本地面板联动上传/下载按钮 + 编辑器上传入口（实际落地细节见偏离 13/14） | `client/files/RemoteFilePanel.tsx`、`client/files/remoteFs.ts`、`client/ws.ts`（file-progress 帧）、`client/files/FilePanel.tsx`（联动按钮）、`client/styles/files.ts`、`client/TerminalWorkspace.tsx`（挂载 + 进度帧接线） | `tests/client-files.spec.ts` 增 8 项（remoteFs 纯函数 + store + 传输/冲突/进度帧）；`tests/remotes-files.spec.ts` 增 `files.uploadLocal`；手工：对 mock SSH 设备传/取文件（随步骤 9 冒烟补） |
+| 9 | ✅（本提交）收尾：spec（B6 八只手 + F7b 远端面板 + B7a 传输路由/端点订正）/plan/CLAUDE（基线 370 + 坑 11）/README（远端面板 + 文件访问范围 + 已知限制）同步；`scripts/mock-ssh-device.mjs` 加 SFTP 子系统（远端 / 映射到本地根目录，参数第三个位指定）；smoke-e2e 加 E-S5 两场景（remoteTree + uploadLocal/downloadToLocal 往返） | 文档、`scripts/mock-ssh-device.mjs`、`scripts/smoke-e2e.mjs` | build + test 全绿；手工验收清单见下节 |
+
+**偏离记录（相对 2026-09-02 原十步计划，规则 6）**：
+
+1. Telnet base64 模拟整步砍（步骤 5 → `telnetFileTransfer` 死字段清理）；文件夹传输砍（6 按钮 → 3 按钮 + 本地面板联动按钮）——用户 2026-09-03 确认。
+2. `runTransfer` SESSION_BUSY 独占锁砍掉：SFTP 独立子通道不碰 PTY，传输与打命令互不干扰；步骤 3 缩为 `getSftp(sessionId)` 无锁版。
+3. `Transport.getSftp` 返回协议无关 `SftpLike`（原实现直返 ssh2 `SFTPWrapper`，违反 types.ts「协议无关」原则）；复用步骤 2 的 SftpFacade 作适配层。
+4. 契约零改动：原计划「`TransferProgress` 加 transferId 的契约 PR」取消——transferId 由路由组装进 WS 帧，不进契约。
+5. broadcaster 接线：`registerWsIo` 返回值从裸 disposer 变 `{ disposer, broadcastFileProgress }`，新增 B7a→B7b 依赖边。
+6. 进度帧带终态（done + ok/error）：另存为导航式下载没有 HTTP 响应可看，终态帧是唯一完成/失败信号。
+7. downloadToLocal 补本地半成品保护（temp + rename）——原计划 fastGet 直写目标，中断留半个本地文件。
+8. mock SFTP 设备放 `tests/helpers.ts`（原计划「tests/sftp.spec.ts 内嵌」；helpers 按约定只增不改）。
+9. 步骤 3 的依赖注入形状：`LocalFileService` 构造加 `sessions?: FileSessionGateway`（结构化最小面 = `get` + `getSftp`，index.ts 注入 SessionManager，避免 file-service ↔ session-manager 互相 import）；SessionManager.getSftp 的 Telnet 防御分支用 DISCONNECTED 码 + 说明消息——契约 `SessionErrorCode` 无 UNSUPPORTED（零契约改动），协议分派的 UNSUPPORTED 由 FileService 按会话快照 protocol 给出，直调 SessionManager.getSftp 的场景正常不存在。
+10. `file` 事件发射边界：`requireSftp` 分派层失败（会话不存在 / 已断开 / Telnet）**不发**事件（属 API 误用，步骤 3 测试直接断言错误码）；请求进入传输后的所有失败（含本地围栏 PATH_OUTSIDE_ROOT）都发 ok:false。流式 `download` 的结束事件挂在返回的流上（end=成功 / error=失败 / close 未 end=取消「传输被取消」）——另存为导航式下载同样适用。
+11. 步骤 6 补充决定：契约 `FileRpcAction` 不加新动作名（零契约改动，该类型无消费者，`files.remoteTree` / `files.downloadToLocal` 只作为 endpoint 字符串存在）；传输路由（upload/download）响应体用 `{ok, value|error}` 裸信封（非 RPC `server-response` 封包），错误状态码 NOT_FOUND → 404、其余 → 400；终态帧三条路都发（RPC 成功/失败、upload 成功/失败、download 管道 finish/出错），`transferId` 缺省时服务端 randomUUID 生成（RPC 响应回传）；OPTIONS 的 allow-methods 加 GET。
+12. 步骤 7 落地细节：`registerTerminalTools(ctx, sessions)` 改为 `registerTerminalTools(ctx, { sessions, files, workspaceRoot })`（传输工具需要文件服务与树根；index.ts 传解析后 cfg.workspaceRoot）；工具错误统一折叠成「CODE: 消息」（复用 toError 风格，AI 可自纠）；presentCall 在执行前拿不到大小，卡片 = 方向 + 源/目标路径，大小在结果文本里（「文件名+方向+大小」拆两半）。
+13. 步骤 8 补控制面入口 `files.uploadLocal`（仅 dispatch 端点字符串，零契约改动）：本地面板 / 编辑器的文件在 host 磁盘上，浏览器拿不到字节，联动上传必须由后端按树根围栏读盘（`UploadSource` local ref）再推 SFTP；进度与终态帧走同一条 `broadcastFileProgress` 路。原计划的「拖拽后端无新 API」只对浏览器文件直传成立（OS 拖拽 = XHR raw 路由）。
+14. 步骤 8 前端落地细节：传输进度条集中在远端面板底部（本地/编辑器发起的也在那看，发起时 toast 指路）；② 同名冲突查本地面板当前目录条目（store 依赖注入 `localNames`/`localTarget` 保持纯逻辑）；上传成功自动刷新远端列表、下载成功刷新本地列表；OS 拖拽仅单文件（多个取第一个并提示）；编辑器上传入口 = 底栏按钮 `EditorUploadButton`（注入 EditorWindow actions 槽；脏文件传已保存版本并提示，正式的脏修改交互周五定）；另存为（③）也进传输条但进度仅终态帧可见（导航式下载拿不到响应，周五再定行内进度）；远端面板固定高度不做拖拽调高。
+15. **步骤 9 后的审查修复轮（2026-09-03，REVIEW.md 三轮：缺陷 / 安全 / 合规；合规轮通过，helpers.ts import 区 2 行字面删改语义纯增量放行记录）**。已修：① H1——`connectSsh` 的 SFTP 子通道按连接复用（原每操作新开且永不关闭，真实 OpenSSH MaxSessions=10 会把远端功能用瘫；打开失败不缓存可重试，通道自行死亡失效缓存，close 时显式 end）；② M1——`downloadStream` 消费端中止（浏览器取消）→ 底层 SFTP 读流 destroy，不再把整个文件后台拉完；③ M3——会话掉线 `setSession(null)` 保留传输行与 transferId 门（原实现清空 → 在途传输终态零反馈），在途行由服务端失败终态帧收尾；④ L2——切会话使未决冲突决策作废；⑤ L4——失败终态帧 `transferred:0` 不清零已传字节；⑥ 安全高——`/term-io` WS 升级加 Origin 校验（与 /term-manager 同一 `isTrustedOrigin`，原 `isLoopback` 只看可伪造的 Host 头，跨站 WS 劫持可偷终端输出/注入键入）；⑦ mock-ssh-device SFTP 根加越界围栏（`..` 逃逸被拒 PERMISSION_DENIED，真 ssh2 客户端探针验证）。**记档不修（后续轮）**：M2 传输全程无超时/取消（涉及 UI 取消按钮，周五交互会定）；`isTrustedOrigin` 的 Origin===Host 分支可被 DNS rebinding 击穿（既存规则，收紧前需确认用户部署方式——从局域网主机名访问会被挡）；L1 rename 删旧窗口 / L3 失败行无 toast（面板收起时不可见）/ L5 下载 stat 与读取 TOCTOU；ws-io 心跳只 ping 不验 pong（僵尸连接积压 send 缓冲）、handleFileUpload 校验失败不消费 body（keep-alive 复用）、mkdirs 暂无调用方、传输行 30 条上限可能挤出进行中行。
 
 **S5 风险与对策**
-- ssh2 的 sftp 依赖服务端开 sftp 子系统：真实网络设备很多没有 sftp——面板按钮失败时提示「设备未开 SFTP」，Telnet 模拟作为兜底路径（设计已定）。
-- Telnet 下载受环形缓冲 1MiB 限制：分块读（每块 ≤256KB 原文）绕开，不指望单条命令拿全量输出。
+- ssh2 的 sftp 依赖服务端开 sftp 子系统：真实网络设备很多没有 sftp——面板按钮失败时提示「设备未开 SFTP」（Telnet 兜底已砍，见需求变动 1）。
 - 远端路径无树根概念（`..` 交设备自己解释）：listRemote/upload/download 只做基本规范化（`\0`、空路径拒绝），不做围栏——远端本来就是全盘可见的（与 SSH 终端同等权限），UI 面包屑防止误操作即可。
+- GET `/files/download` 另存为在 3180 实测：若插件 UI 跑在 iframe 里，anchor 下载需宿主 sandbox 含 `allow-downloads`（同页挂载无此问题）；不行则退 fetch+blob（大文件内存压力）或与宿主沟通。
+- 上传中设备掉线：远端可能残留 `.tm-partial` 文件（best-effort 清理的物理上限），文档记一句。
 - `TerminalWorkspace.tsx` 仍是最小改动：远端面板插在本地面板上方一行。
+
+**S5 手工验收清单（DSH 3180 + `node scripts/mock-ssh-device.mjs 2222`；SFTP 根 = 系统临时目录 `mock-ssh-device-files`）**
+
+1. 连 SSH mock 设备 → 远端面板出现会话 chip；点开面板 → chips 单选切换，面包屑从 `/` 开始，双击进目录 / 上一级 / 刷新正常；Telnet 会话不出现 chip。
+2. 选中远端文件点 [⬇ 下载] → 浏览器另存为弹出，文件落选目录（中文文件名不乱码）。
+3. 远端选中文件 → 本地面板 [⬇] → 文件落本地面板当前目录，远端面板传输条出现行内进度条并 ✓ 收尾；同名时弹冲突框：覆盖替换、跳过不传、重命名落 `a (1).txt`。
+4. 本地面板选中文件 [⬆] → 远端当前目录出现文件（host 端读盘路径）；编辑器打开文件 → 底栏 [⬆ 上传到设备] 同样生效。
+5. 从资源管理器拖一个文件进远端面板 → 直传成功（多文件取第一个并提示）。
+6. `node scripts/smoke-e2e.mjs` 对 3180 跑 21 场景全过（含 E-S5 两个传输场景）。
 
 ### 用户验收修订（2026-09-02 第三轮）
 

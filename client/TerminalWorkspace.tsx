@@ -12,6 +12,7 @@ import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
 import { FilePanel } from './files/FilePanel.tsx'
+import { EditorUploadButton, RemoteFilePanel, remoteFsStore } from './files/RemoteFilePanel.tsx'
 import { EditorWindow, editorStore } from './editor/EditorWindow.tsx'
 import { ToastHost } from './ToastHost.tsx'
 import { buildTcOrder, tcIndexMap } from './tc/tcMap.ts'
@@ -94,6 +95,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     })
     ws.open()
     wsRef.current = ws
+    // S5：文件传输进度帧 → 远端面板 store（广播帧，store 自己按 transferId 过滤）
+    ws.onFileProgress(frame => remoteFsStore().pushFrame(frame))
   }
 
   // 首次可见时拉一次会话全量快照
@@ -242,11 +245,12 @@ export function TerminalWorkspace(): React.JSX.Element | null {
             <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
           </div>
         </div>
-        {/* F7 本地文件面板（广播栏下方收起条）；远端面板 S5 接入 */}
+        {/* S5 远端文件面板（本地面板上方一行）+ F7 本地文件面板 */}
+        <RemoteFilePanel sessions={sessions} />
         <FilePanel onOpenFile={(entry) => void editorStore().openFile(entry.path)} />
       </div>
-      {/* F8 浮动编辑器（fixed 于视口，可拖到聊天区上方） */}
-      <EditorWindow actions={tc.actions} below={tc.below} onContextMenu={tc.onContextMenu} />
+      {/* F8 浮动编辑器（fixed 于视口，可拖到聊天区上方）；S5 上传入口注入 actions 槽 */}
+      <EditorWindow actions={<><EditorUploadButton />{tc.actions}</>} below={tc.below} onContextMenu={tc.onContextMenu} />
       <ToastHost />
       <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} tcMap={tcMap} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>

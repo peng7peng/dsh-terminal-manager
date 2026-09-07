@@ -10,6 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { FileService } from './types/file-service.ts'
 import type { SessionSnapshot } from './session-manager.ts'
 import { SessionManager, type WaitPolicyConfig } from './session-manager.ts'
 
@@ -65,6 +66,17 @@ const BROADCAST_ENTRY_SCHEMA = {
   },
 } as const
 
+/** tm_upload / tm_download 的输出（TransferResult）。 */
+const TRANSFER_RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ok: { type: 'boolean', required: true },
+    bytes: { type: 'number', required: true },
+    durationMs: { type: 'number', required: true },
+  },
+} as const
+
 interface ConnectArgs {
   connId?: string
   protocol?: string
@@ -73,6 +85,12 @@ interface ConnectArgs {
   username?: string
   password?: string
   label?: string
+}
+
+interface TransferArgs {
+  sessionId?: string
+  localPath?: string
+  remotePath?: string
 }
 
 interface SendArgs {
@@ -108,12 +126,28 @@ function waitOptions(args: { quietMs?: number; timeoutMs?: number }): { wait?: W
   return Object.keys(wait).length > 0 ? { wait } : {}
 }
 
-/** 注册六个 tm_* 工具。需在 ctx.tools / ctx.systemPrompt 就绪后调用。 */
-export function registerTerminalTools(ctx: Context, sessions: SessionManager): void {
+/** FileServiceError / SessionError 带 code；折叠成「CODE: 消息」前缀便于 AI 自纠。 */
+function recode(error: unknown): never {
+  if (error instanceof Error && 'code' in error) throw new Error(`${String((error as { code: unknown }).code)}: ${error.message}`)
+  throw error instanceof Error ? error : new Error(String(error))
+}
+
+/** B6 工具层依赖。 */
+export interface TerminalToolDeps {
+  sessions: SessionManager
+  /** 文件服务（tm_upload / tm_download 用） */
+  files: FileService
+  /** 本地工作区树根（与 files.root 端点一致；工具的 localPath 围栏基准） */
+  workspaceRoot: string
+}
+
+/** 注册 tm_* 工具。需在 ctx.tools / ctx.systemPrompt 就绪后调用。 */
+export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): void {
+  const { sessions, files, workspaceRoot } = deps
   ctx.systemPrompt.section({
     name: 'tool:term-manager',
     order: 107,
-    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。',
+    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。文件在工作区与 SSH 设备间用 tm_upload / tm_download 传输（localPath 是绝对路径，先用 files.root 工具查工作区树根；Telnet 会话不支持文件传输）。',
   })
 
   ctx.tools.register(defineTool({
@@ -333,5 +367,69 @@ export function registerTerminalTools(ctx: Context, sessions: SessionManager): v
       return { sessionId: args.sessionId, outcome: 'closed' as const }
     },
     presentCall: (args) => ({ card: 'generic', title: `断开会话 ${(args as { sessionId: string }).sessionId}`, kind: 'delete' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_upload',
+    description: '把本机工作区文件上传到远端设备（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。localPath 必须是工作区树根内的绝对路径——先用 files.root 工具查树根。远端同名文件会被覆盖。',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'SSH 会话编号（tm_connect / tm_list 返回）' },
+      localPath: { type: 'string', required: true, description: '本机文件绝对路径（必须在工作区树根内；先调 files.root 查）' },
+      remotePath: { type: 'string', required: true, description: '远端绝对路径（POSIX 风格，如 /root/app.log）' },
+    },
+    output: {
+      schema: TRANSFER_RESULT_SCHEMA,
+      render: (args, value) => {
+        const v = value as { bytes: number; durationMs: number }
+        return [{ type: 'text', text: `已上传 ${v.bytes} 字节 → ${(args as TransferArgs).remotePath}（${v.durationMs}ms）` }]
+      },
+    },
+    async execute(args: TransferArgs, _exec) {
+      if (args.sessionId === undefined || args.sessionId.length === 0) throw new Error('需要 sessionId（SSH 会话编号）')
+      if (args.localPath === undefined || args.localPath.length === 0) throw new Error('需要 localPath（本机文件绝对路径，先调 files.root 查工作区树根）')
+      if (args.remotePath === undefined || args.remotePath.length === 0) throw new Error('需要 remotePath（远端绝对路径）')
+      try {
+        return await files.upload({
+          sessionId: args.sessionId,
+          remotePath: args.remotePath,
+          source: { kind: 'local', ref: { root: workspaceRoot, path: args.localPath } },
+        })
+      } catch (error) {
+        recode(error)
+      }
+    },
+    presentCall: (args) => ({ card: 'generic', title: `上传 ${(args as TransferArgs).localPath ?? ''} → ${(args as TransferArgs).remotePath ?? ''}`, kind: 'execute' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_download',
+    description: '把远端设备文件下载到本机工作区（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。localPath 必填（工作区树根内的绝对路径，先调 files.root 查树根）；下载完成后可用 files.read 工具读取内容。本机同名文件会被覆盖。',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: 'SSH 会话编号（tm_connect / tm_list 返回）' },
+      remotePath: { type: 'string', required: true, description: '远端绝对路径（POSIX 风格）' },
+      localPath: { type: 'string', required: true, description: '本机保存位置绝对路径（必须在工作区树根内；先调 files.root 查）' },
+    },
+    output: {
+      schema: TRANSFER_RESULT_SCHEMA,
+      render: (args, value) => {
+        const v = value as { bytes: number; durationMs: number }
+        return [{ type: 'text', text: `已下载 ${(args as TransferArgs).remotePath}，${v.bytes} 字节 → ${(args as TransferArgs).localPath}（${v.durationMs}ms）；可用 files.read 读取` }]
+      },
+    },
+    async execute(args: TransferArgs, _exec) {
+      if (args.sessionId === undefined || args.sessionId.length === 0) throw new Error('需要 sessionId（SSH 会话编号）')
+      if (args.remotePath === undefined || args.remotePath.length === 0) throw new Error('需要 remotePath（远端绝对路径）')
+      if (args.localPath === undefined || args.localPath.length === 0) throw new Error('需要 localPath（本机保存位置绝对路径，先调 files.root 查工作区树根）')
+      try {
+        return await files.downloadToLocal({
+          sessionId: args.sessionId,
+          remotePath: args.remotePath,
+          target: { root: workspaceRoot, path: args.localPath },
+        })
+      } catch (error) {
+        recode(error)
+      }
+    },
+    presentCall: (args) => ({ card: 'generic', title: `下载 ${(args as TransferArgs).remotePath ?? ''} → ${(args as TransferArgs).localPath ?? ''}`, kind: 'execute' }),
   }))
 }

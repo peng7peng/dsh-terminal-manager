@@ -1,16 +1,21 @@
 /**
- * B7a 新端点：files.tree / read / write / dirs / root 与 sessions.send。
+ * B7a 新端点：files.tree / read / write / dirs / root 与 sessions.send；
+ * S5 传输：files.remoteTree / files.downloadToLocal RPC + HTTP /files/upload、/files/download 路由。
  */
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough, Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { LocalFileService } from '../src/file-service.ts'
-import { dispatch, type RemoteDeps } from '../src/remotes.ts'
+import { createHttpHandler, dispatch, type RemoteDeps } from '../src/remotes.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
-import type { TransportCallbacks } from '../src/transport/types.ts'
+import { connectSsh } from '../src/transport/ssh.ts'
+import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
+import type { FileProgressFrame } from '../src/ws-io.ts'
 import type { TmEvent } from '../src/types/events.ts'
+import { createDeviceLab } from './helpers.ts'
 
 let dir: string
 let root: string
@@ -45,7 +50,7 @@ function makeDeps(withFiles = true): { deps: RemoteDeps; slots: TransportCallbac
   const sessions = new SessionManager(store, factory)
   const deps: RemoteDeps = {
     sessions, store,
-    config: { workspaceRoot: root, telnetFileTransfer: true },
+    config: { workspaceRoot: root },
     ...(withFiles ? { files: new LocalFileService() } : {}),
   }
   return { deps, slots, written }
@@ -159,5 +164,163 @@ describe('sessions.send 端点', () => {
     expect(written).toEqual(['pwd\n'])
     expect(seen[0]?.type === 'input' && seen[0].source).toBe('human')
     expect(errMsg(await dispatch('sessions.send', { sessionId: 'nope', command: 'x' }, deps, abort))).toMatch(/^SESSION_NOT_FOUND:/)
+  })
+})
+
+describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
+  const lab = createDeviceLab()
+  const SESSION = 'sess-route'
+  let dir: string
+  let root: string
+  let devRoot: string
+  let store: ConnectionStore
+  let transport: Transport | undefined
+  let deps: RemoteDeps
+  let frames: FileProgressFrame[]
+  let handler: ReturnType<typeof createHttpHandler>
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'tm-s5-route-'))
+    root = join(dir, 'ws')
+    devRoot = join(dir, 'dev')
+    await mkdir(root)
+    await mkdir(devRoot)
+    store = new ConnectionStore(join(dir, 'connections.json'))
+    await store.load()
+    const { port } = await lab.startSftpDevice(devRoot)
+    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+    const sftp = await transport.getSftp!()
+    frames = []
+    deps = {
+      sessions: new SessionManager(store, fakeFactory()),
+      store,
+      files: new LocalFileService(
+        { get: () => ({ sessionId: SESSION, label: 'dev', target: '127.0.0.1', protocol: 'ssh', status: 'open' }), getSftp: async () => sftp },
+      ),
+      broadcastFileProgress: (f) => frames.push(f),
+    }
+    handler = createHttpHandler(deps)
+  })
+
+  afterAll(async () => {
+    await transport?.close()
+    await lab.cleanup()
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  /** 假 req：body 作为 raw 流（upload 直传用） */
+  function fakeReq(method: string, url: string, body?: string) {
+    const readable = Readable.from(body !== undefined ? [Buffer.from(body)] : [])
+    return Object.assign(readable, { method, url, headers: { host: '127.0.0.1:3180' } })
+  }
+
+  /** 假 res：JSON 响应用（只记录 writeHead/end） */
+  function fakeRes() {
+    const calls: { statusCode: number; headers: Record<string, string> }[] = []
+    let ended = ''
+    return {
+      writeHead(statusCode: number, headers?: Record<string, string>) { calls.push({ statusCode, headers: headers ?? {} }) },
+      end(data?: string) { ended = data ?? '' },
+      _calls: calls,
+      _json: () => JSON.parse(ended) as Record<string, unknown>,
+    }
+  }
+
+  /** 假 res：流式响应用（真 Writable，收内容 + 记 writeHead） */
+  function fakeStreamRes() {
+    const calls: { statusCode: number; headers: Record<string, string> }[] = []
+    const chunks: Buffer[] = []
+    const res = new PassThrough()
+    res.on('data', (c: Buffer) => chunks.push(c))
+    return Object.assign(res, {
+      writeHead(statusCode: number, headers?: Record<string, string>) { calls.push({ statusCode, headers: headers ?? {} }) },
+      _calls: calls,
+      _bytes: () => Buffer.concat(chunks),
+      _headers: () => calls[0]?.headers ?? {},
+    })
+  }
+
+  it('RPC files.remoteTree：远端列表（目录在前、不分大小写）', async () => {
+    await mkdir(join(devRoot, 'rdir'))
+    await writeFile(join(devRoot, 'rb.txt'), '0123456789')
+    const r = await dispatch('files.remoteTree', { sessionId: SESSION, path: '/' }, deps, abort)
+    expect(r.ok).toBe(true)
+    expect(value<{ name: string }[]>(r).map(e => e.name)).toEqual(['rdir', 'rb.txt'])
+  })
+
+  it('RPC files.downloadToLocal：落到工作区、返回 transferId、终态帧 ok', async () => {
+    await writeFile(join(devRoot, 'dl.txt'), 'rpc-download')
+    const r = await dispatch('files.downloadToLocal', { sessionId: SESSION, remotePath: '/dl.txt', root, path: join(root, 'dl.txt'), transferId: 'r1' }, deps, abort)
+    expect(r.ok).toBe(true)
+    expect(value<{ transferId: string; bytes: number }>(r)).toMatchObject({ transferId: 'r1', bytes: 12 })
+    expect(await readFile(join(root, 'dl.txt'), 'utf8')).toBe('rpc-download')
+    expect(frames.filter((f) => f.transferId === 'r1').at(-1)).toMatchObject({ transferId: 'r1', done: true, ok: true })
+  })
+
+  it('RPC files.downloadToLocal transferId 超 64 → VALIDATION', async () => {
+    const r = await dispatch('files.downloadToLocal', { sessionId: SESSION, remotePath: '/dl.txt', root, path: join(root, 'x'), transferId: 'x'.repeat(65) }, deps, abort)
+    expect(r.ok).toBe(false)
+    expect(errMsg(r)).toMatch(/^VALIDATION:/)
+  })
+
+  it('RPC files.uploadLocal：树根内本地文件上传到远端（联动上传）、终态帧 ok', async () => {
+    await writeFile(join(root, 'up-local.txt'), 'from-workspace')
+    const r = await dispatch('files.uploadLocal', { sessionId: SESSION, remotePath: '/up-local.txt', root, path: join(root, 'up-local.txt'), transferId: 'tLocal' }, deps, abort)
+    expect(r.ok).toBe(true)
+    expect(value<{ bytes: number; transferId: string }>(r)).toMatchObject({ bytes: 14, transferId: 'tLocal' })
+    expect(await readFile(join(devRoot, 'up-local.txt'), 'utf8')).toBe('from-workspace')
+    expect(frames.filter((f) => f.transferId === 'tLocal').at(-1)).toMatchObject({ transferId: 'tLocal', op: 'upload', done: true, ok: true, transferred: 14 })
+  })
+
+  it('POST /files/upload（raw body）：直传落设备、value 带字节与 transferId、进度帧 + 终态帧', async () => {
+    const res = fakeRes()
+    await handler(fakeReq('POST', `/term-manager/files/upload?sessionId=${SESSION}&remotePath=%2Fup.txt&transferId=t1`, 'hello upload') as never, res as never)
+    expect(res._calls[0]?.statusCode).toBe(200)
+    expect((res._json() as { value: { bytes: number; transferId: string; ok: boolean } }).value).toMatchObject({ bytes: 12, transferId: 't1', ok: true })
+    expect(await readFile(join(devRoot, 'up.txt'), 'utf8')).toBe('hello upload')
+    const t1 = frames.filter((f) => f.transferId === 't1')
+    expect(t1.length).toBeGreaterThanOrEqual(2)
+    expect(t1[0]).toMatchObject({ kind: 'file-progress', transferId: 't1', op: 'upload' })
+    expect(t1.at(-1)).toMatchObject({ transferId: 't1', op: 'upload', done: true, ok: true, transferred: 12 })
+  })
+
+  it('POST /files/upload 缺 sessionId → 400 VALIDATION；终态帧 ok:false', async () => {
+    const res = fakeRes()
+    await handler(fakeReq('POST', '/term-manager/files/upload?remotePath=%2Fx&transferId=t2', 'data') as never, res as never)
+    expect(res._calls[0]?.statusCode).toBe(400)
+    expect((res._json() as { error: { message: string } }).error.message).toContain('VALIDATION')
+    expect(frames.filter((f) => f.transferId === 't2').at(-1)).toMatchObject({ transferId: 't2', done: true, ok: false })
+  })
+
+  it('GET /files/download：RFC 5987 文件名、no-store、content-length、内容一致、终态帧 ok', async () => {
+    const content = 'download-content-中文'
+    await writeFile(join(devRoot, '中文 报告.txt'), content)
+    const res = fakeStreamRes()
+    await handler(fakeReq('GET', `/term-manager/files/download?sessionId=${SESSION}&remotePath=${encodeURIComponent('/中文 报告.txt')}&transferId=d1`) as never, res as never)
+    const headers = res._headers()
+    expect(headers['content-type']).toBe('application/octet-stream')
+    expect(headers['cache-control']).toBe('no-store')
+    expect(headers['content-disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('中文 报告.txt')}`)
+    expect(headers['content-disposition']).toContain('filename="__ __.txt"')
+    expect(headers['content-length']).toBe(String(Buffer.byteLength(content)))
+    expect(res._bytes().toString('utf8')).toBe(content)
+    expect(frames.filter((f) => f.transferId === 'd1').at(-1)).toMatchObject({ transferId: 'd1', done: true, ok: true })
+  })
+
+  it('GET /files/download 文件不存在 → 404 JSON（头未发）、终态帧 ok:false', async () => {
+    const res = fakeStreamRes()
+    await handler(fakeReq('GET', `/term-manager/files/download?sessionId=${SESSION}&remotePath=%2Fnope.bin&transferId=d2`) as never, res as never)
+    expect(res._calls[0]?.statusCode).toBe(404)
+    expect((JSON.parse(res._bytes().toString('utf8')) as { ok: boolean }).ok).toBe(false)
+    expect(frames.filter((f) => f.transferId === 'd2').at(-1)).toMatchObject({ transferId: 'd2', done: true, ok: false })
+  })
+
+  it('方法不对 → 405（GET /files/upload、POST /files/download）', async () => {
+    const a = fakeRes()
+    await handler(fakeReq('GET', '/term-manager/files/upload') as never, a as never)
+    expect(a._calls[0]?.statusCode).toBe(405)
+    const b = fakeRes()
+    await handler(fakeReq('POST', '/term-manager/files/download') as never, b as never)
+    expect(b._calls[0]?.statusCode).toBe(405)
   })
 })

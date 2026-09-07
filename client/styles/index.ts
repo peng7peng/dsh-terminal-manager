@@ -10,8 +10,9 @@ import { EDITOR_CSS } from './editor.ts'
 import { FILES_CSS } from './files.ts'
 import { TC_CSS } from './tc.ts'
 import { WORKSPACE_CSS } from './workspace.ts'
+import { PORT_LOG_CSS } from './port-log.ts'
 
 /** 扩展模块样式（日志管理 / 共享端口）：在此追加自己的文件导出 */
-const EXT_CSS: readonly string[] = []
+const EXT_CSS: readonly string[] = [PORT_LOG_CSS]
 
 export const PLUGIN_CSS = [WORKSPACE_CSS, COMMON_CSS, FILES_CSS, EDITOR_CSS, TC_CSS, ...EXT_CSS].join('\n')

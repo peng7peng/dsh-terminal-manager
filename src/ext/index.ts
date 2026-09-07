@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { TmEventBus } from '../types/events.ts'
 import type { FileService } from '../types/file-service.ts'
 import type { SessionManagerApi } from '../types/session-api.ts'
+import { registerPortLogExtension } from './port-log/index.ts'
 
 export interface ExtensionDeps {
   sessions: SessionManagerApi
@@ -23,7 +24,8 @@ export interface ExtensionDeps {
 }
 
 /** 挂载全部扩展模块。当前为空壳，待日志管理 / 共享端口模块接入。 */
-export function registerExtensions(_ctx: Context, _deps: ExtensionDeps): void {
+export function registerExtensions(ctx: Context, deps: ExtensionDeps): void {
+  registerPortLogExtension(ctx, deps)
   // 日志管理（扩展模块负责人）：registerLogModule(ctx, deps)
   // 共享端口（扩展模块负责人）：registerSharePort(ctx, deps)
 }

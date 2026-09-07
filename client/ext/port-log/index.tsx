@@ -9,9 +9,9 @@ function PortLogSidebarButton(props: { wide: boolean }): React.JSX.Element {
     type="button"
     className={`tm-ext-pl-entry ${visible ? 'is-active' : ''}`}
     onClick={() => { if (!visible) setWorkspaceVisible(false); togglePortLogVisible() }}
-    title="网络"
-    aria-label="网络"
-  ><span aria-hidden="true">⇄</span>{props.wide ? <span>网络</span> : null}</button>
+    title="端口映射"
+    aria-label="端口映射"
+  ><span aria-hidden="true">⇄</span>{props.wide ? <span>端口映射</span> : null}</button>
 }
 
 /**

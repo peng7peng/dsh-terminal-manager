@@ -37,9 +37,10 @@ export interface PortLogState {
   shares: ClientShare[]
   sessionLogs: ClientSessionLog[]
   appLog?: ClientAppLog
+  defaultLogDirectory: string
 }
 
-let state: PortLogState = { visible: false, loading: false, mappings: [], sessions: [], shares: [], sessionLogs: [] }
+let state: PortLogState = { visible: false, loading: false, mappings: [], sessions: [], shares: [], sessionLogs: [], defaultLogDirectory: '' }
 const listeners = new Set<() => void>()
 
 function emit(): void { for (const listener of listeners) listener() }
@@ -50,6 +51,8 @@ export function usePortLogState(): PortLogState { return useSyncExternalStore(su
 export function getPortLogState(): PortLogState { return state }
 export function setPortLogVisible(visible: boolean): void { replace({ visible }) }
 export function togglePortLogVisible(): void { setPortLogVisible(!state.visible) }
+export function setDefaultLogDirectory(directory: string): void { replace({ defaultLogDirectory: directory }) }
+export function getDefaultLogDirectory(): string { return state.defaultLogDirectory }
 export function setPortLogLoading(loading: boolean): void { replace({ loading }) }
 export function setPortLogError(error?: string): void { replace({ error }) }
 export function setPortLogSnapshot(patch: Pick<PortLogState, 'mappings' | 'sessions' | 'shares' | 'sessionLogs' | 'appLog'>): void { replace(patch) }

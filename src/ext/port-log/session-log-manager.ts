@@ -41,15 +41,20 @@ export class SessionLogManager {
     return [...this.logs.values()].map((runtime) => this.snapshot(runtime))
   }
 
-  async start(sessionId: string, options: SessionLogOptions): Promise<SessionLogSnapshot> {
+  getDefaultDirectory(): string {
+    return this.directory
+  }
+
+  async start(sessionId: string, options: SessionLogOptions, directory?: string): Promise<SessionLogSnapshot> {
     if (this.closing) throw new PortLogError('MAPPING_STATE', '扩展正在关闭')
     if (this.logs.has(sessionId)) throw new PortLogError('VALIDATION', '该会话日志已经开启')
     if (this.sessions.get(sessionId)?.status !== 'open') throw new PortLogError('VALIDATION', '只能记录已打开的会话')
     this.validateOptions(options)
-    await mkdir(this.directory, { recursive: true, mode: 0o700 })
+    const dir = directory && directory.trim() !== '' ? directory.trim() : this.directory
+    await mkdir(dir, { recursive: true, mode: 0o700 })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const safeId = sessionId.replace(/[^a-z\d-]/gi, '').slice(0, 8) || 'session'
-    const path = join(this.directory, `${safeId}-${stamp}.log`)
+    const path = join(dir, `${safeId}-${stamp}.log`)
     const stream = createWriteStream(path, { flags: 'wx', mode: 0o600, encoding: 'utf8' })
     await new Promise<void>((resolve, reject) => {
       stream.once('open', () => resolve())

@@ -13,6 +13,7 @@ import xtermCss from 'tm:xterm-css'
 import { registerClientExtensions } from './ext/index.tsx'
 import { PLUGIN_CSS } from './styles/index.ts'
 import { toggleWorkspace, useWorkspaceVisible } from './store.ts'
+import { setPortLogVisible } from './ext/port-log/store.ts'
 import { TerminalWorkspace } from './TerminalWorkspace.tsx'
 
 /** 客户端 Cordis DI：插槽注册表。 */
@@ -24,7 +25,7 @@ function SidebarButton(props: { wide: boolean }): React.JSX.Element {
   return (
     <button
       type="button"
-      onClick={toggleWorkspace}
+      onClick={() => { if (!active) setPortLogVisible(false); toggleWorkspace() }}
       title="终端管理"
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,

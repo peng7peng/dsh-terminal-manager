@@ -1,13 +1,14 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { PortLogWorkspace } from './PortLogWorkspace.tsx'
 import { togglePortLogVisible, usePortLogState } from './store.ts'
+import { setWorkspaceVisible } from '../../store.ts'
 
 function PortLogSidebarButton(props: { wide: boolean }): React.JSX.Element {
   const { visible } = usePortLogState()
   return <button
     type="button"
     className={`tm-ext-pl-entry ${visible ? 'is-active' : ''}`}
-    onClick={togglePortLogVisible}
+    onClick={() => { if (!visible) setWorkspaceVisible(false); togglePortLogVisible() }}
     title="网络与日志"
     aria-label="网络与日志"
   ><span aria-hidden="true">⇄</span>{props.wide ? <span>网络与日志</span> : null}</button>

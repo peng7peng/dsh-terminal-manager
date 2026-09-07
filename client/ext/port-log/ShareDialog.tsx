@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { portLogRpc } from './rpc.ts'
-import { usePortLogState } from './store.ts'
+import { useEffect, useState } from 'react'
+import { portLogRpc, subscribePortLogEvents } from './rpc.ts'
+import { applyPortLogEvent, usePortLogState, type ClientShare } from './store.ts'
 
 interface Props {
   sessionId: string
@@ -14,13 +14,18 @@ export function ShareDialog({ sessionId, label, onClose }: Props): React.JSX.Ele
   const [sharePort, setSharePort] = useState('2323')
   const [maxClients, setMaxClients] = useState('0')
   const [starting, setStarting] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Subscribe to SSE events while dialog is open for real-time client count updates
+  useEffect(() => subscribePortLogEvents(applyPortLogEvent, () => {}), [])
 
   async function start(): Promise<void> {
     setStarting(true)
     setError(null)
     try {
-      await portLogRpc('shares.start', { sessionId, localAddr: '0.0.0.0', sharePort: Number(sharePort), maxClients: Number(maxClients), welcomeMessage: '' })
+      const result = await portLogRpc<ClientShare>('shares.start', { sessionId, localAddr: '0.0.0.0', sharePort: Number(sharePort), maxClients: Number(maxClients), welcomeMessage: '' })
+      applyPortLogEvent('share-status', result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '启动共享失败')
     } finally {
@@ -29,7 +34,14 @@ export function ShareDialog({ sessionId, label, onClose }: Props): React.JSX.Ele
   }
 
   async function stop(): Promise<void> {
-    try { await portLogRpc('shares.stop', { sessionId }) } catch { /* */ }
+    setStopping(true)
+    try {
+      await portLogRpc('shares.stop', { sessionId })
+      applyPortLogEvent('share-removed', { sessionId })
+    } catch { /* */ }
+    finally {
+      setStopping(false)
+    }
   }
 
   return (
@@ -51,7 +63,7 @@ export function ShareDialog({ sessionId, label, onClose }: Props): React.JSX.Ele
                 <div key={c.id} style={{ fontSize: 11, fontFamily: 'var(--dsw-font-code, monospace)', color: 'var(--dsw-alias-label-tertiary, #888)', paddingLeft: 8 }}>{c.remoteAddress}</div>
               ))}
               {share.lastError && <div style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary, #ef4444)', marginTop: 4 }}>{share.lastError}</div>}
-              <button className="tm-btn" style={{ width: '100%', marginTop: 10, color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => void stop()}>停止共享</button>
+              <button className="tm-btn" style={{ width: '100%', marginTop: 10, color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} disabled={stopping} onClick={() => void stop()}>{stopping ? '停止中…' : '停止共享'}</button>
             </>
           ) : (
             <>

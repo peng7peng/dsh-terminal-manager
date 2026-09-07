@@ -10,12 +10,15 @@
 import { randomBytes } from 'node:crypto'
 import { PassThrough, type Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { utils, type SFTPWrapper, type TransferOptions } from 'ssh2'
+// ssh2 是纯 CJS 包：其 `utils` 在 lib/index.js 里是嵌套对象字面量，Node ESM 的静态
+// 导出名分析（cjs-module-lexer）识别不出来，`import { utils }` 会在运行时炸
+// （"does not provide an export named 'utils'"）。必须走默认导入再解构。
+import ssh2, { type SFTPWrapper, type TransferOptions } from 'ssh2'
 import { FileServiceError } from '../file-errors.ts'
 import type { FileEntry } from '../types/file-service.ts'
 import type { SftpLike, SftpProgress, SftpPutSource, SftpStatInfo, SftpTransferOptions } from './types.ts'
 
-const { STATUS_CODE, OPEN_MODE } = utils.sftp
+const { STATUS_CODE, OPEN_MODE } = ssh2.utils.sftp
 
 // SftpProgress / SftpStatInfo / SftpPutSource / SftpTransferOptions / SftpLike 声明在 transport/types.ts（协议无关）
 

@@ -9,6 +9,7 @@
 - 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
 - 2026-09-03：S5 定稿——文件传输只做 SSH/SFTP（Telnet 会话远端操作抛 `UNSUPPORTED`，base64 命令模拟与 `telnetFileTransfer` 开关砍掉）；只做单文件（文件夹传输砍掉）；下载双入口（浏览器另存为 GET `/files/download` + `downloadToLocal` 联动/AI，② 后者行内进度条已拍板要做）；进度走 `/term-io` `file-progress` 帧（transferId 关联 + 终态帧，零契约改动）；Transport 加协议无关 `SftpLike`；传输不设独占锁。详见 B10 远端部分与 plan.md S5 节
 - 2026-09-03（S5 落地）：B6 工具加 `tm_upload` / `tm_download`（八只手）；B7a 加传输路由（`/files/upload` POST raw、`/files/download` GET 流式）与 `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（本地源上传，联动用）端点；前端加 F7b 远端文件面板（chips / 3 按钮 / 传输条 / 同名冲突 / 联动 / 编辑器上传入口）。行内进度条先做 ②（确定项），③ 另存为与拖拽细节等周五交互会；见 plan.md S5 偏离记录 9–14
+- 2026-09-03：补齐扩展模块「端口映射 / 会话共享 / 日志」需求与设计，派生自 `intent/port-mapping-sharing-log.md`（Accepted）；严格遵循 commit `badc5fb` 冻结的契约与挂载点。该增量章节已由产品负责人批准进入 Build。
 
 ## 需求
 
@@ -465,9 +466,217 @@ interface ConnectionConfig {
 3. 挂载点：host 半 `src/ext/index.ts` 的 `registerExtensions(ctx, { sessions, events, files?, dataDir })`；浏览器半 `client/ext/index.tsx` 的 `registerClientExtensions(ctx)`；样式 `client/styles/index.ts` 的 `EXT_CSS`。主线在这三处各留一行调用，扩展模块的代码放 `src/ext/<模块>/`、`client/ext/<模块>/`、`client/styles/<模块>.ts`、`tests/ext-<模块>.spec.ts`。
 4. `dataDir`（`~/.dsh/terminal-manager`）下扩展模块开自己的子目录落盘，不写 `connections.json`。
 
-#### 扩展模块：日志管理 / 共享端口（扩展模块负责人）——待补充
+#### 扩展模块：端口映射 / 会话共享 / 日志（扩展模块负责人）【2026-09-03 Approved】
 
-> 需求文档尚未成稿。本节由扩展模块负责人按上面的规则补写：模块职责、订阅哪些事件、落盘格式、对外路由 / UI 入口、测试点。主线不代写。
+**实现状态（2026-09-03）：** E0–E7 已实现；自动构建、单元/集成测试、覆盖率和真实 3180 host 冒烟通过。E8 的浏览器截图仍需在可用浏览器环境中人工补验。
+
+**意图与边界。** 本模块实现独立 TCP/UDP 端口映射、已打开终端会话的 TCP 共享、插件应用日志和会话输出日志。它是九月迭代扩展轨道，不修改主线终端、文件、编辑器或 AI 工具。IPOP 文档只提供功能语义和缺陷清单；实现使用 TypeScript、Node 事件循环和当前 DSH 插件接口。
+
+##### E1 功能需求
+
+| ID | 必须做到 | 可验收结果 |
+|---|---|---|
+| PM-01 | 映射配置 CRUD、独立启停、持久化、autoStart | 插件重启配置仍在；自动启动单条失败不影响其他条目 |
+| PM-02 | TCP 双向转发 | 多个连接互不串流；单个目标失败不关闭监听 |
+| PM-03 | UDP 按来源端点转发 | 数据报边界保留；不同来源响应不串包；零长度数据报合法 |
+| PM-04 | IPv4/IPv6、状态和统计 | UI 显示状态、最近错误、活跃连接/对端数和双向字节 |
+| PM-05 | CSV 导入/导出和列表排序 | 兼容 IPOP 3/5 字段及扩展 6 字段；整批校验后原子 merge |
+| PS-01 | 对 open SSH/Telnet 会话启停共享 | 默认监听 0.0.0.0；同一会话最多一个共享实例 |
+| PS-02 | 共享无认证且完全可写 | 多客户端实时看输出；输入只调用 SessionManagerApi.write |
+| PS-03 | Telnet 兼容、背压与清理 | 消费 IAC；慢客户端单独断开；会话关闭/卸载释放全部资源 |
+| AL-01 | 应用日志四级和轮转 | debug/info/warn/error；单文件 5 MiB，最多 5 个 |
+| AL-02 | 应用日志不泄密 | 不记录 output/input、RPC 原始载荷、密码、私钥或认证内容 |
+| SL-01 | 会话日志按会话启停 | 默认关闭，只消费 TmEvent.output；不直接记录 input |
+| SL-02 | 会话日志格式处理 | 时间戳、跨 chunk ANSI 清理、退格/CR/LF 和停止刷盘正确 |
+| SL-03 | 会话日志不轮转不清理 | 文件持续增长到日志或会话关闭；UI 明示磁盘风险 |
+| UI-01 | 全部端口操作由用户手动完成 | 不新增 tm_*；Agent 不能开放、关闭或修改监听端口 |
+| UI-02 | 扩展 UI 与主线隔离 | 独立侧栏入口 + shell.overlay 浮层；不改 TerminalWorkspace/TermView |
+
+##### E2 契约落实
+
+扩展模块的依赖固定为 `ExtensionDeps`：
+
+- `events: TmEventBus`：会话共享和会话日志只订阅 `output/status`；应用日志可订阅 `status/file`，永不订阅或落盘 `input/output` 内容。
+- `sessions: SessionManagerApi`：只用 `list/get/write`；共享输入调用 `write`。不 import `session-manager.ts` 或 transport。
+- `dataDir`：扩展只在 `dataDir/ext/port-log/` 下写数据。
+- `files?: FileService`：本期不依赖。冻结的 FileService 没有追加写/流式轮转能力，日志使用扩展目录内的 Node WriteStream；将来若增加日志下载，可复用 FileService，不能为本期修改契约。
+
+功能分支禁止修改 `src/types/`。若实现发现必须新增事件、输入来源或文件方法，立即停止相应工作，另开契约 PR 到 main，待两人 review 后 rebase；不得在扩展内部强转绕过契约。
+
+扩展只允许修改三个主线挂载点，各一行：
+
+1. `src/ext/index.ts` 调用 `registerPortLogExtension(ctx, deps)`；
+2. `client/ext/index.tsx` 调用 `registerPortLogClient(ctx)`；
+3. `client/styles/index.ts` 引入并拼接 `PORT_LOG_CSS`。
+
+除此之外不改 `src/index.ts`、`src/remotes.ts`、`src/ws-io.ts`、`src/session-manager.ts`、`client/TerminalWorkspace.tsx`、`client/TermView.tsx`、`client/rpc.ts`、`client/ws.ts` 或 `client/store.ts`。
+
+##### E3 模块结构
+
+~~~text
+src/ext/port-log/
+  index.ts                    host 总装配与 ctx.effect 清理
+  types.ts                    扩展私有配置/快照类型
+  errors.ts                   扩展错误与安全消息映射
+  router.ts                   /term-manager/ext/port-log 控制面
+  sse.ts                      扩展运行状态 Server-Sent Events
+  network.ts                  地址枚举、校验、网络错误归一化
+  csv.ts                      3/5/6 字段 CSV 解析与生成
+  mapping-store.ts            mappings.json
+  mapping-manager.ts          映射状态机和操作串行化
+  tcp-forwarder.ts            TCP 监听与双向流
+  udp-forwarder.ts            UDP 来源端点会话
+  share-manager.ts            会话共享服务器
+  telnet-server-codec.ts      共享客户端 IAC 状态机
+  app-logger.ts               应用日志与 5 MiB × 5 轮转
+  session-log-manager.ts      会话日志状态/订阅/写流
+  terminal-text-normalizer.ts ANSI、退格、CR/LF、时间戳
+
+client/ext/port-log/
+  index.tsx                   注册侧栏入口和 shell.overlay
+  rpc.ts                      扩展自有 RPC/SSE 客户端
+  store.ts                    可见性和运行态外部 store
+  PortLogWorkspace.tsx        浮层外壳和三页签
+  MappingsTab.tsx             映射 CRUD/启停/CSV/排序
+  SharesTab.tsx               会话选择、风险确认、客户端列表
+  LogsTab.tsx                 应用/会话日志状态与控制
+
+client/styles/port-log.ts      PORT_LOG_CSS
+~~~
+
+测试全部放 `tests/ext-port-log-*.spec.ts`；测试 helper 新建 `tests/ext-port-log-helpers.ts`，不修改 `tests/helpers.ts`。
+
+##### E4 端口映射设计
+
+配置：
+
+~~~typescript
+type MappingProtocol = 'tcp' | 'udp'
+type MappingState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+
+interface PortMappingConfig {
+  id: string
+  protocol: MappingProtocol
+  localAddr: string
+  localPort: number
+  redirectAddr: string
+  redirectPort: number
+  autoStart: boolean
+}
+~~~
+
+- `localAddr` 必须是 IP 字面量；候选来自 `os.networkInterfaces()`，固定补入 `0.0.0.0` 和 `::`。`redirectAddr` 可为 IP 或域名。
+- 两端端口均为 1–65535；不使用 0 号临时端口。运行状态、错误和计数不落盘。
+- `mappings.json` 使用 `version: 1`；同目录临时文件 + rename 原子保存，目录/文件权限尽力设为 0700/0600。
+- 每个 id 有独立 Promise 操作链。重复 start/stop 幂等；update 为“停旧 → 存新 → 原先运行则重启”；remove 必须停完再删除。
+- autoStart 用 `Promise.allSettled`，失败只把该条置为 error 并写应用日志。
+
+TCP 使用 `node:net`：实际 `listen` 是端口占用的权威判据；目标连接前暂停入站，连接超时 3 秒；成功后双向 `pipe` 使用 Node 背压；一侧错误只销毁该连接对。stop 先停止 accept，最多给活动连接 2 秒排空，随后强制销毁。
+
+UDP 使用 `node:dgram`：启动时解析目标地址族；来源键为 family/address/port，每个来源使用独立目标 socket，单次 send 保留数据报边界。来源 60 秒空闲回收，每 10 秒统一 sweep；每条映射最多 1024 个来源；目标 socket 建立前每来源最多排队 64 个报文或 1 MiB。零长度报文照常转发。stop 清理 sweep、监听 socket 和全部来源 socket。
+
+计数统一为 `activeCount`、`bytesClientToTarget`、`bytesTargetToClient`；状态切换立即通知扩展 SSE，纯计数更新最多每 500ms 合并一次。
+
+CSV 导出为 UTF-8、CRLF、带 6 字段表头：
+
+~~~text
+protocol,localAddr,localPort,redirectAddr,redirectPort,autoStart
+~~~
+
+导入兼容 6 字段、IPOP 5 字段（autoStart=false）和 `protocol,local:port,redirect:port` 3 字段；IPv6 端点必须写为 `[::1]:8080`。支持双引号转义、可选表头、BOM 和空行。文件最大 1 MiB、1000 条；模式固定 merge；解析、校验和重复检查全部成功后才一次写入，失败返回行号/字段名而不回显整行。
+
+##### E5 会话共享设计
+
+- 配置含 `sessionId/localAddr/sharePort/maxClients/welcomeMessage`；默认 `0.0.0.0`、`maxClients=0`（无限制）、欢迎语不超过 512 字符。配置只存在运行期，不持久化、不自动恢复。
+- start 先用 `sessions.get` 确认 open，再创建 `net.Server`；成功后通过 `events.on(handler, { type: ['output','status'], sessionId })` 订阅。
+- output 事件编码为 UTF-8 并广播；Telnet 数据中的 FF 转义为 FF FF。新客户端只收到欢迎语和共享后的实时输出，不回放会话历史。
+- 客户端输入经流式 IAC 解析器消费 WILL/WONT/DO/DONT、SB...SE；普通数据用 `StringDecoder` 处理跨 chunk UTF-8，CRLF/CR-NUL 归一为 CR 后调用 `sessions.write`。
+- 服务器正确发送 IAC WILL ECHO（FF FB 01）和 IAC WILL SUPPRESS-GO-AHEAD（FF FB 03）；不采用 IPOP 文档中把 FE 误称为 DO ECHO 的写法。
+- 每客户端记录远端地址、连接时间和双向字节。`socket.writableLength > 1 MiB` 时只断开慢客户端，不暂停事件总线或其他客户端。
+- status 变为 closed/removed 时立即停止共享；stop/卸载关闭 listener、客户端和事件订阅，清理幂等。
+- 共享输入走人工输入语义，不经过 CommandGuard，也不受 AI busy 排队；多客户端/本地/AI 同时输入可能交错，UI 启动前必须以文字明确警告并要求勾选确认。
+
+##### E6 日志设计
+
+应用日志位于 `dataDir/ext/port-log/log/`，行格式为 ISO 时间 + 级别 + 事件名 + 清理后的 JSON 字段。默认最低级别 info，单行上限 16 KiB，写入串行化。当前文件写前达到 5 MiB 即轮转，总文件数含当前文件最多 5 个。敏感键 `password/privateKey/passphrase/authorization/token/secret/credential` 递归替换为 `[REDACTED]`；调用方仍不得传原始 RPC payload、环境变量、终端数据或认证错误堆栈。logger 自身失败只固定格式 `console.error`，不得递归记录。
+
+会话日志位于 `dataDir/ext/port-log/session_logs/`，默认关闭，文件名只用 sessionId 前 8 位和 UTC 时间，不用用户 label。它只订阅指定会话的 `output/status` 事件：
+
+~~~text
+TmEvent.output
+  → StringDecoder
+  → 可选跨 chunk ANSI 状态机
+  → 退格和 CR/LF 逻辑行
+  → 可选行首时间戳
+  → WriteStream
+~~~
+
+日志不订阅 input；若远端设备主动回显输入，回显属于 output，仍会出现。会话日志不轮转、不自动删除。stop、closed/removed 和卸载时先 flush 半行，再 `stream.end` 并等待 finish；不得用 destroy 丢缓冲。待写缓冲超过 1 MiB 或 stream error 时自动停写、保留安全错误并通知 UI。
+
+应用日志只记录扩展生命周期、映射启停/失败、共享启停及客户端连接/断开、会话日志启停/失败，以及 TmEvent 的 status/file 元数据；不记录 output/input 的 data。
+
+##### E7 控制面和实时状态
+
+host 扩展在 `src/ext/port-log/router.ts` 注册 prefix `/term-manager/ext/port-log`。DSH WebServer 使用最长前缀优先，因此该路由优先于主线 `/term-manager`，注册顺序不影响匹配，也无需修改 `remotes.ts`。
+
+JSON 操作：
+
+| 方法 | 用途 |
+|---|---|
+| mappings.list/create/update/remove/start/stop | 映射 CRUD 和启停 |
+| mappings.importCsv/exportCsv | CSV 批量导入和导出文本 |
+| network.localAddresses | 本机 IPv4/IPv6 候选 |
+| sessions.list | 从 SessionManagerApi.list 返回共享/日志可选会话 |
+| shares.list/start/stop | 会话共享 |
+| appLogs.status | 应用日志文件、级别和轮转状态 |
+| sessionLogs.list/start/update/stop | 会话日志控制 |
+
+请求沿用主线 ClientRequest/ClientResponse JSON 形状，但扩展自行实现 dispatcher 和类型校验。POST 请求体最多 2 MiB；所有错误为 `{code,message}`，message 不含凭据。OPTIONS、Content-Type、同源 Origin/Host 和 loopback 来源围栏由扩展路由自己处理，不复用主线私有函数。
+
+GET `/term-manager/ext/port-log/events` 提供 SSE。事件为 mapping-status/mapping-removed/share-status/share-removed/session-log-status/app-log-status。浏览器首次打开和 SSE 重连后先调 list/status 获取全量，再应用增量；SSE 只承载扩展私有状态，不向冻结 TmEventBus emit 新类型，也不修改 `/term-io`。
+
+##### E8 UI
+
+`registerPortLogClient` 只通过 Cordis slots 注册：
+
+1. `sidebar.footer.action`：新增“网络与日志”入口；
+2. `shell.overlay`：新增独立 `PortLogWorkspace` 浮层。
+
+浮层使用自身可见性 store，不 import 主线 client store。打开时覆盖工作区，关闭后回到原终端界面；主线终端会话始终保持。三个页签：
+
+- 端口映射：紧凑表单、排序选择、运行卡片、autoStart、启停、编辑/删除、CSV 导入/导出。
+- 会话共享：列出 open 会话，配置监听地址/端口/客户端上限/欢迎语，展示连接客户端。启动前必须勾选“任何可访问者均可查看并控制终端；可能干扰 AI 命令”。
+- 日志：应用日志状态；每个 open 会话的日志启停、时间戳、ANSI 清理、已写字节和路径复制；显示“不轮转，可能持续占用磁盘”。
+
+所有 CSS 在 `client/styles/port-log.ts`，类名使用 `.tm-ext-pl-*`，只用 `--dsw-*` token，无 CSS Modules/组件库。图标按钮有 title/aria-label，状态不只靠颜色，字段错误就地显示。
+
+##### E9 错误、生命周期与验证
+
+扩展错误码：`VALIDATION`、`PORT_IN_USE`、`ADDRESS_INVALID`、`TARGET_UNREACHABLE`、`MAPPING_NOT_FOUND`、`MAPPING_STATE`、`SHARE_ALREADY_ACTIVE`、`SHARE_NOT_FOUND`、`IO_ERROR`、`IO_BACKPRESSURE`、`IMPORT_INVALID`。只对外暴露安全消息。
+
+`registerPortLogExtension` 内部创建 logger、mapping store/manager、share manager、session log manager、SSE hub 和 router；用一个 `ctx.effect` disposer 执行幂等 shutdown：
+
+1. 拒绝新 start/写操作并关闭 SSE/router；
+2. stopAll shares；
+3. closeAll session logs 并刷盘；
+4. stopAll mappings；
+5. 写 extension.stopped 并 close AppLogger。
+
+不关闭 SessionManager，由主线 owner 负责。autoStart 在注册完成后异步执行，失败落到对应映射状态。
+
+构建期测试：
+
+- `tests/ext-port-log-store.spec.ts`：JSON、校验、原子写、CSV 3/5/6 字段、IPv6、批量回滚；
+- `tests/ext-port-log-tcp.spec.ts`：多连接、背压、半关闭、目标失败、端口冲突、停止释放、IPv6；
+- `tests/ext-port-log-udp.spec.ts`：两来源隔离、零长度报文、超时/上限、IPv4/IPv6、清理；
+- `tests/ext-port-log-share.spec.ts`：事件广播、write 输入、IAC、无历史、慢客户端、会话关闭；
+- `tests/ext-port-log-app-logger.spec.ts`：级别、顺序、5 MiB × 5、脱敏、I/O 降级；
+- `tests/ext-port-log-session-log.spec.ts`：仅 output、时间戳、跨块 ANSI、退格/CR、半行 flush、背压；
+- `tests/ext-port-log-router.spec.ts`：最长前缀路由、来源围栏、payload、错误、2 MiB 上限、SSE 清理；
+- `tests/ext-port-log-client.spec.ts`：slot 注册、三页签的纯状态模型、风险确认、SSE 重连后的全量刷新（当前 Vitest 只收集 `*.spec.ts`）；
+- `tests/ext-port-log-index.spec.ts`：挂载、autoStart、关闭顺序、幂等。
+
+最终证据：`pnpm build`、`pnpm test`、`pnpm vitest run --coverage`；3180 本地 DSH 截图；TCP/UDP echo、共享 telnet 双客户端、CSV 往返、日志轮转与敏感串搜索的本地端到端记录。合 main 前必须 rebase，确认 `src/types/` 无 diff、三处主线文件只有挂载行、全套测试全绿。
 
 ### 可扩展性设计（为后续功能留的口子）
 

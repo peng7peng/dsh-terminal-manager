@@ -102,7 +102,9 @@ export function useTcActions(sessions: readonly TcSession[], bcTargets: readonly
     else setConfirm({ title, items, hints })
   }
 
-  /** 流程 B 入口（按钮和右键都走这里）：勾过「不再提示」就直接按广播栏所选发送，不弹框 */
+  /** 流程 B 入口（按钮和右键都走这里）。
+   *  「不再提示」只在广播栏明确勾选了终端时生效：直接发给「所选 ∩ 在线」；
+   *  广播栏没勾选时仍然弹框——没有明确目标就不盲发（防误发全部 / 任意一台）。 */
   function prepareSend(): void {
     const h = getActiveEditor()
     if (h === null || active === null) { toast('没有打开的文件'); return }
@@ -113,10 +115,15 @@ export function useTcActions(sessions: readonly TcSession[], bcTargets: readonly
     if (lines.length === 0) { toast('选中内容为空'); return }
     const onlineIds = sessions.filter(s => s.status === 'open').map(s => s.sessionId)
     if (onlineIds.length === 0) { toast('没有在线终端', 'error'); return }
-    // 默认目标跟随广播栏当前所选（语义与广播一致：没勾就发第一台，避免误发全部）
-    const defaultIds = pickSendTargets(bcTargets, onlineIds)
-    if (getSendSkipConfirm()) { void runSend(lines, defaultIds); return }
-    setSendDlg({ lines, defaultIds })
+    if (getSendSkipConfirm() && bcTargets.length > 0) {
+      const online = new Set(onlineIds)
+      const hit = bcTargets.filter(id => online.has(id))
+      if (hit.length === 0) { toast('广播栏所选的终端都已掉线，未发送', 'error'); return }
+      void runSend(lines, hit)
+      return
+    }
+    // 弹框默认勾选：广播栏所选 ∩ 在线；广播栏没勾 = 第一台在线（不预选全部）
+    setSendDlg({ lines, defaultIds: pickSendTargets(bcTargets, onlineIds) })
   }
 
   function runSend(lines: string[], sessionIds: string[]): void {

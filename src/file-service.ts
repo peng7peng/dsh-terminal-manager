@@ -28,6 +28,27 @@ export function compareEntries(a: FileEntry, b: FileEntry): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
+/**
+ * 原子 rename。Windows 上并发写同一目标时 rename 会撞 EPERM/EACCES
+ * （目标文件正被另一个 rename 操作占用），短暂退避重试即可——
+ * 临时文件还在，竞争是瞬时的。
+ */
+async function renameAtomic(src: string, dest: string, retries = 6): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(src, dest)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code
+      if (attempt < retries && (code === 'EPERM' || code === 'EACCES')) {
+        await new Promise(r => setTimeout(r, 5 * (attempt + 1)))
+        continue
+      }
+      throw error
+    }
+  }
+}
+
 async function entryOf(dir: string, name: string, dirent: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }): Promise<FileEntry> {
   const path = join(dir, name)
   if (dirent.isSymbolicLink()) return { name, path, kind: 'symlink' }
@@ -114,7 +135,7 @@ export class LocalFileService implements FileService {
     const tmp = join(dirname(path), `.${basename(path)}.tm-tmp-${randomBytes(4).toString('hex')}`)
     try {
       await writeFile(tmp, content, 'utf8')
-      await rename(tmp, path)
+      await renameAtomic(tmp, path)
     } catch (error) {
       await unlink(tmp).catch(() => {})
       throw mapFsError(error, '文件')

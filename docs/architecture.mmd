@@ -1,0 +1,151 @@
+%% dsh-terminal-manager 架构图（模块间调用关系 + 外部依赖）
+%% host 半 B1–B14 + 浏览器半 F1–F11 + 契约 src/types/ + 外部依赖
+%% 生成日期：2026-09-03
+graph TB
+
+  %% ===== 外部参与者 =====
+  User([用户])
+  AI([DSH Agent / AI])
+  Device[("远端设备<br/>SSH / Telnet")]
+
+  %% ===== DSH 宿主进程 =====
+  subgraph DSH["DSH host 进程（Cordis）"]
+    direction TB
+
+    subgraph Host["dsh-terminal-manager · host 半 (src/)"]
+      direction TB
+      Entry["index.ts<br/>插件入口 / 装配"]
+      B1["B1 ConnectionStore<br/>连接配置 CRUD + JSON 落盘"]
+      B4(("B4 SessionManager<br/>会话池 · 状态机 · 1MiB 环形缓冲<br/>独占发送 · 广播 【心脏】"))
+      B2["B2 SshTransport<br/>ssh2 · shell PTY"]
+      B3["B3 TelnetTransport<br/>net.Socket · IAC / raw"]
+      B5["B5 WaitPolicy<br/>完成判定（静默/提示符/超时）纯逻辑"]
+      B8["B8 CommandGuard<br/>命令守卫（黑名单+白名单）纯逻辑"]
+      B6["B6 AI Tools<br/>tm_connect / tm_list / tm_send<br/>tm_send_all / tm_read / tm_disconnect"]
+      B7a["B7a Remotes<br/>/term-manager HTTP 前缀路由"]
+      B7b["B7b WsIo<br/>/term-io WebSocket 升级路由"]
+      B9["B9 EventBus<br/>同步派发 · 吞错"]
+      B10["B10 FileService<br/>本地四件套 + 路径围栏"]
+      B11["B11 TcParser<br/>TC 脚本解析（纯函数）"]
+      B12["Config<br/>workspaceRoot / telnetFileTransfer"]
+      B13["Ambiguity<br/>歧义 prompt 注入"]
+      B14["OpenExternal<br/>系统默认程序打开"]
+      Ext["Ext 挂载点<br/>日志管理 / 共享端口（待接入）"]
+    end
+
+    subgraph Contracts["模块间契约 src/types/（纯声明 · 两人 review）"]
+      direction LR
+      C1["events.ts<br/>TmEvent · TmEventBus"]
+      C2["session-api.ts<br/>SessionManagerApi · SessionSnapshot"]
+      C3["file-service.ts<br/>FileService · FileErrorCode"]
+    end
+  end
+
+  %% ===== 浏览器半 =====
+  subgraph Browser["浏览器半 (client/)"]
+    direction TB
+    F1["F1 index.tsx<br/>入口 · slots · 样式注入"]
+    F2["F2 ConnectionsPanel<br/>连接表单 · 收藏 · 最近"]
+    F3["F3 TerminalWorkspace<br/>终端网格 · 广播栏"]
+    F4["F4 TermView<br/>xterm.js 窗格"]
+    F5["F5 ws.ts TermWs<br/>/term-io 客户端 · 重连"]
+    F6["F6 store.ts<br/>可见性 · 布局 · 未读"]
+    FRpc["rpc.ts<br/>/term-manager POST 客户端"]
+    F7["F7 FilePanel<br/>本地文件面板"]
+    F8["F8 EditorWindow<br/>浮动编辑器窗 · Tab"]
+    F9["F9 CodeEditor<br/>CodeMirror 6"]
+    F10["F10 TC 执行<br/>确认框 · 汇总条"]
+    F11["F11 SendSelection<br/>发送选中弹窗"]
+  end
+
+  %% ===== 外部依赖 =====
+  subgraph ExtDeps["外部依赖（npm / node 内置）"]
+    direction LR
+    ssh2[("ssh2")]
+    netnet[("node:net")]
+    wslib[("ws")]
+    nodefs[("node:fs")]
+    xterm[("xterm.js")]
+    cm[("CodeMirror 6")]
+  end
+
+  %% ===== host 半内部调用 =====
+  Entry --> B1
+  Entry --> B4
+  Entry --> B10
+  Entry --> B6
+  Entry --> B7a
+  Entry --> B7b
+  Entry --> B13
+  Entry --> B12
+  Entry --> Ext
+
+  B6 --> B4
+  B7a --> B4
+  B7a --> B1
+  B7a --> B10
+  B7a --> B14
+  B7b --> B4
+
+  B4 --> B2
+  B4 --> B3
+  B4 --> B5
+  B4 --> B8
+  B4 --> B9
+  B4 --> B1
+  B1 --> B5
+  B10 --> nodefs
+  B1 --> nodefs
+
+  B2 --> ssh2
+  B3 --> netnet
+  B7b --> wslib
+
+  %% 契约消费（虚线）
+  Ext -.-> C1
+  Ext -.-> C2
+  Ext -.-> C3
+  B4 -.-> C2
+  B9 -.-> C1
+  B10 -.-> C3
+
+  %% ===== 浏览器半内部 =====
+  F1 --> F3
+  F1 --> F2
+  F1 --> F6
+  F3 --> F4
+  F3 --> F5
+  F3 --> FRpc
+  F4 --> F5
+  F4 --> FRpc
+  F2 --> FRpc
+  F7 --> FRpc
+  F8 --> F9
+  F9 --> FRpc
+  F10 --> B11
+  F10 --> FRpc
+  F11 --> FRpc
+  F4 --> xterm
+  F9 --> cm
+
+  %% ===== 跨进程边界 =====
+  User --> F4
+  User --> F2
+  User --> F7
+  User --> F8
+  User --> F10
+  AI --> B6
+  FRpc -.->|"HTTP POST /term-manager/*"| B7a
+  F5 -.->|"WebSocket /term-io"| B7b
+  B2 --> Device
+  B3 --> Device
+
+  %% ===== 样式 =====
+  classDef heart fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#1c1917
+  classDef contract fill:#e0e7ff,stroke:#4338ca,stroke-dasharray: 5 5,color:#1e1b4b
+  classDef extdep fill:#f1f5f9,stroke:#64748b,color:#334155
+  classDef actor fill:#fef3c7,stroke:#d97706,color:#1c1917
+  class B4 heart
+  class C1,C2,C3 contract
+  class ssh2,netnet,wslib,nodefs,xterm,cm extdep
+  class User,AI,Device actor

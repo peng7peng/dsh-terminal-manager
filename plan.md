@@ -7,6 +7,7 @@
   - 2026-08-25 插入「方案讲解 + GUI 方案选型」里程碑（M1）
   - 2026-08-28 同步真实实现的偏离（见下「实现偏离记录」）；`docs/connections-panel-upgrade.zh.md` 的剩余待办并入本文「后续待办」段，原文件已归档
   - 2026-09-02 追加「九月迭代」计划：契约先行 PR + 主线 S1–S5 + 扩展模块轨道
+  - 2026-09-03 补齐扩展模块「端口映射 / 会话共享 / 日志」E0–E8 文件级计划；产品负责人已批准，进入 Build
 
 ## 实现偏离记录（规则 6：偏离即同提交更新）
 
@@ -276,13 +277,224 @@ M0 脚手架与垂直切片 ✅ ｜ M1 方案 + GUI 选型 ✅ ｜ M2 连接核�
 | 1 | 上下拖动本地文件面板顶栏时，会在已打开的终端里"输入字符" | 根因：`tm-fpBar` 的 pointerdown 没 `preventDefault()`（编辑器窗的拖动有），按下图标/文字会启动浏览器原生拖拽，拖到终端上松手被 xterm 的 drop 处理当输入打出去。补 `preventDefault()` + `.tm-fpBar` 禁用原生拖拽（`-webkit-user-drag:none`） | ✅ |
 | 2 | （F22）「换目录」到 D:\ 之后回不去工作区 | 文件面板工具栏加「回到工作区目录」按钮：`LocalFsState.workspaceRoot`（init 时始终问一次后端 `files.root`，Config 改了也能跟上），`goWorkspace()` 走既有 `setRoot`（记忆 + 列表）；工作区未知时按钮禁用 | ✅ |
 | 3 | （F25）编辑器拖到屏幕下边缘，窗口高度"自动减小" | 根因：`clampMove` 把 y 钳在 `vh-60`，窗口悬出视口只剩一条标题栏，看起来像高度被压小。改为下边钳到「整个窗口可见」（`y ≤ vh-h`，与横向钳制一致，行为同浏览器窗口）；clampMove 测试同步更新 | ✅ |
-| 4 | 发送选中加「不再提示」；目标按广播栏当前所选 | 勾选后（sessionStorage `tm.tc.sendSkipConfirm`，重开工作区恢复弹框）按钮和右键都直接发送，不再弹框；默认目标 = 广播栏所选 ∩ 在线（`pickSendTargets` 纯函数，没勾 = 第一台在线、不误发全部）；弹框默认勾选同步跟随广播栏。**后端无改动**（`sessions.send` 端点已有） | ✅ |
+| 4 | 发送选中加「不再提示」；目标按广播栏当前所选 | 最终行为（含第二轮试用的两处修正）：「不再提示」（sessionStorage `tm.tc.sendSkipConfirm`，重开工作区恢复弹框）**只在广播栏明确勾选了终端时生效**——按钮和右键都直接发给「所选 ∩ 在线」（所选全掉线则报错不发送）；广播栏没勾选时**仍然弹框**（没有明确目标就不盲发）。弹框默认勾选 = 广播栏所选 ∩ 在线，没勾 = 第一台在线（不预选全部）。**后端无改动**（`sessions.send` 端点已有）。修正 ①：`bcTargets` 只传明确勾选（最初误抄了广播的「没勾 = 全部」语义，导致直接发全部远端）；修正 ②：勾了「不再提示」后右键同样直接发（用户确认不要逃生门） | ✅ |
 | 5 | 拖面板顶栏时 Telnet 终端仍回显乱码（真机） | 真根因是**窗口尺寸同步洪泛**，与拖拽无关：拖动顶栏 → 终端网格每帧变高 → ResizeObserver 每帧发 resize → 后端每帧给设备发一条 NAWS 子协商，弱 telnetd 解析不过来把协商字节当输入回显成乱码。修三层：① `client/TermView` resize 防抖 150ms（停稳才同步，SSH 也受益）；② `transport/telnet.ts` NAWS 防抖 + 尺寸不变不重发 + RFC 1073 的 0xFF 转义（连接时的 80x24 立即发，#18 修复不受影响）；③ `scripts/mock-device.mjs` 剥掉入站 IAC（之前不剥，自己也会把 NAWS 当输入回显）。测试：抖动只出 1 条且为最后尺寸 | ✅ |
-| 6 | 「不再提示」的行为没在弹窗里提示（只靠悬停 title） | 勾选复选框时弹窗内出现明文说明：按钮和右键都直接发送、目标 = 广播栏当前所选（没勾 = 第一台在线）、重开工作区恢复弹框 | ✅ |
+| 6 | 「不再提示」的行为没在弹窗里提示（只靠悬停 title） | 勾选复选框时弹窗内出现明文说明：广播栏勾选了终端时按钮和右键都直接发给所选（掉线不发）、没勾选时仍弹框不盲发、重开工作区恢复弹框 | ✅ |
 
-### 扩展模块轨道（扩展模块负责人）——待补充
+### 扩展模块轨道：端口映射 / 会话共享 / 日志（扩展模块负责人）
 
-需求文档成稿后由扩展模块负责人在此补：里程碑、订阅的事件、落盘格式、路由 / UI 入口、测试点。主线只承诺：契约不单方面改；`registerExtensions` / `registerClientExtensions` / `EXT_CSS` 三个挂载点稳定；S4 留 2 天联调。
+- 派生自：`intent/port-mapping-sharing-log.md`（Accepted）与 `spec.md`「扩展模块」章节（2026-09-03 Approved）
+- 开发契约：commit `badc5fb48aa99d7a10d61923e91f9845900cfb6d`
+- 计划状态：**Approved；产品负责人于 2026-09-03 批准创建 `feat/sep-port-log` 并开始实现**
+- 建议分支：从最新 `origin/main` 建 `feat/sep-port-log`；合并前 rebase 最新 main
+- 估算：约 15 人天；E3/E4 可在 E2 后并行，但同一开发者按表顺序完成
+
+#### 不可违反的边界
+
+1. 功能分支不修改 `src/types/`；发现契约不足时停下，另提契约 PR，两人 review。
+2. 扩展 host 只 import `src/types/events.ts`、`session-api.ts`、`file-service.ts` 中需要的契约，不 import 主线实现。
+3. 主线只动三个挂载点：`src/ext/index.ts`、`client/ext/index.tsx`、`client/styles/index.ts`，且只加入本扩展的 import/调用/样式项。
+4. 不修改 `src/index.ts`、`remotes.ts`、`ws-io.ts`、`session-manager.ts`、transport、`TerminalWorkspace.tsx`、`TermView.tsx`、主线 client RPC/WS/store。
+5. 测试放 `tests/ext-port-log-*.spec.ts`，helper 新建 `tests/ext-port-log-helpers.ts`；`tests/helpers.ts` 只增不改，本计划不需要碰它。
+6. 不新增 tm_* Agent 工具；不改变共享的“对外、无认证、完全可写”产品决定。
+7. 所有实现为 TypeScript strict；CSS 只在 `client/styles/port-log.ts`，使用 `.tm-ext-pl-*` 和 `--dsw-*`。
+
+#### 计划文件
+
+| 区域 | 新增文件 | 作用 |
+|---|---|---|
+| host 壳 | `src/ext/port-log/index.ts`、`types.ts`、`errors.ts` | 扩展装配、私有类型、安全错误 |
+| 控制面 | `router.ts`、`sse.ts` | 最长前缀 RPC、来源围栏、SSE 状态 |
+| 公共网络 | `network.ts`、`csv.ts` | 地址枚举/校验/错误归一化、CSV 3/5/6 字段 |
+| 映射 | `mapping-store.ts`、`mapping-manager.ts`、`tcp-forwarder.ts`、`udp-forwarder.ts` | 持久化、状态机、TCP/UDP 转发 |
+| 共享 | `share-manager.ts`、`telnet-server-codec.ts` | 会话事件广播、客户端输入、Telnet IAC |
+| 日志 | `app-logger.ts`、`session-log-manager.ts`、`terminal-text-normalizer.ts` | 应用轮转日志、会话输出日志、流式文本处理 |
+| browser | `client/ext/port-log/index.tsx`、`rpc.ts`、`store.ts`、`PortLogWorkspace.tsx`、`MappingsTab.tsx`、`SharesTab.tsx`、`LogsTab.tsx` | slot、RPC/SSE、三页签 UI |
+| 样式 | `client/styles/port-log.ts` | 扩展独立 CSS |
+| 测试 | `tests/ext-port-log-helpers.ts`、`tests/ext-port-log-*.spec.ts` | 假 Socket/会话、各模块单元与集成测试 |
+
+实际命名若因单文件过大拆分，可在本节同步后调整；不得借拆分把代码放回主线目录。
+
+#### E0 基线与垂直空壳（0.5 天）
+
+**状态：Completed（2026-09-03，commit `f1c09a0`）；基线 185 项，空壳接入后 187 项。**
+
+**改动：**
+
+- 从最新 main 建独立分支，记录 `git rev-parse HEAD` 和上游 `../deepseek-harness` 最近三条提交。
+- 运行 `pnpm build`、`pnpm test`、`pnpm vitest run --coverage`，记录真实基线；不得低于契约提交的 185 项。
+- 建 `src/ext/port-log/index.ts` 和 `client/ext/port-log/index.tsx` 空壳。
+- 三个挂载点只加入本扩展一项；新增最小 `tests/ext-port-log-index.spec.ts`。
+- 测试证明：host/client 注册各一次，卸载 disposer 各一次，`src/types/` 无 diff。
+
+**退出条件：** 双半包可构建，旧测试全绿，空扩展装卸不改变现有 UI/会话。
+
+#### E1 应用日志 + 扩展控制面骨架（1.5 天）
+
+**状态：Completed（2026-09-03）；与 E2 一并形成首个可用 RPC/SSE 垂直切片。**
+
+**先写失败测试：**
+
+- `ext-port-log-app-logger.spec.ts`：四级过滤、写入顺序、5 MiB 轮转、最多 5 文件、敏感键递归清理、文件失败降级。
+- `ext-port-log-router.spec.ts`：最长前缀、POST/OPTIONS、同源与 loopback 围栏、2 MiB 限制、统一错误。
+- `ext-port-log-sse.spec.ts`：订阅、断开清理、事件合并、慢浏览器连接隔离。
+
+**实现：**
+
+- AppLogger 写 `dataDir/ext/port-log/log/`；单 Promise 队列，关闭等待刷盘。
+- Router 注册 `/term-manager/ext/port-log`；SSE 为其 `/events` GET 子路径。
+- 建扩展内部 RuntimeEventHub，不能向冻结 TmEventBus emit 私有事件。
+- 先只实现 `appLogs.status` 形成 host→RPC→client 的最小垂直切片。
+
+**退出条件：** 可查询日志状态；制造敏感字段后全目录搜索不到明文；router/SSE 清理后无活动响应或定时器。
+
+#### E2 映射配置、CSV 与网络工具（1.5 天）
+
+**状态：Completed（2026-09-03）；24 个测试文件、205 项测试全绿。**
+
+**先写失败测试：**
+
+- `ext-port-log-store.spec.ts`：端口/地址/域名校验、version 1 加载、临时文件 + rename、权限尽力、重复监听键。
+- `ext-port-log-csv.spec.ts`：BOM、空行、引号、IPOP 3/5 字段、扩展 6 字段、IPv6 方括号、1000 行/1 MiB 上限、整批回滚。
+- `ext-port-log-network.spec.ts`：本机地址去重排序、固定通配地址、网络错误到安全错误码。
+
+**实现：**
+
+- `mapping-store.ts` 只保存配置，不保存 runtime。
+- CSV import 固定 merge；全部校验后一次生成 id/持久化；export 不写临时文件。
+- Router 接入 `mappings.list/create/update/remove/importCsv/exportCsv` 和 `network.localAddresses`，此时 start/stop 可返回“尚未实现”测试桩，E3/E4 前不提交为完成状态。
+
+**退出条件：** CSV 导出→清空临时 store→导入后字段一致，失败导入零新增，IPv6 3 字段规则明确。
+
+#### E3 TCP 映射运行时（1.5 天）
+
+**状态：Completed（2026-09-03）；真实本地 TCP echo、并发连接、目标恢复、端口冲突/释放及 IPv6（环境支持时）均有回归。**
+
+**先写失败测试：** `ext-port-log-tcp.spec.ts` 覆盖双向 echo、两个并发连接、目标拒绝、3 秒超时、半关闭、字节/活动计数、端口占用、重复 start/stop、2 秒强制清理、IPv6（环境支持时）。
+
+**实现：**
+
+- `tcp-forwarder.ts` 只管理一条配置的 net.Server 和连接对。
+- `mapping-manager.ts` 增加每 id 操作链、状态机、update/remove/autoStart/stopAll。
+- 单连接错误更新最近错误但 listener 保持 running；stop 必须最终释放端口。
+- 接入 Router start/stop 和 SSE 状态；计数通知 500ms 合并。
+
+**退出条件：** 本地 TCP 端到端测试可重复运行，无悬挂 socket；目标失败后下一客户端仍能成功。
+
+#### E4 UDP 映射运行时（2 天）
+
+**状态：Completed（2026-09-03）；真实本地 UDP 双来源隔离、零长度报文、端口冲突/释放及 IPv6（环境支持时）均有回归。**
+
+**先写失败测试：** `ext-port-log-udp.spec.ts` 覆盖两来源同时不同 payload、响应不串包、零长度报文、IPv4/IPv6 地址族、建连队列上限、1024 peer 上限、60 秒空闲回收、删除/stop 清理。
+
+**实现：**
+
+- 启动时解析 redirectAddr；每个来源端点一个目标 dgram socket。
+- 统一 10 秒 sweep，不建 busy-loop/每包定时器。
+- 单个 peer 错误只清该 peer；stop 关闭 listener、sweep 和全部 peer。
+- 使用 id 删除，避免 IPOP 的 UDP 显示文本匹配缺陷；所有比较使用严格比较。
+
+**退出条件：** 两来源压力测试无串包；停止后监听端口可立即复用；IPOP UDP/IPv6 已知缺陷逐项有测试。
+
+#### E5 会话共享（2 天）
+
+**状态：Completed（2026-09-03）；真实本地双客户端、实时输出、公开 `write` 输入路径、无历史回放、Telnet IAC/UTF-8/CR 处理及会话关闭清理均有回归。**
+
+**先写失败测试：**
+
+- `ext-port-log-telnet-codec.spec.ts`：跨 chunk IAC、SB/SE、IAC 转义、UTF-8、CRLF/CR-NUL。
+- `ext-port-log-share.spec.ts`：只消费 TmEventBus output/status、多客户端实时广播、无历史回放、SessionManagerApi.write、慢客户端、会话关闭和卸载。
+
+**实现：**
+
+- `share-manager.ts` 只依赖冻结契约；输出/status 用 `events.on`，输入用 `sessions.write`。
+- 默认 0.0.0.0、无认证、完全可写；欢迎语和正确 Telnet WILL ECHO/SGA。
+- 记录客户端元数据和字节；1 MiB 慢客户端缓冲上限。
+- Router/SSE 接入 `sessions.list`、`shares.list/start/stop`。
+
+**退出条件：** 两个真实本地 telnet/TCP 客户端能同时看输出并写入假会话；关闭会话后共享端口释放。
+
+#### E6 会话输出日志（2 天）
+
+**状态：Completed（2026-09-03）；默认关闭、仅 output、跨块 ANSI/CR/退格、半行 flush、运行时选项、1 MiB 积压保护及无轮转/无删除均有回归。**
+
+**先写失败测试：**
+
+- `ext-port-log-normalizer.spec.ts`：ANSI 跨块、OSC/CSI、退格、CR 覆盖、CRLF、UTF-8 半字符、时间戳和半行 flush。
+- `ext-port-log-session-log.spec.ts`：默认关闭、仅 output、不记录 input、运行时选项、1 MiB 背压、stream error、closed/removed/卸载刷盘。
+
+**实现：**
+
+- `session-log-manager.ts` 只订阅 `output/status`；文件放 `session_logs/`，不用用户 label。
+- 不轮转、不删除；UI/RPC 状态包含路径、设置、字节和安全错误。
+- stop 用 `stream.end` 等待 finish，不用 destroy。
+- Router/SSE 接入 `sessionLogs.list/start/update/stop`。
+
+**退出条件：** 彩色分块输出形成预期纯文本；直接 input 明文不在日志中；末尾无换行内容仍落盘。
+
+#### E7 React 扩展工作区（3 天）
+
+**状态：Completed（2026-09-03）；独立侧栏入口、overlay、RPC/SSE store、映射/共享/日志三页签、CSV/排序、风险确认、明暗 token 与响应式样式已接入。**
+
+**实现顺序：**
+
+1. `rpc.ts` 完成 ClientRequest/Response、错误对象、SSE 自动重连；每次 open/reconnect 先全量拉取。
+2. `store.ts` 管可见性、三类 snapshot 和排序；不使用主线 store，不持久化纯显示排序。
+3. `PortLogWorkspace.tsx` 注册独立 overlay；先完成关闭/三页签/加载与错误边界。
+4. `MappingsTab`：表单、运行卡片、autoStart、排序、CSV 浏览器读写/Blob 下载。
+5. `SharesTab`：open 会话列表、监听配置、风险确认、客户端列表和停止。
+6. `LogsTab`：应用日志状态、会话日志开关/选项/路径复制/磁盘提示。
+7. `port-log.ts` 完成明暗主题、窄屏滚动、状态/表单/对话反馈。
+
+**验证：**
+
+- `ext-port-log-client.spec.ts` 用纯模型/slot mock 测注册、RPC 错误、SSE 重连全量刷新、风险未确认不得 start。
+- 浏览器人工验收明暗主题、键盘焦点、aria-label、加载/空/错误状态。
+- 扩展 overlay 打开时主线终端仍连接，关闭扩展后主线布局和 xterm 尺寸恢复。
+
+**退出条件：** 用户只通过 UI 完成 intent 三组功能；没有 Agent 操作入口；三处主线挂载以外无主线 diff。
+
+#### E8 联调、审查与交付证据（1.5 天）
+
+**状态：Automated checks completed（2026-09-03）；`pnpm build`、232 项测试、覆盖率阈值（79.86/66.75/81.93/83.95）和 3180 真实 DSH TCP/UDP/CSV/敏感串 smoke 已通过。浏览器环境不可用，明暗主题与风险确认截图待人工验收，因此尚未越过 PR/发布门。**
+
+1. 扩展 `scripts/smoke-e2e.mjs` 会修改主线脚本，违反隔离；因此新建 `scripts/ext-port-log-smoke.mjs`，不碰原脚本。
+2. 对活 DSH 使用 3180，绝不占用用户 3080；验证 client.js 200 和插件注入。
+3. 完成 TCP/UDP echo、CSV 往返、autoStart 重启、两个共享客户端、慢客户端、会话日志、应用轮转和敏感串扫描。
+4. 保存端口映射/共享/日志三页签，以及共享风险确认的明暗主题截图。
+5. 按 REVIEW.md 跑缺陷、安全、spec/plan 合规三轮审查；每项发现给文件/行和证据。
+6. rebase 最新 main；确认 `git diff origin/main -- src/types` 为空，主线只剩三个挂载点的最小 diff。
+7. 最终执行并记录：
+
+~~~text
+pnpm build
+pnpm test
+pnpm vitest run --coverage
+DSH_PORT=3180 node scripts/ext-port-log-smoke.mjs
+~~~
+
+8. 同步 `spec.md`、`plan.md` 的真实偏离与测试数字；更新 README 的功能入口、外部可写风险和日志磁盘风险。
+
+**退出条件：** 所有自动检查全绿、人工验收通过、无高/中严重度未处理发现，提交 PR 等待两人 review；不得自行合并或发布。
+
+#### 风险与对策
+
+| 风险 | 严重度 | 计划内对策 |
+|---|---|---|
+| 无认证可写共享暴露设备控制权 | 高（产品已接受） | 用户手动启动、文字警告+勾选、显示监听地址/客户端；不声称安全 |
+| 扩展误改冻结契约/主线 | 高 | E0/E8 路径 diff 检查；发现不足走单独契约 PR |
+| UDP 来源串包、IPv6 地址族错误 | 高 | 每来源独立 socket；E4 双来源/双栈测试 |
+| Socket/订阅/定时器卸载泄漏 | 高 | 单 owner、幂等 stopAll；每里程碑端口复用和 handle 清理测试 |
+| 会话日志无限增长占满磁盘 | 中（产品已接受） | 默认关闭、路径/字节显示、明确提示；不偷偷加入轮转 |
+| 慢共享客户端或慢磁盘拖垮进程 | 高 | 1 MiB 上限，只断开/停写故障消费者，不阻塞 TmEventBus |
+| 日志泄露密码/私钥 | 高 | 不订阅 input；结构化允许字段+敏感键清理；全目录敏感串测试 |
+| 扩展 prefix 被主线 /term-manager 抢路由 | 中 | 依赖已验证的 WebServer 最长前缀规则；router 集成测试 |
+| SSE 断线造成 UI 状态陈旧 | 中 | 自动重连；每次重连后全量 list/status，再应用增量 |
+| 主线并行变化导致合并冲突 | 中 | 只动三个挂载点；实现前/合并前 rebase；测试基线按最新 main 更新 |
+
+#### 计划审批后的第一步
+
+批准后只执行 E0，不直接并行铺开全部代码。E0 证明分支基线、挂载点和契约边界可用后，再按 E1→E8 推进；任何实际文件/接口偏离都在同一提交更新本节。
 
 ### 开放问题（九月）
 

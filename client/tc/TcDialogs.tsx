@@ -108,11 +108,11 @@ export function SendSelectionDialog(props: {
         </div>
         {skip && (
           <div className="tm-mNote warn" style={{ padding: '4px 8px 0' }}>
-            勾选「不再提示」后：点「发送选中 →」按钮和右键都<b>直接发送</b>，目标 = <b>广播栏当前所选</b>的终端（广播栏没勾就发第一台在线），不再弹框；重新打开工作区后恢复弹框。
+            勾选「不再提示」后：广播栏<b>勾选了终端</b>时，点「发送选中 →」和右键都<b>直接发送</b>给广播栏所选（掉线的不发）；广播栏<b>没勾选</b>时仍会弹框，不会盲发。重新打开工作区后恢复弹框。
           </div>
         )}
         <div className="tm-mFoot">
-          <label title="下次点「发送选中 →」不再弹框，直接按广播栏当前所选的终端发送；右键「发送选中到终端…」仍会弹框">
+          <label title="下次广播栏勾选了终端时，「发送选中 →」和右键都直接发给广播栏所选，不再弹框；广播栏没勾选时仍会弹框。重新打开工作区后恢复">
             <input type="checkbox" checked={skip} onChange={e => setSkip(e.target.checked)} /> 不再提示
           </label>
           <span className="sp" />

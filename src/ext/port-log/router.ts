@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { AppLogger } from './app-logger.ts'
 import { exportMappingsCsv, parseMappingsCsv } from './csv.ts'
+import { resolveKnownFolders } from './known-folders.ts'
 import { PortLogError, safeError } from './errors.ts'
 import type { MappingStore } from './mapping-store.ts'
 import type { MappingManager } from './mapping-manager.ts'
@@ -139,12 +143,15 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
       }
       case 'sessionLogs.list':
         return ok(deps.sessionLogs?.list() ?? [])
+      case 'sessionLogs.defaultDirectory':
+        return ok({ directory: deps.sessionLogs?.getDefaultDirectory() ?? '' })
       case 'sessionLogs.start': {
         if (deps.sessionLogs === undefined) throw new PortLogError('MAPPING_STATE', '会话日志服务尚未就绪')
+        const directory = typeof payload.directory === 'string' && payload.directory.trim() !== '' ? payload.directory.trim() : undefined
         return ok(await deps.sessionLogs.start(requireString(payload, 'sessionId'), {
           timestamp: payload.timestamp === true,
           stripAnsi: payload.stripAnsi !== false,
-        }))
+        }, directory))
       }
       case 'sessionLogs.update': {
         if (deps.sessionLogs === undefined) throw new PortLogError('MAPPING_STATE', '会话日志服务尚未就绪')
@@ -159,6 +166,25 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
         await deps.sessionLogs.stop(sessionId)
         return ok({ sessionId })
       }
+      case 'sessionLogs.listDir': {
+        const raw = typeof payload.path === 'string' ? payload.path.trim() : ''
+        const dir = raw === '' ? deps.sessionLogs?.getDefaultDirectory() ?? homedir() : resolve(raw)
+        try {
+          const entries = await readdir(dir, { withFileTypes: true })
+          const dirs = entries
+            .filter(e => e.isDirectory())
+            .map(e => e.name)
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+          // 文件系统根（Windows 盘符根 / POSIX /）之上是「此电脑」，parent 返回 null 由前端展示
+          const isRoot = sep === '/' ? dir === '/' : /^[A-Za-z]:[\\/]?$/.test(dir)
+          const parent = isRoot ? null : resolve(dir, '..')
+          return ok({ path: dir, parent, dirs })
+        } catch {
+          throw new PortLogError('IO_ERROR', `无法读取目录：${dir}`)
+        }
+      }
+      case 'sessionLogs.knownFolders':
+        return ok(await resolveKnownFolders())
       default:
         throw new PortLogError('VALIDATION', '未知方法')
     }

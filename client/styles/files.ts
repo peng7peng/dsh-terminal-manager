@@ -10,6 +10,7 @@ export const FILES_CSS = `
 .tm-fpBar:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06)); }
 .tm-fpBar .arrow { display:inline-flex; color:var(--dsw-alias-label-tertiary, #888); transition:transform .15s; }
 .tm-fpBar .arrow svg { width:12px; height:12px; }
+.tm-fpIcon { display:inline-flex; align-items:center; flex:none; color:var(--dsw-alias-label-secondary, #666); }
 .tm-fpanel.open .tm-fpBar .arrow { transform:rotate(90deg); }
 .tm-fpanel.open .tm-fpBar { cursor:ns-resize; border-top:2px solid transparent; }
 .tm-fpanel.open .tm-fpBar:hover { border-top-color:var(--dsw-alias-state-business-primary, #4170e6); }

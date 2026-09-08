@@ -22,6 +22,7 @@ export const EDITOR_CSS = `
 .tm-feCtrls button { display:inline-flex; align-items:center; background:transparent; border:none; color:var(--dsw-alias-label-tertiary, #888); cursor:pointer; padding:3px 6px; border-radius:5px; font-size:13px; }
 .tm-feCtrls button:hover { background:var(--dsw-alias-bg-layer-2, #fff); color:var(--dsw-alias-label-primary, #000); }
 .tm-feCtrls button svg { width:14px; height:14px; }
+.tm-feToolbar { flex:none; display:flex; align-items:center; gap:6px; padding:4px 10px; border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); background:var(--dsw-alias-bg-module-platform, #f5f6f7); }
 .tm-feBody { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--dsw-alias-bg-base, #fff); position:relative; }
 .tm-feBanner { flex:none; padding:4px 12px; font-size:11.5px; background:var(--dsw-alias-state-warn-tertiary, #fff7e6); color:var(--dsw-alias-state-warn-primary, #d29922); border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }
 .tm-feTextarea { flex:1; min-height:0; width:100%; box-sizing:border-box; resize:none; border:none; outline:none; padding:8px 12px; background:transparent; color:var(--dsw-alias-label-primary, #000); font:12px/1.6 var(--dsw-font-code, "JetBrains Mono", Consolas, monospace); white-space:pre; overflow:auto; tab-size:4; }

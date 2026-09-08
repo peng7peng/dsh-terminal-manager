@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, IconGlobeOutline14, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import type { SessionSnap } from '../ConnectionsPanel.tsx'
@@ -72,7 +72,8 @@ export function RemoteFilePanel(props: { sessions: SessionSnap[] }): React.JSX.E
     <div className={`tm-fpanel ${st.expanded ? 'open' : ''}`}>
       <div className="tm-fpBar" onClick={() => store.toggleExpanded()} title={st.expanded ? '点击收起' : '点击展开'}>
         <span className="arrow"><IconChevronRightOutline14 /></span>
-        <span>🖥️ 远端文件</span>
+        <span className="tm-fpIcon"><IconGlobeOutline14 /></span>
+        <span>远端文件</span>
         <span className="sub">{st.sessionId === null ? '未选择会话' : st.loading ? `${st.cwd} …` : st.cwd}</span>
       </div>
       {st.expanded && (

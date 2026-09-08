@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { IconLinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
@@ -153,7 +154,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function toggleFavorite(connId: string): Promise<void> {
     const c = conns.find(x => x.id === connId)
     if (!c) return
-    try { await rpc('connections.update', { id: connId, patch: { ...c, favorited: !c.favorited } }); await refresh() } catch { /* */ }
+    try { await rpc('connections.update', { id: connId, patch: { ...c, favorited: c.favorited === false } }); await refresh() } catch { /* */ }
     setCtxMenu(null)
   }
   function onSessionContext(e: React.MouseEvent, s: SessionSnap): void { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'session', id: s.sessionId }) }
@@ -205,7 +206,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   return (
     <div className="tm-side">
       <div className="tm-sideHead">
-        <span className="t">📡 连接</span>
+        <span className="t"><IconLinkOutline14 className="tm-sideIcon" /> 连接</span>
         <div className="tm-ptabs" style={{ flex: 1, marginLeft: 8 }}>
           <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')} title="SSH：加密远程登录，需用户名+密码或私钥">SSH</div>
           <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')} title="Telnet：明文远程登录，常用于网络设备（ESL 环境）">Telnet</div>
@@ -273,7 +274,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             return (
               <div key={s.sessionId} className={'tm-ritem ' + (pinned.has(s.sessionId) ? 'pinned ' : '') + (hiddenSet.has(s.sessionId) ? 'dimmed ' : '') + (isClosed ? 'disconnected' : '')} draggable={sortedSessions.length > 1} onDragStart={() => onDragStart(idx)} onDragOver={onDragOver} onDrop={() => onDrop(idx)} onClick={handleClick} onContextMenu={e => onSessionContext(e, s)} style={{ cursor: 'pointer' }} title={isClosed ? '已断开 - 点击重连' : '点击切换显示'}>
                 <span className="tm-drag" title={sortedSessions.length > 1 ? "拖动排序 = 切换 TC 编号" : "只有一个会话，无需排序"} style={sortedSessions.length > 1 ? undefined : { opacity: 0.3, cursor: "default" }}>⣿</span>
-                {tcMap?.has(s.sessionId) && <span className="tm-tcn" title="TC 编号 = 活跃会话顺序">TC{tcMap.get(s.sessionId)}</span>}
+                {tcMap?.has(s.sessionId) && <span className="tm-tcn" title="活跃会话顺序编号">{tcMap.get(s.sessionId)}</span>}
                 <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
                 {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint">点击重连</span>}</span>)}
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}

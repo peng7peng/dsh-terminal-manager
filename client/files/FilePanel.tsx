@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconFolderOpenOutline16, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { ContextMenu } from '../tc/ContextMenu.tsx'
@@ -218,7 +218,8 @@ export function FilePanel(props: { onOpenFile: (entry: FileEntryView) => void })
         title={s.expanded ? '点击收起；上下拖动改面板高度' : '点击展开'}
       >
         <span className="arrow"><IconChevronRightOutline14 /></span>
-        <span>📁 本地文件</span>
+        <span className="tm-fpIcon"><IconFolderOpenOutline16 /></span>
+        <span>本地文件</span>
         <span className="sub">{s.ready ? s.cwd : '…'}</span>
       </div>
       {s.expanded && (

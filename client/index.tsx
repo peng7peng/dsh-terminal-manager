@@ -14,6 +14,7 @@ import { registerClientExtensions } from './ext/index.tsx'
 import { PLUGIN_CSS } from './styles/index.ts'
 import { toggleWorkspace, useWorkspaceVisible } from './store.ts'
 import { setPortLogVisible } from './ext/port-log/store.ts'
+import { IconTerminal16 } from './icons.tsx'
 import { TerminalWorkspace } from './TerminalWorkspace.tsx'
 
 /** 客户端 Cordis DI：插槽注册表。 */
@@ -35,7 +36,7 @@ function SidebarButton(props: { wide: boolean }): React.JSX.Element {
         fontSize: 13, fontWeight: 600,
       }}
     >
-      <span>🖥️</span>{props.wide ? <span>终端管理</span> : null}
+      <IconTerminal16 />{props.wide ? <span>终端管理</span> : null}
     </button>
   )
 }

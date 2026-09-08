@@ -29,5 +29,8 @@ export const TC_CSS = `
 .tm-ctxIt.go { color:var(--dsw-alias-state-success-primary, #22c55e); font-weight:600; }
 .tm-ctxIt.send { color:var(--dsw-alias-state-business-primary, #4170e6); font-weight:600; }
 .tm-ctxIt.dis { opacity:.4; cursor:not-allowed; }
+.tm-ctxIt.has-sub { position:relative; }
+.tm-ctxArrow { margin-left:auto; font-size:9px; color:var(--dsw-alias-label-tertiary, #888); }
+.tm-ctxSub { position:absolute; left:100%; top:-5px; margin-left:2px; background:var(--dsw-alias-bg-layer-2, #fff); border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); border-radius:8px; padding:4px 0; box-shadow:0 4px 16px rgba(0,0,0,.25); min-width:180px; z-index:101; }
 .tm-ctxSep { border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); margin:3px 0; }
 `

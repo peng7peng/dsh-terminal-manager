@@ -8,7 +8,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { IconDownloadOutline16, IconPlayOutline16, IconSendOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconPlayOutline16, IconSendOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { delayHints, parseTcScript, resolveTargetsAt, sectionRange, type TcLine } from '../../src/tc-parser.ts'
 import { editorStore, getActiveEditor } from '../editor/EditorWindow.tsx'
 import { extOf, useEditorState } from '../editor/editorStore.ts'
@@ -150,31 +150,49 @@ export function useTcActions(sessions: readonly TcSession[], bcTargets: readonly
     void runSend(dlg.lines, sessionIds)
   }
 
+  /** 右键子菜单：直接发送选中内容到指定终端（不弹框）。 */
+  function sendDirectTo(sessionIds: string[]): void {
+    const h = getActiveEditor()
+    if (h === null || active === null) { toast('没有打开的文件'); return }
+    const sel = h.getSelection()
+    if (sel === null) { toast('请先在编辑器里选中要发送的内容'); return }
+    const lines = sel.text.split(/\r?\n/).map(l => l.trimEnd()).filter(l => l.trim().length > 0)
+    if (lines.length === 0) { toast('选中内容为空'); return }
+    void runSend(lines, sessionIds)
+  }
+
   const onContextMenu = (e: React.MouseEvent): void => {
     if (active === null) return
     e.preventDefault()
     setCtx({ x: e.clientX, y: e.clientY, hasSelection: getActiveEditor()?.getSelection() !== null })
   }
+  const onlineSessions = sessions.filter(s => s.status === 'open')
+  const sendSubmenu: CtxItem[] = onlineSessions.map(s => ({
+    id: `send-sel:${s.sessionId}`,
+    label: s.label,
+    kind: 'send',
+  }))
+  if (onlineSessions.length > 0) {
+    sendSubmenu.push({ id: 'send-sel:all', label: '发送到全部', kind: 'send' })
+  }
   const ctxItems: CtxItem[] = ctx === null ? [] : [
     { id: 'run-sel', label: '▶ 执行选中脚本', kind: 'go', disabled: !can.run || !ctx.hasSelection || running, title: can.run ? undefined : '仅 TC 脚本(.txt)可执行' },
     { id: 'run-sec', label: '▶ 执行本节（到下一个 [标题] 前）', kind: 'go', disabled: !can.run || running, title: can.run ? undefined : '仅 TC 脚本(.txt)可执行' },
-    { id: 'send-sel', label: '发送选中到终端…', kind: 'send', disabled: !can.send || !ctx.hasSelection || running, title: can.send ? undefined : '仅 .md/.txt 支持发送选中' },
-    { id: 'sep', label: '', kind: 'sep' },
-    { id: 'copy', label: '复制', disabled: !ctx.hasSelection },
+    { id: 'send-sel', label: '发送选中到终端', kind: 'send', disabled: !can.send || !ctx.hasSelection || running || onlineSessions.length === 0, title: can.send ? undefined : '仅 .md/.txt 支持发送选中', submenu: sendSubmenu },
   ]
   const onCtxSelect = (id: string): void => {
     if (id === 'run-sel') prepareRun('selection')
     else if (id === 'run-sec') prepareRun('section')
-    else if (id === 'send-sel') prepareSend()
-    else if (id === 'copy') {
-      const sel = getActiveEditor()?.getSelection()
-      if (sel !== null && sel !== undefined) void navigator.clipboard?.writeText(sel.text).then(() => toast('已复制'))
+    else if (id.startsWith('send-sel:')) {
+      const target = id.slice('send-sel:'.length)
+      const onlineIds = onlineSessions.map(s => s.sessionId)
+      if (target === 'all') sendDirectTo(onlineIds)
+      else sendDirectTo([target])
     }
   }
 
   const actions = (
     <>
-      <button type="button" className="tm-feBtn" disabled title="上传到设备：随文件传输（S5）交付"><IconDownloadOutline16 /> 上传</button>
       <button type="button" className="tm-feBtn send" disabled={active === null || !can.send || running} title={can.send ? '把选中的行逐条发到勾选的终端' : '仅 .md/.txt 支持发送选中'} onClick={prepareSend}><IconSendOutline14 /> 发送选中 →</button>
       <button type="button" className="tm-feBtn go" disabled={active === null || !can.run || running} title={can.run ? '按脚本里的 ##>N 映射逐条发送（不用选终端）' : '仅 TC 脚本(.txt)可执行'} onClick={() => prepareRun('all')}><IconPlayOutline16 /> 执行脚本</button>
     </>

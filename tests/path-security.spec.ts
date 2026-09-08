@@ -1,7 +1,7 @@
 /**
  * B10 路径安全：逃逸用例必须全部被拒（先红后绿）。
  */
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -13,8 +13,10 @@ let outside: string
 let linkToOutside: string | undefined
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), 'tm-ps-root-'))
-  outside = await mkdtemp(join(tmpdir(), 'tm-ps-outside-'))
+  // realpath 归一化：Windows 上 mkdtemp 可能返回 8.3 短名（如 P00845~1），
+  // 而 resolveInsideRoot 内部用 realpath 返回长名，导致 isWithin 字符串比较失败
+  root = await realpath(await mkdtemp(join(tmpdir(), 'tm-ps-root-')))
+  outside = await realpath(await mkdtemp(join(tmpdir(), 'tm-ps-outside-')))
   await mkdir(join(root, 'a'))
   await writeFile(join(root, 'a', 'b.txt'), 'hello')
   await writeFile(join(outside, 'secret.txt'), 'top secret')

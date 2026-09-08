@@ -1,29 +1,28 @@
 # API 契约审查报告 — dsh-terminal-manager
-// fixme 
-> 审查日期：2026-09-03
-> 审查范围：`src/types/`（三份契约）+ 主线实现（`src/`）+ 浏览器半（`client/`）+ 传输层（`src/transport/`）
+
+> 审查日期：2026-09-05（port-log 扩展模块接入后复审）
+> 上次审查：2026-09-04（S5 后）
+> 审查范围：`src/types/`（三份契约）+ 主线实现（`src/`）+ 传输层（`src/transport/`）+ 扩展模块（`src/ext/port-log/`）+ 浏览器半（`client/`）
 > 审查方法：逐文件提取接口/类型/错误码定义，跨模块比对命名、结构、单位、语义一致性
-> 基线 commit：当前工作树（spec.md 2026-09-02 冻结版）
+> 基线：`f2a5f83`（Merge origin/dev into feat/sep-s5-transfer，含 port-log 扩展）
+> 修复跟进：2026-09-07 **P1 / P2（两个 🔴 高项）已修复**——连接超时统一毫秒、凭据结构统一嵌套 `auth`；见各条目「修复」行与第六节末尾「修复跟进」
 
-## 一、审查范围
+## 一、本次变更概要
 
-| 层 | 文件 | 角色 |
-|---|---|---|
-| 契约 | `src/types/events.ts` | 事件总线声明 |
-| 契约 | `src/types/session-api.ts` | 会话管理器公开面声明 |
-| 契约 | `src/types/file-service.ts` | 文件服务声明 |
-| 实现 | `src/session-manager.ts` | B4 心脏（implements SessionManagerApi） |
-| 实现 | `src/connection-store.ts` | B1 连接存储 |
-| 实现 | `src/tools.ts` | B6 AI 工具层 |
-| 实现 | `src/remotes.ts` | B7a 控制面 HTTP |
-| 实现 | `src/ws-io.ts` | B7b 数据面 WS |
-| 实现 | `src/wait-policy.ts` | B5 完成判定 |
-| 实现 | `src/command-guard.ts` | B8 命令守卫 |
-| 实现 | `src/file-service.ts` | B10 文件服务实现 |
-| 实现 | `src/transport/types.ts` | 传输层接口 |
-| 实现 | `src/transport/ssh.ts` / `telnet.ts` | B2/B3 传输实现 |
-| 实现 | `src/ext/index.ts` | 扩展模块挂载点 |
-| 客户端 | `client/rpc.ts` / `ws.ts` | 浏览器半通道客户端 |
+同事开发并合入 **port-log 扩展模块**（端口映射 + 会话共享 + 会话日志 + 应用日志）。关键变化：
+
+| 变化 | 说明 |
+|---|---|
+| 契约层 | **三份契约文件仍均未改动**。port-log 严守「只依赖 `src/types/` 契约，不 import 主线实现，不改契约」 |
+| 新增模块 | host 半 `src/ext/port-log/`（16 文件）+ client 半 `client/ext/port-log/`（7 文件） |
+| 挂载 | `src/ext/index.ts` `registerExtensions` → `registerPortLogExtension`；`client/ext/index.tsx` → `registerPortLogClient` |
+| HTTP 路由 | port-log 注册前缀路由 `/term-manager/ext/port-log`（挂在主线 `/term-manager` 下）+ SSE `/events` |
+| 事件订阅 | port-log 订阅 `TmEventBus` 的 `output`/`status`/`file` 事件（会话日志订阅 output，应用日志订阅 status/file） |
+| 会话面使用 | port-log 经 `SessionManagerApi` 用 `get`/`list`/`subscribe`/`write`（共享会话：外部 Telnet 客户端连入 → subscribe 拿输出 + write 注入输入） |
+| 错误码 | 新增第四套 `PortLogErrorCode`（11 个，独立） |
+| 推送通道 | port-log 用 SSE（HTTP `/events`）推运行时事件给前端，与主线 WS `/term-io` 并存 |
+
+> 本次审查同时覆盖 S5（远端文件传输，2026-09-04 已审）的累积变化。下文 P1–P15 为基线问题，P16–P23 为 S5 引入，P24–P30 为 port-log 引入。
 
 ## 二、严重程度分级
 
@@ -31,6 +30,7 @@
 - 🟠 **中**：增加维护成本、易在改动时引入 bug，建议修
 - 🟡 **低**：命名/风格不一致，影响可读性，可择机修
 - ✅ **符合预期**：设计如此，记录在案
+- 🆕 **本轮新增**
 
 ## 三、问题清单
 
@@ -38,199 +38,328 @@
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `ConnectTarget.connectTimeoutMs`（session-api.ts，毫秒）<br/>`ConnectionConfig.handshakeTimeoutSec`（connection-store.ts，秒）<br/>`TransportConnectOptions.connectTimeoutMs`（transport/types.ts，毫秒） |
-| 现状 | 同一概念「连接建立超时」在三处用两种命名、两种单位：<br/>- 前端/会话层用 `connectTimeoutMs`（毫秒）<br/>- 连接配置持久化用 `handshakeTimeoutSec`（秒，UI 可选 15/30/60/120/180）<br/>- 传输层用 `connectTimeoutMs`（毫秒） |
-| 转换点 | `session-manager.ts` `connectByConnId` 与 `reconnect` 各做一次 `connectTimeoutMs: conn.handshakeTimeoutSec * 1000` |
-| 风险 | 单位转换散落多处，新增调用路径时极易漏乘 1000 或误用秒数当毫秒，导致超时被放大/缩小 1000 倍 |
-| 建议 | 统一为单一字段名 + 单一单位（推荐毫秒 `connectTimeoutMs`），UI 层做秒→毫秒换算，配置层不再存秒 |
+| 位置 | `ConnectTarget.connectTimeoutMs`（毫秒）<br/>`ConnectionConfig.handshakeTimeoutSec`（秒）<br/>`TransportConnectOptions.connectTimeoutMs`（毫秒） |
+| 风险 | 转换散落 `session-manager.ts` 多处，易漏乘 1000 |
+| 建议 | 统一为 `connectTimeoutMs`（毫秒），UI 层做换算 |
+| 修复 | ✅ 2026-09-07：`ConnectionConfig.handshakeTimeoutSec`（秒）删除，改名 `connectTimeoutMs`（毫秒），契约/存储/传输选项三处同名同单位；`session-manager.ts` 删 2 处 `* 1000` 转换（`connectByConnId` / `reconnect`）直接透传；UI 仍以秒展示（15/30/60/120/180 下拉框），`ConnectionsPanel` 保存 ×1000、回显 ÷1000 |
 
 ### 🔴 P2 — 凭据结构形态冲突（扁平 vs 嵌套）
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `ConnectTarget`：扁平 `password? / privateKey? / passphrase?`（session-api.ts）<br/>`ConnectionConfig`：嵌套 `auth?: { kind:'password', password } \| { kind:'key', privateKey, passphrase? }`（connection-store.ts）<br/>`TransportConnectOptions`：扁平 `password? / privateKey? / passphrase?`（transport/types.ts） |
-| 现状 | 两套结构表达同一凭据：传输层/会话层用扁平，存储层用 `auth` 嵌套判别联合 |
-| 转换点 | `session-manager.ts` `connect()` 把扁平 → 嵌套入库；`connectByConnId` / `reconnect` 把嵌套 → 扁传传输 |
-| 风险 | 转换逻辑重复 3 处，每处都要分别处理 password / key / passphrase，遗漏 `passphrase` 会导致密钥连接失败且不易定位 |
-| 建议 | 契约层统一为一种形态（推荐嵌套 `auth` 判别联合，类型更安全）；传输层接收 `auth` 后内部展平 |
+| 位置 | `ConnectTarget`/`TransportConnectOptions` 扁平 `password?/privateKey?/passphrase?`<br/>`ConnectionConfig` 嵌套 `auth?: { kind, ... }` |
+| 风险 | 转换重复 3 处，易遗漏 `passphrase` |
+| 建议 | 契约层统一为嵌套 `auth` 判别联合 |
+| 修复 | ✅ 2026-09-07：契约层（`src/types/session-api.ts`）新增 `AuthConfig` 判别联合（`{ kind:'password', password } \| { kind:'key', privateKey, passphrase? }`）；`ConnectTarget` / `TransportConnectOptions` / `ConnectionConfig` 三处统一嵌套 `auth?`（connection-store 删本地定义，改 import + re-export）；`session-manager.ts` 3 处拆装转换（`connectByConnId` / `connect` / `reconnect`）删除，直接透传；边界转换收敛 2 处——`remotes.ts` `sessions.connect`（前端扁平 payload → auth）、`tools.ts` `tm_connect`（AI 扁平 password → auth），前端 RPC payload 与 AI 参数 schema 不变 |
 
 ### 🟠 P3 — `wait` 字段跨层语义重载
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SendOptions.wait?: WaitPolicyConfig`（session-api.ts，**对象**）<br/>`SendArgs.wait?: 'complete' \| 'immediate'`（tools.ts，**字符串枚举**）<br/>`remotes.ts` `sessions.send` 端点 `wait?: SendOptions['wait']`（**对象**） |
-| 现状 | 同名 `wait` 在三层含义不同：AI 工具层是「等不等」的字符串，会话层/控制面层是「怎么等」的配置对象 |
-| 转换点 | `tools.ts` `tm_send.execute` 按 `args.wait === 'immediate'` 分流到 `sendImmediate` / `sendAndWait`，`WaitPolicyConfig` 经 `waitOptions(args)` 从 `quietMs/timeoutMs` 拼装 |
-| 风险 | 阅读时极易混淆；若有人把字符串 `'complete'` 误传给 `sendAndWait.options.wait`，运行时不会报错（结构类型兼容）但 `WaitPolicy` 构造会拿到错误形状 |
-| 建议 | 工具层改名 `mode?: 'complete' \| 'immediate'`，与 `wait: WaitPolicyConfig` 解耦 |
+| 位置 | `SendOptions.wait?: WaitPolicyConfig`（对象）<br/>`SendArgs.wait?: 'complete'\|'immediate'`（字符串，tools.ts）<br/>`remotes.ts` `sessions.send` `wait?: SendOptions['wait']`（对象） |
+| 建议 | 工具层改名 `mode` |
 
 ### 🟠 P4 — `BroadcastEntry` 契约嵌套 vs 工具 schema 展平
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `BroadcastEntry = { sessionId, outcome, result?: SendResult, code? }`（session-api.ts，**嵌套 result**）<br/>`BROADCAST_ENTRY_SCHEMA = { sessionId, outcome, output?, waitReason?, code? }`（tools.ts，**展平**） |
-| 转换点 | `tools.ts` `tm_send_all.execute` 末尾 `raw.map(e => ({ sessionId, outcome, ...(e.result?.output ...), ...(e.result?.waitReason ...) }))` |
-| 风险 | 契约定义嵌套，工具输出 schema 展平，两套结构并存；`additionalProperties: false` 的 schema 与契约形状不一致，类型生成会以哪边为准产生分歧 |
-| 建议 | 二选一。推荐契约也展平（与 AI 消费的对齐），或工具层保留嵌套 `result` |
+| 位置 | `BroadcastEntry = { ..., result?: SendResult }`（session-api.ts）<br/>`BROADCAST_ENTRY_SCHEMA = { ..., output?, waitReason? }`（tools.ts） |
+| 建议 | 二选一，推荐契约展平 |
 
 ### 🟠 P5 — `TransportFactory` 参数类型与传输函数签名宽度不一致
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `TransportFactory = (target: ConnectTarget, callbacks) => Promise<Transport>`（session-manager.ts）<br/>`connectSsh(options: TransportConnectOptions, ...)` / `connectTelnet(options: TransportConnectOptions, ...)`（transport/*.ts） |
-| 现状 | `ConnectTarget` 是 `TransportConnectOptions` 的超集（多 `protocol / label / newline / localEcho`）。`defaultTransportFactory` 把整个 `ConnectTarget` 传给只声明 `TransportConnectOptions` 的函数 |
-| 风险 | TS 结构兼容能编译，但：① 传输层收到了它不需要的字段，语义边界模糊；② **分派依赖的 `target.protocol` 不在 `TransportConnectOptions` 类型里**——`defaultTransportFactory` 靠 `target.protocol` 选 SSH/Telnet，但 `TransportConnectOptions` 根本没有 `protocol` 字段，类型层面无法保证分派正确 |
-| 建议 | 传输函数签名改为接收 `ConnectTarget`（或新增 `protocol` 到 `TransportConnectOptions`），让分派依赖的字段在类型里可见 |
+| 位置 | `TransportFactory` 收 `ConnectTarget`；`connectSsh`/`connectTelnet` 声明收 `TransportConnectOptions`（缺 `protocol`） |
+| 现状 | 分派靠 `target.protocol`（不在 `TransportConnectOptions` 类型里）；`Transport.getSftp?()` 可选方法，Telnet 无此方法 |
+| 建议 | 传输函数签名改收 `ConnectTarget`，或 `TransportConnectOptions` 补 `protocol` |
 
-### 🟠 P6 — 控制面 `sessions.send` 端点不过守卫，与 AI 路径隐式分流
-
-| 项 | 内容 |
-|---|---|
-| 位置 | `SendOptions.guard?: GuardOptions`（session-api.ts）<br/>`remotes.ts` `sessions.send` 解构 `{ sessionId, command, source, wait, newline, submit }`——**不传 guard** |
-| 现状 | 同一 `sendAndWait` 方法，AI 工具层（`tm_send`）必传 `guard: {}` 过守卫，控制面 `sessions.send`（编辑器/TC 执行）不过守卫。安全策略靠「是否传 guard」隐式区分 |
-| 风险 | 注释写「编辑器路径：不过守卫」，但 TC 脚本/发送选中也是用户主动发起的命令，与 AI 路径同样可能含危险命令。当前完全依赖前端确认框兜底，后端无防线 |
-| 建议 | 明确策略：要么控制面也传 `guard`（按来源决定），要么在契约/文档里显式声明「控制面 sessions.send 永远是可信用户路径，守卫只在 AI 工具层」并加测试锁定 |
-
-### 🟠 P7 — 错误码三套独立定义，部分重叠且跨域复用
+### 🟠 P6 — 控制面 `sessions.send` 不过守卫
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SessionErrorCode`（session-api.ts）：`SESSION_NOT_FOUND / SESSION_BUSY / DISCONNECTED / COMMAND_BLOCKED / SESSION_NOT_DISCONNECTED`<br/>`TransportErrorCode`（transport/types.ts）：`AUTH_FAILED / HOST_UNREACHABLE / CONN_TIMEOUT / PROTO_ERROR / DISCONNECTED`<br/>`FileErrorCode`（file-service.ts）：`VALIDATION / PATH_OUTSIDE_ROOT / NOT_FOUND / FILE_TOO_LARGE / SESSION_NOT_FOUND / DISCONNECTED / REMOTE_IO / UNSUPPORTED`<br/>`REMOTE_ERROR_CODES`（remotes.ts）：上述并集 |
-| 现状 | `DISCONNECTED` 在三套重复定义；`SESSION_NOT_FOUND` 在 Session + File 两套；无单一权威枚举 |
-| 风险 | 新增错误码时易漏更新并集；`FileErrorCode` 含 `SESSION_NOT_FOUND / DISCONNECTED` 跨域复用，语义模糊（文件操作报「会话不存在」） |
-| 建议 | 抽一个 `src/types/errors.ts` 统一枚举 + 各域子集，或明确各域错误码不相交、转换时映射 |
+| 位置 | `remotes.ts` `sessions.send` 不传 `guard`；`tools.ts` `tm_send` 必传 `guard: {}` |
+| 建议 | 显式声明安全边界或统一过守卫 |
 
-### 🟠 P8 — `SESSION_NOT_FOUND` 错误码语义复用（会话 vs 连接配置）
+### 🟠 P7 — 错误码多套独立定义，部分重叠
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SessionError.code = 'SESSION_NOT_FOUND'`（session-manager.ts，会话不存在）<br/>`StoreNotFoundError.code = 'SESSION_NOT_FOUND'`（connection-store.ts，**连接配置**不存在） |
-| 现状 | 同一错误码表达两种不同语义：会话池里找不到会话 vs 存储里找不到连接配置 |
-| 风险 | 前端/AI 收到 `SESSION_NOT_FOUND` 无法区分是「会话掉了」还是「连接配置被删了」，提示文案与重连策略难以精准 |
-| 建议 | 连接配置不存在用独立码如 `CONNECTION_NOT_FOUND`，与会话区分 |
+| 位置 | `SessionErrorCode` / `TransportErrorCode` / `FileErrorCode` / **`PortLogErrorCode`（P26 新增第四套）**<br/>`DISCONNECTED`/`SESSION_NOT_FOUND` 跨套重复；`REMOTE_ERROR_CODES`（remotes.ts）并集不含 port-log 码 |
+| 建议 | 抽 `src/types/errors.ts` 统一枚举 + 各域子集 |
 
-### 🟡 P9 — `SessionStatus` 与 `ConnectionStatus` 命名/取值差异
+### 🟠 P8 — `SESSION_NOT_FOUND` 语义复用
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SessionStatus = 'connecting' \| 'open' \| 'closed' \| 'removed'`（session-api.ts）<br/>`ConnectionStatus = 'connecting' \| 'open' \| 'closed'`（client/ws.ts） |
-| 现状 | `client/ws.ts` 的 `ConnectionStatus` 实指 **WS 连接状态**，非会话状态，少了 `removed`，但命名与 `SessionStatus` 极近 |
-| 风险 | 名称相近易误读为同一概念；`removed` 在客户端不存在，状态机不对称 |
-| 建议 | 客户端改名 `WsConnectionStatus`，明确是 WS 通道状态 |
+| 位置 | `SessionError.code = 'SESSION_NOT_FOUND'`（会话不存在）<br/>`StoreNotFoundError.code = 'SESSION_NOT_FOUND'`（连接配置不存在） |
+| 建议 | 连接配置用独立码 `CONNECTION_NOT_FOUND` |
+
+### 🟠 🆕 P16 — B10 文件服务依赖传输层内部接口 `SftpLike`
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `SftpLike` 定义在 `transport/types.ts`；`file-service.ts` `FileSessionGateway.getSftp(): Promise<SftpLike>` 并 import 其类型 |
+| 现状 | 突破 spec.md「传输层只被 B4 接触」约束；`SftpLike` 是协议无关门面（不暴露 ssh2），风险可控 |
+| 建议 | 把 `SftpLike` 提到 `src/types/` 契约层，或显式记录二级边界 |
+
+### 🟠 🆕 P17 — `tm_upload`/`tm_download` 树根基准与控制面不一致
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `tools.ts` 用全局 `workspaceRoot`；`remotes.ts` `files.uploadLocal` 用前端传入的 `LocalPathRef.root` |
+| 风险 | AI 与人看到的「工作区」可能不一致（用户换目录后） |
+| 建议 | AI 工具先调 `files.root` 查当前树根，或文档锁定语义 |
+
+### 🟠 🆕 P24 — port-log 路由前缀与主线 `/term-manager` 重叠
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 主线 `registerRemotes` 注册前缀 `/term-manager`（remotes.ts）<br/>port-log `registerPortLogExtension` 注册前缀 `/term-manager/ext/port-log`（port-log/router.ts） |
+| 现状 | 两个前缀路由重叠。主线 `createHttpHandler` 处理所有 `/term-manager/*`，port-log 路由处理 `/term-manager/ext/port-log/*`。分流依赖 `webServer.register` 的**最长前缀匹配**语义 |
+| 风险 | 若 webServer 按注册顺序而非最长前缀匹配，主线先注册（index.ts 中 `registerRemotes` 先于 `registerExtensions`）会吃掉所有 `/term-manager/*`，port-log 路由永不触发。当前能工作说明 webServer 确实按最长前缀匹配，但这是**隐式依赖**，未在契约中声明 |
+| 建议 | 在 index.ts 注释说明「依赖 webServer 最长前缀匹配」；或 port-log 改用独立前缀如 `/term-ext/port-log` 避开重叠 |
+
+### 🟠 🆕 P25 — 安全栅栏重复实现（port-log vs 主线）
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 主线 `isTrustedOrigin(origin, host)`（remotes.ts）<br/>port-log `isAllowedRequest(request)`（port-log/router.ts）独立实现 loopback + Origin 校验 |
+| 现状 | 两份安全栅栏代码逻辑相似但独立：主线 `isTrustedOrigin` 放行无 Origin / loopback / 同 Host；port-log `isAllowedRequest` 放行 loopback remoteAddress + 无 Origin / 同 Host |
+| 风险 | 安全逻辑重复，未来收紧/放宽一处时另一处易漏改，导致两个前缀路由安全策略不一致 |
+| 建议 | 抽公共 `src/security.ts`（或契约层）共享栅栏函数；或 port-log 显式 import 主线 `isTrustedOrigin`（但会破坏扩展模块不依赖主线实现的约定，不推荐） |
+
+### 🟡 P9 — `SessionStatus` vs `ConnectionStatus` 命名/取值差异
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `SessionStatus = 'connecting'\|'open'\|'closed'\|'removed'`<br/>`ConnectionStatus = 'connecting'\|'open'\|'closed'`（client/ws.ts，WS 连接状态） |
+| 建议 | 客户端改名 `WsConnectionStatus` |
 
 ### 🟡 P10 — WS 帧 `status` 类型两端不对称
 
 | 项 | 内容 |
 |---|---|
-| 位置 | host `OutFrame`（ws-io.ts）：`{ kind:'status' } & SessionSnapshot`（强类型）<br/>client `InFrame`（ws.ts）：`{ kind:'status' } & Record<string, unknown>`（弱类型） |
-| 现状 | status 帧在 host 端是 `SessionSnapshot`，客户端是 `Record<string, unknown>` |
-| 风险 | 有意为之（客户端不 import host 类型，避免双半包耦合），但失去编译期校验，客户端取字段时无提示 |
-| 建议 | ✅ 设计合理；可在 `client/` 维护一份 `SessionSnapshot` 镜像类型（手写或 codegen）恢复校验 |
+| 位置 | host `OutFrame` status `& SessionSnapshot`（强类型）<br/>client `InFrame` status `& Record<string, unknown>`（弱类型） |
+| 说明 | ✅ 有意为之（客户端不 import host 类型） |
 
 ### 🟡 P11 — `FileRpcAction` 契约与实现端点不同步
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `FileRpcAction = 'files.tree' \| 'files.read' \| 'files.write' \| 'files.dirs'`（file-service.ts 契约）<br/>`remotes.ts` dispatch 还实现了 `files.root`、`files.open` |
-| 现状 | 契约声明的动作名是子集，实现有额外端点未入契约 |
-| 风险 | 契约与实现漂移；`files.open` 不在 `FileService` 接口内（是主线自己的功能），但用了 `files.*` 命名空间 |
-| 建议 | 把 `files.root / files.open` 补进 `FileRpcAction`，或在契约注释说明「FileRpcAction 仅列 FileService 接口对应的端点」 |
+| 位置 | `FileRpcAction = 'files.tree'\|'files.read'\|'files.write'\|'files.dirs'`（4 个）<br/>实现：上述 4 + `files.root` + `files.open` + `files.remoteTree` + `files.uploadLocal` + `files.downloadToLocal` + HTTP `files/upload` + `files/download` |
+| 风险 | 契约 4 个端点是实现的子集，`FileRpcAction` 已失去索引价值 |
+| 建议 | 删除 `FileRpcAction` 改用注释索引，或补全 |
 
 ### 🟡 P12 — `SessionSnapshot.target` 拼接串 vs `ConnectTarget` 分字段
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SessionSnapshot.target: string`（session-api.ts，`"host:port"` 拼接）<br/>`ConnectTarget.host / ConnectTarget.port`（分字段） |
-| 转换点 | `session-manager.ts` `target: ${target.host}:${target.port}` |
-| 现状 | 快照里 target 是拼接串，消费方要自己 `split(':')` 才能拿 host/port |
-| 风险 | IPv6 地址含 `:` 会被误 split；前端展示与匹配要反复拆串 |
-| 建议 | 快照里也存 `host` + `port` 分字段，`target` 保留为派生展示串或移除 |
+| 位置 | `SessionSnapshot.target: string`（`"host:port"`）<br/>`ConnectTarget.host/port`（分字段） |
+| 风险 | IPv6 含 `:` 误 split |
+| 建议 | 快照存 `host + port` 分字段 |
 
-### 🟡 P13 — `TmInputSource` 缺省规则分散三处
+### 🟡 P13 — `TmInputSource` 缺省规则分散
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `sourceOf(options, fallback)` = `options.source ?? (guard !== undefined ? 'ai' : fallback)`（session-manager.ts）<br/>`write()` 硬编码 `source: 'human'`<br/>`broadcast` 缺省 `fallback = 'broadcast'`<br/>`remotes.ts` `sessions.send` 缺省 `source ?? 'script'` |
-| 现状 | 输入来源的缺省规则分散在会话管理器、控制面两处，无单一权威 |
-| 风险 | 新增入口时易漏定缺省；`script` 缺省只在控制面，会话管理器层不知 `script` 概念 |
-| 建议 | 缺省规则集中到 `sourceOf` 一处，控制面显式传 `source` 不靠缺省 |
+| 位置 | `sourceOf`（session-manager.ts）+ `write()` 硬编码 + `broadcast` 缺省 + `remotes.ts` `sessions.send` 缺省 'script' |
+| 建议 | 集中到 `sourceOf` 一处 |
 
-### ✅ P14 — `SessionManagerApi` 公开面 vs `SessionManager` 实现额外方法
+### 🟡 🆕 P18 — `FileProgressFrame` 两端形状不对称
 
 | 项 | 内容 |
 |---|---|
-| 位置 | `SessionManagerApi`（session-api.ts）14 个方法<br/>`SessionManager implements SessionManagerApi` 额外有 `findConnectionByTarget / resize / closeAll`（非公开面） |
-| 现状 | 主线 `tools.ts / remotes.ts / ws-io.ts` 直接用 `SessionManager` 实例的非公开面方法；扩展模块经 `ExtensionDeps.sessions: SessionManagerApi` 只看契约面 |
-| 说明 | ✅ 设计意图（CLAUDE.md：「扩展模块只 import `src/types/`，不 import 主线实现」）。契约只约束扩展模块，主线依赖未声明方法是允许的 |
-| 风险 | 低：主线与实现强耦合，重构 `SessionManager` 时主线会一起改；但契约面不完整，新接手者可能误以为 `SessionManagerApi` 是全部能力 |
-| 建议 | 在 `SessionManagerApi` 注释里显式列出「主线额外使用但不对扩展开放的方法」 |
+| 位置 | host `FileProgressFrame`（`TransferProgress` 强类型，op/sessionId/remotePath/transferred 必填）<br/>client `FileProgressFrame`（ws.ts，所有字段可选） |
+| 说明 | 与 P10 同模式，有意为之 |
+
+### 🟡 🆕 P19 — `TransferResult` 契约 vs 工具 schema vs 控制面返回不一致
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 契约 `TransferResult = { ok: true, ... }`（literal true）<br/>工具 `TRANSFER_RESULT_SCHEMA` `ok: boolean`（放宽）<br/>控制面返回 `{ ...result, transferId }`（多 transferId） |
+| 建议 | 工具 schema `ok` 用 `const: true`；控制面返回类型显式声明 |
+
+### 🟡 🆕 P20 — `UploadSource.kind` vs `SftpPutSource.kind` 判别标签不一致
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 契约 `UploadSource` `kind: 'local'`<br/>传输层 `SftpPutSource` `kind: 'path'` |
+| 建议 | 统一 kind 标签 |
+
+### 🟡 🆕 P21 — `FileSessionGateway` 定义在实现文件而非契约层
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `FileSessionGateway` 定义在 `src/file-service.ts`（实现文件），不在 `src/types/` |
+| 建议 | 若 P16 把 `SftpLike` 提到契约层，则同提 `FileSessionGateway` |
+
+### 🟡 🆕 P22 — B7a → B7b 反向依赖（`broadcastFileProgress`）
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `index.ts` `wsIo = registerWsIo(...)` 先于 `registerRemotes(..., broadcastFileProgress: wsIo.broadcastFileProgress)` |
+| 说明 | ✅ 显式接线可控，装配顺序是隐式约束 |
+
+### 🟡 🆕 P23 — 契约注释陈旧（Telnet 模拟传输已砍）
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `src/types/file-service.ts` 注释仍提「Telnet 模拟 1MB」「命令模拟」 |
+| 建议 | 更新注释：`UNSUPPORTED` = "Telnet 会话不支持文件传输" |
+
+### 🟡 🆕 P26 — `PortLogErrorCode` 第四套独立错误码
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `PortLogErrorCode`（port-log/errors.ts）= VALIDATION/PORT_IN_USE/ADDRESS_INVALID/TARGET_UNREACHABLE/MAPPING_NOT_FOUND/MAPPING_STATE/SHARE_ALREADY_ACTIVE/SHARE_NOT_FOUND/IO_ERROR/IO_BACKPRESSURE/IMPORT_INVALID（11 个）<br/>`PortLogError.code` 不与主线 `REMOTE_ERROR_CODES` 合并 |
+| 现状 | 扩展模块独立错误码，前端 port-log rpc.ts 自己处理 `PortLogRpcError` |
+| 说明 | ✅ 扩展模块独立错误码合理（不污染主线）；但全局错误码治理更分散（现四套） |
+| 建议 | 维持现状；若做 P7 统一枚举，port-log 码作为独立子集纳入 |
+
+### 🟡 🆕 P27 — `RpcResult` 类型重复定义
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 主线 `remotes.ts` 用 `RpcResult`（来自 `@deepseek-ai/dsh-host-apiproxy/api`）<br/>port-log `router.ts` 本地定义 `RpcResult = { ok: true; value } \| { ok: false; error: { code, message, details } }` |
+| 现状 | 两份 `RpcResult` 形状相似但独立，port-log 不依赖主线类型 |
+| 说明 | ✅ 符合扩展模块隔离原则（不 import 主线/上游类型）；但形状漂移时无编译期对齐 |
+| 建议 | 维持现状；若形状分歧可加注释指明对齐基准 |
+
+### 🟡 🆕 P28 — SSE 与 WS 双实时推送通道并存
+
+| 项 | 内容 |
+|---|---|
+| 位置 | 主线用 WS `/term-io`（output/status/file-progress 帧）<br/>port-log 用 SSE `/term-manager/ext/port-log/events`（mapping-status/share-status/session-log-status/app-log-status） |
+| 现状 | 前端有两套实时通道：`TermWs`（WS）+ `subscribePortLogEvents`（EventSource/SSE） |
+| 说明 | ✅ 设计选择：port-log 事件与主线终端流语义不同（运行时状态 vs 字节流），SSE 对扩展模块更简单（单向推送、HTTP 复用、无需 WS upgrade） |
+| 风险 | 低：两套通道职责清晰；但前端实时连接数翻倍（WS + SSE），断线重连逻辑各写一份 |
+| 建议 | 维持现状；文档说明「主线终端流走 WS、扩展运行时状态走 SSE」 |
+
+### 🟡 🆕 P29 — `SessionLogSnapshot.state` vs `SessionStatus` 命名空间重叠
+
+| 项 | 内容 |
+|---|---|
+| 位置 | port-log `SessionLogSnapshot.state = 'running' \| 'error'`（port-log/types.ts）<br/>主线 `SessionStatus = 'connecting' \| 'open' \| 'closed' \| 'removed'`（session-api.ts）<br/>port-log `MappingState = 'stopped' \| 'starting' \| 'running' \| 'stopping' \| 'error'`、`ShareSnapshot.state = 'running' \| 'stopped' \| 'error'` |
+| 现状 | 多处用 `state`/`status` 描述状态，取值不同；`running` 在 port-log 多处复用 |
+| 风险 | 命名易混，但分属不同模块，实际冲突低 |
+| 建议 | 维持现状；port-log 类型加前缀注释说明所属域 |
+
+### ✅ P14 — `SessionManagerApi` 公开面 vs 实现额外方法
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `SessionManagerApi` 14 个方法；`SessionManager` 额外有 `findConnectionByTarget / resize / closeAll / getSftp`（非公开面） |
+| 现状 | 主线用非公开面方法；**port-log 扩展模块经 `SessionManagerApi` 契约面**用 `get/list/subscribe/write`，不碰非公开面 ✅ |
+| 说明 | ✅ 设计意图验证通过：扩展模块确实只走契约面 |
+| 建议 | 在 `SessionManagerApi` 注释列出「主线额外使用的方法」清单 |
 
 ### ✅ P15 — `FileServiceError` 契约 interface vs 实现 class
 
 | 项 | 内容 |
 |---|---|
-| 位置 | 契约 `FileServiceError extends Error`（interface，file-service.ts 契约）<br/>实现 `class FileServiceError extends Error implements FileServiceErrorShape`（file-errors.ts） |
-| 说明 | ✅ 合理：契约是形状声明，实现是真实类，`path-security.ts` 与 `file-service.ts` 共用实现类而不互相 import |
+| 说明 | ✅ 合理：契约形状声明，实现真实类，多处共用 |
+
+### ✅ 🆕 P30 — 扩展模块契约隔离已验证
+
+| 项 | 内容 |
+|---|---|
+| 位置 | `src/ext/port-log/` 全部 16 文件 |
+| 验证 | ① 只 import `src/types/` 契约（`SessionManagerApi`/`TmEventBus`/`TmEvent`），不 import 主线实现文件 ✅<br/>② 契约层零改动 ✅<br/>③ 落盘在自己子目录 `dataDir/ext/port-log/` ✅<br/>④ 挂载点 `src/ext/index.ts` + `client/ext/index.tsx` 各一行调用 ✅ |
+| 说明 | CLAUDE.md「两人并行开发」约定被严格遵守。扩展模块隔离度从「待接入」变为「已验证」 |
 | 建议 | 无需改动 |
 
 ## 四、问题汇总
 
-| 编号 | 严重 | 一句话 | 涉及文件 |
-|---|---|---|---|
-| P1 | 🔴 高 | 连接超时命名/单位三处不一致（ms vs sec） | session-api / connection-store / transport/types |
-| P2 | 🔴 高 | 凭据扁平 vs 嵌套两套结构，转换散落 3 处 | session-api / connection-store / transport/types |
-| P3 | 🟠 中 | `wait` 跨层语义重载（字符串 vs 对象） | session-api / tools / remotes |
-| P4 | 🟠 中 | `BroadcastEntry` 契约嵌套 vs 工具 schema 展平 | session-api / tools |
-| P5 | 🟠 中 | `TransportFactory` 参数宽于传输函数签名，分派字段不在类型里 | session-manager / transport/* |
-| P6 | 🟠 中 | 控制面 `sessions.send` 不过守卫，与 AI 路径隐式分流 | remotes / session-api |
-| P7 | 🟠 中 | 错误码三套独立定义，`DISCONNECTED` 等重叠 | session-api / transport/types / file-service |
-| P8 | 🟠 中 | `SESSION_NOT_FOUND` 同时表示会话/连接配置不存在 | session-manager / connection-store |
-| P9 | 🟡 低 | `SessionStatus` vs `ConnectionStatus` 命名近、取值不同 | session-api / client/ws |
-| P10 | 🟡 低 | WS status 帧 host 强类型 / client 弱类型 | ws-io / client/ws |
-| P11 | 🟡 低 | `FileRpcAction` 契约缺 `files.root / files.open` | file-service 契约 / remotes |
-| P12 | 🟡 低 | `SessionSnapshot.target` 拼接串，IPv6 不安全 | session-api / session-manager |
-| P13 | 🟡 低 | `TmInputSource` 缺省规则分散三处 | session-manager / remotes |
-| P14 | ✅ | 契约面不含主线专用方法（设计如此） | session-api / session-manager |
-| P15 | ✅ | `FileServiceError` 契约 interface + 实现 class（合理） | file-service 契约 / file-errors |
+| 编号 | 严重 | 一句话 | 来源 | 状态 |
+|---|---|---|---|---|
+| P1 | 🔴 高 | 连接超时命名/单位三处不一致 | 基线 | **✅ 已修复 2026-09-07** |
+| P2 | 🔴 高 | 凭据扁平 vs 嵌套两套结构 | 基线 | **✅ 已修复 2026-09-07** |
+| P3 | 🟠 中 | `wait` 跨层语义重载 | 基线 |
+| P4 | 🟠 中 | `BroadcastEntry` 契约嵌套 vs 工具展平 | 基线 |
+| P5 | 🟠 中 | `TransportFactory` 参数宽于传输函数签名 | 基线 |
+| P6 | 🟠 中 | 控制面 `sessions.send` 不过守卫 | 基线 |
+| P7 | 🟠 中 | 错误码多套独立定义 | 基线 |
+| P8 | 🟠 中 | `SESSION_NOT_FOUND` 语义复用 | 基线 |
+| P16 | 🟠 中 | B10 依赖传输层 `SftpLike` | S5 |
+| P17 | 🟠 中 | AI/人路径树根基准不一致 | S5 |
+| P24 | 🟠 中 | port-log 路由前缀与主线重叠 | port-log |
+| P25 | 🟠 中 | 安全栅栏重复实现 | port-log |
+| P9 | 🟡 低 | `SessionStatus` vs `ConnectionStatus` | 基线 |
+| P10 | 🟡 低 | WS status 帧两端类型不对称 | 基线 |
+| P11 | 🟡 低 | `FileRpcAction` 契约缺端点 | 基线 |
+| P12 | 🟡 低 | `SessionSnapshot.target` 拼接串 | 基线 |
+| P13 | 🟡 低 | `TmInputSource` 缺省规则分散 | 基线 |
+| P18 | 🟡 低 | `FileProgressFrame` 两端不对称 | S5 |
+| P19 | 🟡 低 | `TransferResult` 三方不一致 | S5 |
+| P20 | 🟡 低 | `UploadSource.kind` vs `SftpPutSource.kind` | S5 |
+| P21 | 🟡 低 | `FileSessionGateway` 定义在实现文件 | S5 |
+| P22 | 🟡 低 | B7a→B7b 反向依赖 | S5 |
+| P23 | 🟡 低 | 契约注释陈旧 | S5 |
+| P26 | 🟡 低 | `PortLogErrorCode` 第四套错误码 | port-log |
+| P27 | 🟡 低 | `RpcResult` 类型重复 | port-log |
+| P28 | 🟡 低 | SSE 与 WS 双推送通道 | port-log |
+| P29 | 🟡 低 | `SessionLogSnapshot.state` vs `SessionStatus` 命名重叠 | port-log |
+| P14 | ✅ | 契约面不含主线专用方法 | 基线 |
+| P15 | ✅ | `FileServiceError` 契约+实现 | 基线 |
+| P30 | ✅ | 扩展模块契约隔离已验证 | port-log |
 
-**统计**：🔴 高 2 项 · 🟠 中 6 项 · 🟡 低 5 项 · ✅ 符合预期 2 项
+**统计**：🔴 高 2（已于 2026-09-07 全部修复）· 🟠 中 10（+S5 两项 +port-log 两项）· 🟡 低 15（+S5 六项 +port-log 四项）· ✅ 符合预期 3（+port-log 一项）
 
 ## 五、优先修复建议
 
-### 第一优先级（🔴 高，影响正确性）
+### 第一优先级（🔴 高）
 
-1. **P1 统一连接超时**：全链路改用 `connectTimeoutMs`（毫秒），UI 层做秒→毫秒换算，删除 `handshakeTimeoutSec` 或仅作 UI 展示字段。
-2. **P2 统一凭据结构**：契约层统一为嵌套 `auth` 判别联合，传输层内部展平，消除 3 处转换。
+1. ~~**P1 统一连接超时**：全链路 `connectTimeoutMs`（毫秒）~~ → ✅ 已完成（2026-09-07）。
+2. ~~**P2 统一凭据结构**：契约层统一为嵌套 `auth` 判别联合~~ → ✅ 已完成（2026-09-07）。
 
-### 第二优先级（🟠 中，影响维护成本与安全边界）
+### 第二优先级（🟠 中）
 
-3. **P3 工具层 `wait` 改名 `mode`**：与 `WaitPolicyConfig` 解耦，消除语义重载。
-4. **P4 `BroadcastEntry` 二选一**：推荐契约展平，与 AI 消费 schema 对齐。
-5. **P5 传输函数签名补 `protocol`**：让分派依赖的字段在类型里可见，或改收 `ConnectTarget`。
-6. **P6 控制面守卫策略显式化**：在契约/文档声明 `sessions.send` 的安全边界，或统一过守卫。
-7. **P7 错误码统一枚举**：抽 `src/types/errors.ts`，各域子集，消除 `DISCONNECTED` 重复。
-8. **P8 连接配置独立错误码**：`CONNECTION_NOT_FOUND` 与会话区分。
+3. **P24 路由前缀重叠**：在 index.ts 注释说明依赖 webServer 最长前缀匹配，或 port-log 改独立前缀。
+4. **P25 安全栅栏统一**：抽公共栅栏函数，避免两份安全逻辑漂移。
+5. **P16 `SftpLike` 提到契约层**：确立 B10↔传输层二级边界。
+6. **P17 AI 树根基准**：`tm_upload`/`tm_download` 运行时查 `files.root` 或文档锁定。
+7. **P3 工具层 `wait` 改名 `mode`**。
+8. **P4 `BroadcastEntry` 二选一**。
+9. **P5 传输函数签名补 `protocol`**。
+10. **P6 控制面守卫策略显式化**。
+11. **P7 错误码统一枚举**（含 port-log 第四套）。
+12. **P8 连接配置独立错误码**。
 
-### 第三优先级（🟡 低，择机清理）
+### 第三优先级（🟡 低）
 
-9. P9 客户端 `ConnectionStatus` → `WsConnectionStatus`。
-10. P11 `FileRpcAction` 补 `files.root / files.open` 或注释说明范围。
-11. P12 `SessionSnapshot` 存 `host + port` 分字段。
-12. P13 `TmInputSource` 缺省规则集中到 `sourceOf`。
+13. **P11 删除 `FileRpcAction`**（已严重漂移）。
+14. **P23 更新契约注释**（Telnet 模拟已砍）。
+15. 其余低风险项择机清理。
 
 ## 六、契约健康度评估
 
-| 维度 | 评分 | 说明 |
-|---|---|---|
-| 契约与实现一致性 | 7/10 | 三份契约基本被实现遵守；P1/P2/P4 存在形状漂移 |
-| 跨模块命名一致性 | 6/10 | 同概念多命名（超时、凭据、wait）、错误码重叠 |
-| 类型安全度 | 7/10 | P5 分派字段不在类型里、P10 客户端弱类型、P12 拼接串 |
-| 安全边界清晰度 | 7/10 | P6 守卫策略隐式分流、P8 错误码语义复用 |
-| 扩展模块隔离度 | 9/10 | `src/types/` 纯声明 + 扩展只依赖契约，隔离做得好 |
-| 文档与代码同步 | 8/10 | spec.md 详尽；P11 契约与实现端点小漂移 |
+| 维度 | 首次 | S5 后 | port-log 后 | 变化 |
+|---|---|---|---|---|
+| 契约与实现一致性 | 7/10 | 6/10 | 6/10 | — |
+| 跨模块命名一致性 | 6/10 | 5/10 | 5/10 | — |
+| 类型安全度 | 7/10 | 6/10 | 6/10 | — |
+| 安全边界清晰度 | 7/10 | 7/10 | 6/10 | ↓ P25 栅栏重复 |
+| 扩展模块隔离度 | 9/10 | 9/10 | **10/10** | ↑ P30 已验证 |
+| 文档与代码同步 | 8/10 | 6/10 | 6/10 | — |
+| 架构边界清晰度 | — | 7/10 | 6/10 | ↓ P24 路由重叠隐式依赖 |
+| 实时通道一致性 | — | — | 7/10 | 🆕 P28 WS+SSE 并存 |
 
-**综合**：契约体系整体健康，扩展模块隔离是亮点；主要风险集中在「同概念多形态」（P1/P2/P3/P4）与「错误码治理」（P7/P8），建议在九月迭代中优先处理两个 🔴 高项。
+**综合**：port-log 接入后契约健康度**持平略降**（均分 5.9）。两个亮点：
+
+1. **扩展模块隔离度满分 10/10**：port-log 严格遵守「只依赖契约、不改契约、不 import 主线实现、落盘自己子目录」，CLAUDE.md 并行开发约定验证通过。
+2. **契约层三份文件累计零改动**：S5 + port-log 两轮大功能落地，契约层始终稳定，证明「契约冻结 + 实现并行」策略有效。
+
+主要新增债务集中在**安全栅栏重复（P25）**与**路由前缀隐式依赖（P24）**——都是扩展模块与主线接缝处的问题，建议优先处理。两个 🔴 高项（P1/P2）自首次审查即存在，与 S5/port-log 无关，**已于 2026-09-07 修复**（见下）。
+
+**修复跟进（2026-09-07）**：P1/P2 修复完成，`pnpm build` + `pnpm test` 全绿回归。修复后口径：
+- **契约与实现一致性 7/10**：两处结构性冲突（超时单位、凭据形态）消除，契约层只剩一种凭据结构（`auth` 判别联合）。
+- **跨模块命名一致性 7/10**：超时字段三处同名同单位（`connectTimeoutMs`），`* 1000` 散落转换清零。
+- **类型安全度 7/10**：凭据单一判别联合后，漏传 `passphrase` 这类错误在编译期即可发现。
+- 当前剩余债务首位为 🟠 中项：P24（路由前缀隐式依赖）、P25（安全栅栏重复）。
+
+> **架构演进总结**：基线（6 工具）→ S5（8 工具 + SFTP 文件传输，突破 B4 唯一接触传输层）→ port-log（扩展模块接入，端口映射/会话共享/会话日志，新增 SSE 通道）。三份契约文件始终未动，是整个演进过程中最稳定的层。
 
 ---
 
-*本报告由静态接口比对生成，未运行动态检查。修复后建议跑 `pnpm test`（312 项基线）确认无回归。*
+*本报告由静态接口比对生成，未运行动态检查。修复后建议跑 `pnpm test` 确认基线无回归。*

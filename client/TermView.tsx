@@ -34,7 +34,8 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
   hiddenRef.current = isHidden
   const [showShare, setShowShare] = useState(false)
   const { shares } = usePortLogState()
-  const sharing = shares.some(s => s.sessionId === sessionId)
+  const activeShare = shares.find(s => s.sessionId === sessionId)
+  const sharing = activeShare !== undefined
 
   useEffect(() => {
     const container = containerRef.current
@@ -167,7 +168,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         <span className="nm">{label}</span>
         {tcIndex !== undefined && <span className="tm-tcn" title="活跃会话列表顺序（拖动列表即切换）">{tcIndex}</span>}
         <span className="tgt">{target}</span>
-        {!isClosed && <button onClick={() => setShowShare(true)} title="共享此终端" style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
+        {!isClosed && <button onClick={() => setShowShare(true)} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
         {isClosed ? (
           <>
             <span className="tm-closed-label">已断开</span>

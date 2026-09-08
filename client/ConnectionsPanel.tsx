@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconLinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
-import { getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
+import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
@@ -125,6 +125,22 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
+
+  async function toggleSessionLog(sessionId: string, hasLog: boolean): Promise<void> {
+    try {
+      if (hasLog) {
+        await portLogRpc('sessionLogs.stop', { sessionId })
+        applyPortLogEvent('session-log-status', { sessionId, state: 'stopped' })
+      } else {
+        const started = await portLogRpc<ClientSessionLog>('sessionLogs.start', { sessionId, timestamp: true, stripAnsi: true })
+        applyPortLogEvent('session-log-status', started)
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '日志操作失败')
+    } finally {
+      setCtxMenu(null)
+    }
+  }
 
   // 检查当前表单是否与已收藏的连接重复（protocol + host + port + username）
   const isDuplicateFavorite = (): boolean => {
@@ -280,7 +296,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
                 {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
                 {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
-                {sessionLogMap.has(s.sessionId) && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
+                {sessionLogMap.get(s.sessionId)?.state === 'running' && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
               </div>
             )
           })}
@@ -304,7 +320,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <>
                 <div className="tm-ctxItem" onClick={() => togglePin(ctxMenu.id)}>{pinned.has(ctxMenu.id) ? '取消置顶' : '置顶'}</div>
                 <div className="tm-ctxItem" onClick={() => startRename(ctxMenu.id, s.label)}>重命名</div>
-                {s.status === 'open' && <div className="tm-ctxItem" onClick={async () => { try { if (hasLog) await portLogRpc('sessionLogs.stop', { sessionId: s.sessionId }); else await portLogRpc('sessionLogs.start', { sessionId: s.sessionId, timestamp: true, stripAnsi: true }) } catch { /* */ } setCtxMenu(null) }}>{hasLog ? '停止日志' : '开启日志'}</div>}
+                {s.status === 'open' && <div className="tm-ctxItem" onClick={() => { void toggleSessionLog(s.sessionId, hasLog) }}>{hasLog ? '停止日志' : '开启日志'}</div>}
                 <div className="tm-ctxSep" />
                 <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { onDisconnect(ctxMenu.id); setCtxMenu(null) }}>断开</div>
               </>

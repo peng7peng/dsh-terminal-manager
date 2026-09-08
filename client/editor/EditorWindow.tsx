@@ -101,6 +101,10 @@ export function EditorWindow(props: {
             <button type="button" title="关闭编辑器" onClick={() => store.requestCloseWindow()}><IconCloseFill14 /></button>
           </div>
         </div>
+        <div className="tm-feToolbar">
+          <button type="button" className="tm-feBtn" disabled={active === null || active.truncated || !active.dirty || active.saving} onClick={() => void store.save()} title="保存 (Ctrl/Cmd+S)"><IconCheckOutline14 /> 保存</button>
+          {props.actions}
+        </div>
         <div className="tm-feBody">
           {active === null ? (
             <div className="tm-feLoading">没有打开的文件</div>
@@ -124,8 +128,6 @@ export function EditorWindow(props: {
         </div>
         <div className="tm-feFoot">
           <span className="hint" title={active?.path}>{active === null ? '' : `${active.path} · ${formatSize(active.size)}${active.truncated ? ' · 只读' : active.dirty ? ' · 未保存' : ''}`}</span>
-          <button type="button" className="tm-feBtn" disabled={active === null || active.truncated || !active.dirty || active.saving} onClick={() => void store.save()} title="保存 (Ctrl/Cmd+S)"><IconCheckOutline14 /> 保存</button>
-          {props.actions}
         </div>
         {props.below}
         {!s.maximized && RESIZE_DIRS.map(dir => <div key={dir} className={`tm-feRs ${dir}`} {...win.resizeHandlers(dir)} />)}

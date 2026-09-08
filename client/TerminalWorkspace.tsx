@@ -7,12 +7,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 import { TermWs } from './ws.ts'
-import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
+import { getEffectiveChatWidth, setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
 import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
 import { FilePanel } from './files/FilePanel.tsx'
-import { EditorUploadButton, RemoteFilePanel, remoteFsStore } from './files/RemoteFilePanel.tsx'
+import { RemoteFilePanel, remoteFsStore } from './files/RemoteFilePanel.tsx'
 import { EditorWindow, editorStore } from './editor/EditorWindow.tsx'
 import { ToastHost } from './ToastHost.tsx'
 import { buildTcOrder, tcIndexMap } from './tc/tcMap.ts'
@@ -28,7 +28,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     const startX = e.clientX
-    const startChat = chat
+    // 用实际生效宽度作为起点，而非 raw chat 值（初始 460 与自动计算值不同会导致首次拖动跳变）
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement as HTMLElement | null
+    const sidebar = (frame?.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
+    const startChat = getEffectiveChatWidth(window.innerWidth, sidebar)
     const handle = e.currentTarget
     handle.setPointerCapture(e.pointerId)
     const move = (ev: PointerEvent): void => setChatWidth(startChat + (ev.clientX - startX))
@@ -251,7 +254,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
         <FilePanel onOpenFile={(entry) => void editorStore().openFile(entry.path)} />
       </div>
       {/* F8 浮动编辑器（fixed 于视口，可拖到聊天区上方）；S5 上传入口注入 actions 槽 */}
-      <EditorWindow actions={<><EditorUploadButton />{tc.actions}</>} below={tc.below} onContextMenu={tc.onContextMenu} />
+      <EditorWindow actions={tc.actions} below={tc.below} onContextMenu={tc.onContextMenu} />
       <ToastHost />
       <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} tcMap={tcMap} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
     </div>

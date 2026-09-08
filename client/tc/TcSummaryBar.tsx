@@ -31,7 +31,7 @@ export function TcSummaryBar(): React.JSX.Element | null {
         {run.items.map(it => (
           <div key={it.key} className={`tm-tcRow ${it.status}`} title={it.message ?? it.waitReason}>
             <span className="st">{ICON[it.status] ?? '·'}</span>
-            <span>TC{it.tc}{it.label !== undefined ? ` ${it.label}` : ''}:</span>
+            <span>{it.tc}{it.label !== undefined ? ` ${it.label}` : ''}:</span>
             <span className="cmd">{it.command}</span>
             <span className="why">{it.status === 'ok' ? (it.waitReason === 'prompt' ? '' : it.waitReason ?? '') : it.status === 'error' ? (it.message ?? '失败') : (WHY[it.status] ?? '')}</span>
           </div>

@@ -26,7 +26,7 @@ export function TcConfirmDialog(props: {
           <div className="tm-mNote" style={{ padding: '0 8px 4px' }}>{props.title}：共 {props.items.length} 条发送</div>
           {usage.map(u => (
             <div key={u.tc} className="tm-mRow">
-              <span className="tm-tcn">TC{u.tc}</span>
+              <span className="tm-tcn">{u.tc}</span>
               {u.target !== undefined
                 ? <><span>{u.target.label}</span><span className="sub">{u.count} 条</span></>
                 : <><span>—</span><span className="miss">✗ 无对应在线终端（{u.count} 条将跳过）</span></>}
@@ -57,7 +57,7 @@ export function TcTimeoutDialog(props: { item: RunItem; onDecide: (d: 'continue'
       <div className="tm-modal">
         <div className="tm-mHead"><IconWarningOutline16 /> 命令超时</div>
         <div className="tm-mBody">
-          <div className="tm-mRow"><span className="tm-tcn">TC{props.item.tc}</span><span>{props.item.label}</span></div>
+          <div className="tm-mRow"><span className="tm-tcn">{props.item.tc}</span><span>{props.item.label}</span></div>
           <div className="tm-mRow"><code>{props.item.command}</code></div>
           <div className="tm-mNote" style={{ padding: '4px 8px 0' }}>等待完成判定超时（未见提示符也无静默）。可以先看终端窗格里的输出再决定。</div>
         </div>
@@ -96,7 +96,7 @@ export function SendSelectionDialog(props: {
           {online.map(s => (
             <label key={s.sessionId} className="tm-mRow click">
               <input type="checkbox" checked={picked.has(s.sessionId)} onChange={() => toggle(s.sessionId)} />
-              <span className="tm-tcn ghost">TC{props.tcMap.get(s.sessionId)}</span>
+              <span className="tm-tcn ghost">{props.tcMap.get(s.sessionId)}</span>
               <span>{s.label}</span>
             </label>
           ))}

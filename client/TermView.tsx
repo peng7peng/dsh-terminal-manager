@@ -165,7 +165,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
       <div className="tm-paneBar">
         <span className="dot" />
         <span className="nm">{label}</span>
-        {tcIndex !== undefined && <span className="tm-tcn" title="TC 编号 = 活跃会话列表顺序（拖动列表即切换）">TC{tcIndex}</span>}
+        {tcIndex !== undefined && <span className="tm-tcn" title="活跃会话列表顺序（拖动列表即切换）">{tcIndex}</span>}
         <span className="tgt">{target}</span>
         {!isClosed && <button onClick={() => setShowShare(true)} title="共享此终端" style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
         {isClosed ? (

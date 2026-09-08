@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -68,6 +68,36 @@ describe('port-log 控制面', () => {
     const response = await rpc(base, 'mappings.importCsv', { csv: 'x'.repeat(2 * 1024 * 1024) })
     const body = await response.json() as any
     expect(body.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    await logger.close()
+  })
+
+  it('sessionLogs.knownFolders 返回本机快速访问与盘符概览', async () => {
+    const { base, logger } = await fixture()
+    const response = await rpc(base, 'sessionLogs.knownFolders')
+    const body = await response.json() as any
+    expect(body.result.ok).toBe(true)
+    const value = body.result.value
+    expect(value.home).toBeTypeOf('string')
+    expect(Array.isArray(value.quick)).toBe(true)
+    expect(Array.isArray(value.drives)).toBe(true)
+    expect(value.drives.length).toBeGreaterThan(0)
+    await logger.close()
+  })
+
+  it('sessionLogs.listDir 返回子目录，盘符根之上 parent 为 null', async () => {
+    const { base, logger } = await fixture()
+    const directory = await mkdtemp(join(tmpdir(), 'tm-listdir-'))
+    await mkdir(join(directory, 'a'))
+    await mkdir(join(directory, 'b'))
+    const listed = await (await rpc(base, 'sessionLogs.listDir', { path: directory })).json() as any
+    expect(listed.result.ok).toBe(true)
+    expect(listed.result.value.dirs).toEqual(['a', 'b'])
+    expect(listed.result.value.parent).toBeTruthy()
+    // 文件系统根（Windows 盘符根 / POSIX /）之上是「此电脑」：parent 为 null，且本身也能列目录
+    const root = process.platform === 'win32' ? `${directory[0]}:\\` : '/'
+    const rootListed = await (await rpc(base, 'sessionLogs.listDir', { path: root })).json() as any
+    expect(rootListed.result.ok).toBe(true)
+    expect(rootListed.result.value.parent).toBeNull()
     await logger.close()
   })
 })

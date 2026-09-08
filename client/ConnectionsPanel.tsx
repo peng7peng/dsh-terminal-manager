@@ -5,6 +5,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
+import { portLogRpc } from './ext/port-log/rpc.ts'
+import { getDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean }
@@ -31,7 +34,7 @@ interface Props {
   sessionOrder: string[]
   /** sessionId → TC 编号（D1/D4）；缺省不显示徽章 */
   tcMap?: ReadonlyMap<string, number>
-  onConnect: (target: ConnectTarget) => void
+  onConnect: (target: ConnectTarget) => Promise<SessionSnap | undefined>
   onDisconnect: (sessionId: string) => void
   onReconnect: (sessionId: string) => void
   onFocus: (sessionId: string) => void
@@ -59,6 +62,13 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; type: 'session' | 'conn'; id: string } | null>(null)
   const [favCollapse, setFavCollapse] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [logEnabled, setLogEnabled] = useState(false)
+  const [logTimestamp, setLogTimestamp] = useState(true)
+  const [logStripAnsi, setLogStripAnsi] = useState(true)
+  const [logDirectory, setLogDirectory] = useState('')
+  const [showDirPicker, setShowDirPicker] = useState(false)
+  const portLogState = usePortLogState()
+  const sessionLogMap = new Map(portLogState.sessionLogs.map(l => [l.sessionId, l]))
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
   useEffect(() => { void refresh() }, [refresh])
@@ -75,8 +85,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   }, [ctxMenu])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setLogEnabled(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogEnabled(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -92,7 +102,12 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   }
   async function quickConnect(): Promise<void> {
     if (!validate()) return
-    if (editing !== null) { onConnect({ connId: editing }) } else { onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() }) }
+    const snap = editing !== null
+      ? await onConnect({ connId: editing })
+      : await onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() })
+    if (logEnabled && snap) {
+      try { await portLogRpc('sessionLogs.start', { sessionId: snap.sessionId, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) }) } catch { /* silent */ }
+    }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
 
@@ -207,6 +222,15 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             <div className="tm-fld" style={{ flex: 1 }}><label title="发送命令时每行末尾追加的换行符；多数网络设备用 CRLF（\r\n），部分设备用 LF">换行</label><select value={newline} onChange={e => setNewline(e.target.value as 'lf' | 'cr' | 'crlf')}><option value="lf">LF (\n)</option><option value="cr">CR (\r)</option><option value="crlf">CRLF (\r\n)</option></select></div>
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
           </div>
+          <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
+            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="连接后自动记录该会话的输出到日志文件">日志</label><input type="checkbox" checked={logEnabled} onChange={e => { setLogEnabled(e.target.checked); if (e.target.checked && !logDirectory) setLogDirectory(getDefaultLogDirectory()) }} /></div>
+            {logEnabled && <>
+              <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>时间戳</label><input type="checkbox" checked={logTimestamp} onChange={e => setLogTimestamp(e.target.checked)} /></div>
+              <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
+            </>}
+          </div>
+          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button className="tm-btn" style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} onClick={() => setShowDirPicker(true)}>浏览</button></div>}
+          {showDirPicker && <DirectoryPicker initialPath={logDirectory || getDefaultLogDirectory()} onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} />}
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           {isDuplicateFavorite() ? (
@@ -240,6 +264,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
                 {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
                 {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
+                {sessionLogMap.has(s.sessionId) && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
               </div>
             )
           })}
@@ -258,10 +283,12 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
         <div className="tm-ctxMenu" style={{ left: ctxMenu.x, top: ctxMenu.y }} onClick={e => e.stopPropagation()}>
           {ctxMenu.type === 'session' && (() => {
             const s = sessions.find(x => x.sessionId === ctxMenu.id); if (s === undefined) return null
+            const hasLog = sessionLogMap.has(s.sessionId)
             return (
               <>
                 <div className="tm-ctxItem" onClick={() => togglePin(ctxMenu.id)}>{pinned.has(ctxMenu.id) ? '取消置顶' : '置顶'}</div>
                 <div className="tm-ctxItem" onClick={() => startRename(ctxMenu.id, s.label)}>重命名</div>
+                {s.status === 'open' && <div className="tm-ctxItem" onClick={async () => { try { if (hasLog) await portLogRpc('sessionLogs.stop', { sessionId: s.sessionId }); else await portLogRpc('sessionLogs.start', { sessionId: s.sessionId, timestamp: true, stripAnsi: true }) } catch { /* */ } setCtxMenu(null) }}>{hasLog ? '停止日志' : '开启日志'}</div>}
                 <div className="tm-ctxSep" />
                 <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { onDisconnect(ctxMenu.id); setCtxMenu(null) }}>断开</div>
               </>

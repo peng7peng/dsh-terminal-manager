@@ -3,9 +3,11 @@
  * @module dsh-terminal-manager/client/TermView
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { ShareDialog } from './ext/port-log/ShareDialog.tsx'
+import { usePortLogState } from './ext/port-log/store.ts'
 import { rpc } from './rpc.ts'
 import { markUnread } from './store.ts'
 import type { TermWs } from './ws.ts'
@@ -30,6 +32,9 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
   const termRef = useRef<Term | undefined>(undefined)
   const hiddenRef = useRef(isHidden)
   hiddenRef.current = isHidden
+  const [showShare, setShowShare] = useState(false)
+  const { shares } = usePortLogState()
+  const sharing = shares.some(s => s.sessionId === sessionId)
 
   useEffect(() => {
     const container = containerRef.current
@@ -162,6 +167,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         <span className="nm">{label}</span>
         {tcIndex !== undefined && <span className="tm-tcn" title="TC 编号 = 活跃会话列表顺序（拖动列表即切换）">TC{tcIndex}</span>}
         <span className="tgt">{target}</span>
+        {!isClosed && <button onClick={() => setShowShare(true)} title="共享此终端" style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
         {isClosed ? (
           <>
             <span className="tm-closed-label">已断开</span>
@@ -180,6 +186,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         )}
       </div>
       <div className="tm-paneBody" ref={containerRef} />
+      {showShare && <ShareDialog sessionId={sessionId} label={label} onClose={() => setShowShare(false)} />}
     </div>
   )
 }

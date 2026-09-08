@@ -24,6 +24,16 @@ interface LogRuntime {
   lastError?: string
 }
 
+function formatFileTimestamp(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+}
+
+function safeFileName(value: string): string {
+  const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().replace(/[. ]+$/g, '').slice(0, 120)
+  return sanitized || 'session'
+}
+
 export class SessionLogManager {
   private readonly logs = new Map<string, LogRuntime>()
   private closing = false
@@ -35,6 +45,7 @@ export class SessionLogManager {
     private readonly logger: AppLogger,
     private readonly events: RuntimeEventHub,
     private readonly maxPendingBytes = 1024 * 1024,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   list(): SessionLogSnapshot[] {
@@ -48,13 +59,13 @@ export class SessionLogManager {
   async start(sessionId: string, options: SessionLogOptions, directory?: string): Promise<SessionLogSnapshot> {
     if (this.closing) throw new PortLogError('MAPPING_STATE', '扩展正在关闭')
     if (this.logs.has(sessionId)) throw new PortLogError('VALIDATION', '该会话日志已经开启')
-    if (this.sessions.get(sessionId)?.status !== 'open') throw new PortLogError('VALIDATION', '只能记录已打开的会话')
+    const session = this.sessions.get(sessionId)
+    if (session?.status !== 'open') throw new PortLogError('VALIDATION', '只能记录已打开的会话')
     this.validateOptions(options)
     const dir = directory && directory.trim() !== '' ? directory.trim() : this.directory
     await mkdir(dir, { recursive: true, mode: 0o700 })
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const safeId = sessionId.replace(/[^a-z\d-]/gi, '').slice(0, 8) || 'session'
-    const path = join(dir, `${safeId}-${stamp}.log`)
+    const stamp = formatFileTimestamp(this.now())
+    const path = join(dir, `${safeFileName(session.label)}(${stamp}).log`)
     const stream = createWriteStream(path, { flags: 'wx', mode: 0o600, encoding: 'utf8' })
     await new Promise<void>((resolve, reject) => {
       stream.once('open', () => resolve())

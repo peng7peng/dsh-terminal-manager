@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { createEventBus } from '../src/event-bus.ts'
 import { AppLogger } from '../src/ext/port-log/app-logger.ts'
@@ -8,7 +8,7 @@ import { RuntimeEventHub } from '../src/ext/port-log/sse.ts'
 import { SessionLogManager } from '../src/ext/port-log/session-log-manager.ts'
 import type { SessionManagerApi, SessionSnapshot } from '../src/types/session-api.ts'
 
-async function fixture(maxPendingBytes?: number): Promise<{
+async function fixture(maxPendingBytes?: number, now?: () => Date): Promise<{
   manager: SessionLogManager
   events: ReturnType<typeof createEventBus>
   snapshot: SessionSnapshot
@@ -21,17 +21,17 @@ async function fixture(maxPendingBytes?: number): Promise<{
   const sessions = { events, get: () => snapshot, list: () => [snapshot] } as unknown as SessionManagerApi
   const logger = new AppLogger(join(directory, 'app'))
   return {
-    manager: new SessionLogManager(join(directory, 'sessions'), sessions, events, logger, new RuntimeEventHub(), maxPendingBytes),
+    manager: new SessionLogManager(join(directory, 'sessions'), sessions, events, logger, new RuntimeEventHub(), maxPendingBytes, now),
     events, snapshot, logger, directory: join(directory, 'sessions'),
   }
 }
 
 describe('port-log 会话输出日志', () => {
   it('默认不开启；开启后只记录 output，不记录 input', async () => {
-    const { manager, events, logger } = await fixture()
+    const { manager, events, logger } = await fixture(undefined, () => new Date(2026, 8, 8, 14, 5, 6))
     expect(manager.list()).toEqual([])
     const started = await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
-    expect(started.path).not.toContain('user@secret-host')
+    expect(basename(started.path)).toBe('user@secret-host(2026-09-08_14-05-06).log')
     events.emit({ type: 'input', sessionId: 'session-sensitive-label', data: 'direct-secret-input', source: 'human', ts: Date.now() })
     events.emit({ type: 'output', sessionId: 'session-sensitive-label', data: '\x1b[31mdevice-output\x1b[0m\n', ts: Date.now() })
     await manager.stop('session-sensitive-label')

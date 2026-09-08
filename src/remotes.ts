@@ -89,14 +89,20 @@ export async function dispatch(
       case 'sessions.list':
         return ok(deps.sessions.list())
       case 'sessions.connect': {
-        const { connId, protocol, host, port, username, password, label, telnetMode, connectTimeoutMs, newline, localEcho } = payload as {
-          connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean
+        const { connId, protocol, host, port, username, password, privateKey, passphrase, label, telnetMode, connectTimeoutMs, newline, localEcho } = payload as {
+          connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; privateKey?: string; passphrase?: string; label?: string; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean
         }
+        const auth = password !== undefined
+          ? { kind: 'password' as const, password }
+          : privateKey !== undefined
+            ? { kind: 'key' as const, privateKey, ...(passphrase !== undefined ? { passphrase } : {}) }
+            : undefined
         const snap = connId !== undefined && connId.length > 0
           ? await deps.sessions.connectByConnId(connId)
           : await deps.sessions.connect({
               protocol: protocol ?? 'telnet', host: host ?? '127.0.0.1', port: port ?? 23,
-              ...(username !== undefined ? { username } : {}), ...(password !== undefined ? { password } : {}),
+              ...(username !== undefined ? { username } : {}),
+              ...(auth !== undefined ? { auth } : {}),
               ...(label !== undefined ? { label } : {}),
               ...(telnetMode !== undefined ? { telnetMode } : {}),
               ...(connectTimeoutMs !== undefined ? { connectTimeoutMs } : {}),

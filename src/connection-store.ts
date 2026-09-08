@@ -10,12 +10,11 @@ import { promises as fs } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { WAIT_LIMITS } from './wait-policy.ts'
+import type { AuthConfig } from './types/session-api.ts'
+
+export type { AuthConfig }
 
 export type Protocol = 'ssh' | 'telnet'
-
-export type AuthConfig =
-  | { kind: 'password'; password: string }
-  | { kind: 'key'; privateKey: string; passphrase?: string }
 
 export interface ConnectionConfig {
   id: string
@@ -35,8 +34,8 @@ export interface ConnectionConfig {
   guardWhitelist?: string[]
   /** Telnet 模式：'telnet'（完整 IAC 协商，默认）| 'raw'（裸 TCP 透传） */
   telnetMode?: 'telnet' | 'raw'
-  /** SSH 握手超时秒数（默认 15） */
-  handshakeTimeoutSec?: number
+  /** SSH 握手超时毫秒（默认 15000；UI 可选 15/30/60/120/180 秒，存毫秒） */
+  connectTimeoutMs?: number
   /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
   newline?: 'lf' | 'cr' | 'crlf'
   /** 本地回显开关（默认 false） */

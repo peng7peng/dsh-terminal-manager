@@ -7,6 +7,7 @@
 
 import type { Readable } from 'node:stream'
 import type { FileEntry } from '../types/file-service.ts'
+import type { AuthConfig } from '../types/session-api.ts'
 
 /** 统一的错误码（与方案 3.6 错误码约定一致）。 */
 export type TransportErrorCode =
@@ -39,9 +40,7 @@ export interface TransportConnectOptions {
   host: string
   port: number
   username?: string
-  password?: string
-  privateKey?: string
-  passphrase?: string
+  auth?: AuthConfig
   /** 连接建立超时，默认 15 秒 */
   connectTimeoutMs?: number
   /** Telnet 模式：'telnet'（IAC 协商）| 'raw'（裸 TCP，默认） */

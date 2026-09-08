@@ -198,7 +198,7 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
         host,
         port,
         username: args.username,
-        password: args.password,
+        ...(args.password !== undefined && args.password.length > 0 ? { auth: { kind: 'password' as const, password: args.password } } : {}),
         label: args.label,
       })
       return { ...snap, banner: sessions.read(snap.sessionId, 200).text }

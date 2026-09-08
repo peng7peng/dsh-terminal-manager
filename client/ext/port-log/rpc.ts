@@ -8,9 +8,10 @@ function rpcError(code: string, message: string): PortLogRpcError {
   return error
 }
 
-export async function portLogRpc<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
+export async function portLogRpc<T>(method: string, payload: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
   const response = await fetch(PREFIX, {
     method: 'POST',
+    signal,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       type: 'client-request',

@@ -27,6 +27,7 @@ interface RouterDeps {
   logger: AppLogger
   events: RuntimeEventHub
   ready: Promise<void>
+  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
 }
 
 type Payload = Record<string, unknown>
@@ -65,7 +66,7 @@ function requireString(payload: Payload, key: string): string {
   return value
 }
 
-export async function dispatchPortLog(endpoint: string, payload: Payload, deps: RouterDeps): Promise<RpcResult> {
+export async function dispatchPortLog(endpoint: string, payload: Payload, deps: RouterDeps, signal: AbortSignal = new AbortController().signal): Promise<RpcResult> {
   try {
     await deps.ready
     switch (endpoint) {
@@ -166,6 +167,10 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
         await deps.sessionLogs.stop(sessionId)
         return ok({ sessionId })
       }
+      case 'sessionLogs.pickDirectory': {
+        if (!deps.pickDirectory) throw new PortLogError('IO_ERROR', '当前 DSH 未启用系统目录选择器')
+        return ok({ directory: await deps.pickDirectory(signal) })
+      }
       case 'sessionLogs.listDir': {
         const raw = typeof payload.path === 'string' ? payload.path.trim() : ''
         const dir = raw === '' ? deps.sessionLogs?.getDefaultDirectory() ?? homedir() : resolve(raw)
@@ -241,8 +246,15 @@ export function createPortLogHttpHandler(deps: RouterDeps): (request: IncomingMe
       if (body.payload === null || typeof (body.payload ?? {}) !== 'object' || Array.isArray(body.payload)) {
         throw new PortLogError('VALIDATION', 'payload 无效')
       }
-      const result = await dispatchPortLog(body.method, (body.payload ?? {}) as Payload, deps)
-      writeJson(response, 200, { type: 'server-response', rpcId, result })
+      const controller = new AbortController()
+      const abort = (): void => controller.abort()
+      response.once('close', abort)
+      try {
+        const result = await dispatchPortLog(body.method, (body.payload ?? {}) as Payload, deps, controller.signal)
+        if (!response.destroyed) writeJson(response, 200, { type: 'server-response', rpcId, result })
+      } finally {
+        response.off('close', abort)
+      }
     } catch (error) {
       const safe = safeError(error)
       writeJson(response, error instanceof SyntaxError ? 400 : 200, {

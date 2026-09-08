@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { portLogRpc } from './rpc.ts'
 
 export interface ClientMapping {
   id: string
@@ -53,6 +54,19 @@ export function setPortLogVisible(visible: boolean): void { replace({ visible })
 export function togglePortLogVisible(): void { setPortLogVisible(!state.visible) }
 export function setDefaultLogDirectory(directory: string): void { replace({ defaultLogDirectory: directory }) }
 export function getDefaultLogDirectory(): string { return state.defaultLogDirectory }
+let defaultDirectoryRequest: Promise<string> | undefined
+/** 在连接面板初始化时加载，不依赖用户先打开端口映射窗口。 */
+export async function loadDefaultLogDirectory(): Promise<string> {
+  if (state.defaultLogDirectory) return state.defaultLogDirectory
+  if (!defaultDirectoryRequest) {
+    defaultDirectoryRequest = portLogRpc<{ directory: string }>('sessionLogs.defaultDirectory').then(({ directory }) => {
+      if (!directory?.trim()) throw new Error('默认日志目录未就绪，请重试')
+      setDefaultLogDirectory(directory)
+      return directory
+    }).finally(() => { defaultDirectoryRequest = undefined })
+  }
+  return defaultDirectoryRequest
+}
 export function setPortLogLoading(loading: boolean): void { replace({ loading }) }
 export function setPortLogError(error?: string): void { replace({ error }) }
 export function setPortLogSnapshot(patch: Pick<PortLogState, 'mappings' | 'sessions' | 'shares' | 'sessionLogs' | 'appLog'>): void { replace(patch) }

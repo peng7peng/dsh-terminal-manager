@@ -13,6 +13,7 @@ import { IconSave16 } from './icons.tsx'
 import { rpc } from './rpc.ts'
 import { markUnread } from './store.ts'
 import { toast } from './toast.ts'
+import { parentDir } from './files/localFs.ts'
 import type { TermWs } from './ws.ts'
 
 interface TermViewProps {
@@ -57,6 +58,15 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
   const currentLog = sessionLogs.find(log => log.sessionId === sessionId)
   const activeShare = shares.find(s => s.sessionId === sessionId)
   const sharing = activeShare !== undefined
+
+  async function openLogFile(): Promise<void> {
+    if (!isOpen || currentLog?.state !== 'running' || !currentLog.path) return
+    try {
+      await rpc('files.open', { root: parentDir(currentLog.path), path: currentLog.path })
+    } catch (error) {
+      toast(`打开日志失败：${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    }
+  }
 
   useEffect(() => {
     if (autoStartingLog || logPending) return
@@ -309,6 +319,20 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
         )}
       </div>
       <div className="tm-paneBody" ref={containerRef} />
+      {isOpen && currentLog?.state === 'running' && currentLog.path && <div
+        className="tm-logPath"
+        role="button"
+        tabIndex={0}
+        aria-label={`打开日志文件：${currentLog.path}`}
+        title={`${currentLog.path}\n双击打开日志文件`}
+        onDoubleClick={() => { void openLogFile() }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            void openLogFile()
+          }
+        }}
+      >{currentLog.path}</div>}
       {showShare && <ShareDialog sessionId={sessionId} label={label} onClose={() => setShowShare(false)} />}
     </div>
   )

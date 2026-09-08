@@ -58,6 +58,9 @@ export const WORKSPACE_CSS = `
 .tm-disconnected-hint { font-size:10px; color:var(--dsw-alias-state-info-primary, #3b82f6); font-weight:500; margin-left:auto; padding:2px 6px; background:var(--dsw-alias-bg-layer-2, rgba(59,130,246,0.1)); border-radius:3px; }
 .tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-paneBody { flex:1; min-height:0; overflow:hidden; }
+.tm-logPath { flex:none; min-width:0; padding:3px 9px; border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); background:var(--dsw-alias-bg-layer-2, #161b22); color:var(--dsw-alias-label-secondary, #8a91a5); font:11px/1.5 var(--dsw-font-code, monospace); white-space:nowrap; overflow-x:auto; cursor:pointer; }
+.tm-logPath:hover { color:var(--dsw-alias-state-business-primary, #4170e6); }
+.tm-logPath:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary, #4170e6); outline-offset:-2px; }
 
 /* 广播栏（两行：第一行目标 chips，第二行输入框+发送） */
 .tm-bcast { flex:none; display:flex; flex-direction:column; gap:6px; padding:7px 12px; border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }

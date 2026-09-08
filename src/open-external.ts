@@ -5,6 +5,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { extname } from 'node:path'
 
 export type SpawnFn = (cmd: string, args: string[]) => Promise<void>
 
@@ -15,8 +16,9 @@ export const defaultSpawn: SpawnFn = (cmd, args) => new Promise((resolve, reject
   child.once('spawn', () => { child.unref(); resolve() })
 })
 
-/** 按平台选命令。Windows 用 `cmd /c start "" <path>`（空字符串是 start 的窗口标题参数，否则带空格的路径会被当标题）。 */
+/** Windows 日志直接交给记事本，不依赖 .log 文件关联，也不经过 cmd 解析路径。其他文件沿用系统默认程序。 */
 export function openCommandFor(platform: NodeJS.Platform, path: string): { cmd: string; args: string[] } {
+  if (platform === 'win32' && extname(path).toLowerCase() === '.log') return { cmd: 'notepad.exe', args: [path] }
   if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', path] }
   if (platform === 'darwin') return { cmd: 'open', args: [path] }
   return { cmd: 'xdg-open', args: [path] }

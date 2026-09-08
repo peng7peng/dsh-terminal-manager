@@ -3,6 +3,12 @@ import { openCommandFor, openWithSystem } from '../src/open-external.ts'
 import { openTargetFor, isTextEditable } from '../client/files/openRule.ts'
 
 describe('系统默认程序打开', () => {
+  it('Windows 日志直接用记事本打开，中文、空格和括号路径作为完整参数传递', async () => {
+    const path = 'C:\\日志 & 文件\\vm test(2026-09-08_23-00-00).LOG'
+    const spawnFn = vi.fn(async () => {})
+    await openWithSystem(path, spawnFn, 'win32')
+    expect(spawnFn).toHaveBeenCalledWith('notepad.exe', [path])
+  })
   it('按平台选命令：Windows 用 cmd /c start "" <path>（带空格路径不被当标题）', () => {
     expect(openCommandFor('win32', 'D:\\a b\\x.xlsx')).toEqual({ cmd: 'cmd', args: ['/c', 'start', '', 'D:\\a b\\x.xlsx'] })
     expect(openCommandFor('darwin', '/x/y.pdf')).toEqual({ cmd: 'open', args: ['/x/y.pdf'] })

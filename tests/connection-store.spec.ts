@@ -119,6 +119,20 @@ describe('ConnectionStore', () => {
     expect(fresh.get(cfg.id)?.favorited).toBe(false)
   })
 
+  it('日志配置随连接保存并能在新实例中读回', async () => {
+    const path = join(dir, 'log-config.json')
+    const store = new ConnectionStore(path)
+    await store.load()
+    const cfg = await store.create({
+      label: 'logged-device', protocol: 'telnet', host: 'h',
+      log: { enabled: true, timestamp: false, stripAnsi: true, directory: 'D:\\terminal-logs' },
+    })
+
+    const fresh = new ConnectionStore(path)
+    await fresh.load()
+    expect(fresh.get(cfg.id)?.log).toEqual({ enabled: true, timestamp: false, stripAnsi: true, directory: 'D:\\terminal-logs' })
+  })
+
   it('旧数据缺 favorited 字段时，读取不报错（向后兼容）', async () => {
     const p = join(dir, 'legacy.json')
     await import('node:fs/promises').then(fs => fs.writeFile(p, JSON.stringify({

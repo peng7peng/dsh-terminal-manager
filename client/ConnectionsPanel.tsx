@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
-import { getDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
+import { getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean }
@@ -67,8 +67,22 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [logStripAnsi, setLogStripAnsi] = useState(true)
   const [logDirectory, setLogDirectory] = useState('')
   const [showDirPicker, setShowDirPicker] = useState(false)
+  const [logDirectoryError, setLogDirectoryError] = useState<string | null>(null)
   const portLogState = usePortLogState()
   const sessionLogMap = new Map(portLogState.sessionLogs.map(l => [l.sessionId, l]))
+  useEffect(() => { void loadDefaultLogDirectory().catch(() => { /* 勾选日志时允许重试并显示错误。 */ }) }, [])
+
+  async function toggleLog(enabled: boolean): Promise<void> {
+    setLogDirectoryError(null)
+    if (!enabled) { setLogEnabled(false); setShowDirPicker(false); return }
+    try {
+      const directory = logDirectory || await loadDefaultLogDirectory()
+      setLogDirectory(directory)
+      setLogEnabled(true)
+    } catch (error) {
+      setLogDirectoryError(error instanceof Error ? error.message : '无法读取默认日志目录')
+    }
+  }
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
   useEffect(() => { void refresh() }, [refresh])
@@ -223,14 +237,15 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
           </div>
           <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
-            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="连接后自动记录该会话的输出到日志文件">日志</label><input type="checkbox" checked={logEnabled} onChange={e => { setLogEnabled(e.target.checked); if (e.target.checked && !logDirectory) setLogDirectory(getDefaultLogDirectory()) }} /></div>
+            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="连接后自动记录该会话的输出到日志文件">日志</label><input type="checkbox" checked={logEnabled} onChange={e => { void toggleLog(e.target.checked) }} /></div>
             {logEnabled && <>
               <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>时间戳</label><input type="checkbox" checked={logTimestamp} onChange={e => setLogTimestamp(e.target.checked)} /></div>
               <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
             </>}
           </div>
-          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button className="tm-btn" style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} onClick={() => setShowDirPicker(true)}>浏览</button></div>}
-          {showDirPicker && <DirectoryPicker initialPath={logDirectory || getDefaultLogDirectory()} onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} />}
+          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>浏览</button></div>}
+          {logDirectoryError && <div className="tm-mNote" role="alert">{logDirectoryError}</div>}
+          {showDirPicker && <DirectoryPicker onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} onError={message => { setLogDirectoryError(message); setShowDirPicker(false) }} />}
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           {isDuplicateFavorite() ? (

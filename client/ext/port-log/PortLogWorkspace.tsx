@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { MappingsTab } from './MappingsTab.tsx'
 import { portLogRpc, subscribePortLogEvents } from './rpc.ts'
 import {
-  applyPortLogEvent, setDefaultLogDirectory, setPortLogError, setPortLogLoading, setPortLogSnapshot,
+  applyPortLogEvent, loadDefaultLogDirectory, setPortLogError, setPortLogLoading, setPortLogSnapshot,
   setPortLogVisible, usePortLogState,
   type ClientAppLog, type ClientMapping, type ClientSession, type ClientSessionLog, type ClientShare,
 } from './store.ts'
@@ -32,7 +32,7 @@ export function PortLogWorkspace(): React.JSX.Element | null {
   useEffect(() => {
     if (!state.visible) return
     void refresh()
-    void (async () => { try { const { directory } = await portLogRpc<{ directory: string }>('sessionLogs.defaultDirectory'); setDefaultLogDirectory(directory) } catch { /* */ } })()
+    void loadDefaultLogDirectory().catch(() => { /* 连接面板可重试。 */ })
     return subscribePortLogEvents(applyPortLogEvent, () => void refresh())
   }, [state.visible, refresh])
 

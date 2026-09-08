@@ -14,13 +14,13 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
 })
 
-async function fixture(): Promise<{ base: string; logger: AppLogger }> {
+async function fixture(pickDirectory?: (signal: AbortSignal) => Promise<string | null>): Promise<{ base: string; logger: AppLogger }> {
   const directory = await mkdtemp(join(tmpdir(), 'tm-router-'))
   const store = new MappingStore(join(directory, 'mappings.json'))
   const logger = new AppLogger(join(directory, 'log'))
   const events = new RuntimeEventHub()
   const ready = store.ensureLoaded()
-  const server = createServer(createPortLogHttpHandler({ store, logger, events, ready }))
+  const server = createServer(createPortLogHttpHandler({ store, logger, events, ready, pickDirectory }))
   servers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
@@ -37,6 +37,39 @@ async function rpc(base: string, method: string, payload: Record<string, unknown
 }
 
 describe('port-log 控制面', () => {
+  it('系统目录选择返回选中路径或取消，跨站请求不能打开窗口', async () => {
+    let calls = 0
+    const { base, logger } = await fixture(async () => ++calls === 1 ? 'C:\\日志 目录' : null)
+    expect((await rpc(base, 'sessionLogs.pickDirectory', {}, { origin: 'http://evil.example' })).status).toBe(403)
+    expect(calls).toBe(0)
+    const chosen = await (await rpc(base, 'sessionLogs.pickDirectory')).json()
+    expect(chosen.result).toEqual({ ok: true, value: { directory: 'C:\\日志 目录' } })
+    const canceled = await (await rpc(base, 'sessionLogs.pickDirectory')).json()
+    expect(canceled.result).toEqual({ ok: true, value: { directory: null } })
+    await logger.close()
+  })
+
+  it('断开浏览器请求会取消系统窗口', async () => {
+    let opened!: () => void
+    let closed!: () => void
+    const opening = new Promise<void>(resolve => { opened = resolve })
+    const closing = new Promise<void>(resolve => { closed = resolve })
+    const { base, logger } = await fixture(signal => new Promise(resolve => {
+      signal.addEventListener('abort', () => { closed(); resolve(null) }, { once: true })
+      opened()
+    }))
+    const controller = new AbortController()
+    const request = fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method: 'sessionLogs.pickDirectory' }), signal: controller.signal,
+    }).catch(() => undefined)
+    await opening
+    controller.abort()
+    await request
+    await closing
+    await logger.close()
+  })
+
   it('完成映射 CRUD、CSV 和统一响应封包', async () => {
     const { base, logger } = await fixture()
     const createdResponse = await rpc(base, 'mappings.create', {

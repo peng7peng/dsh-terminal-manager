@@ -8,6 +8,7 @@
   - 2026-08-28 同步真实实现的偏离（见下「实现偏离记录」）；`docs/connections-panel-upgrade.zh.md` 的剩余待办并入本文「后续待办」段，原文件已归档
   - 2026-09-02 追加「九月迭代」计划：契约先行 PR + 主线 S1–S5 + 扩展模块轨道
   - 2026-09-03 补齐扩展模块「端口映射 / 会话共享 / 日志」E0–E8 文件级计划；产品负责人已批准，进入 Build
+  - 2026-09-07 契约审查 P1/P2 修复：连接超时统一毫秒、凭据结构统一嵌套 auth（偏离记录 7–8）
 
 ## 实现偏离记录（规则 6：偏离即同提交更新）
 
@@ -18,6 +19,8 @@
 4. **Telnet**：原计划裸 TCP 透传；实际加 `telnetMode: 'telnet'|'raw'`，telnet 模式剥离 IAC（Buffer 操作、只剥离不回发）。
 5. **连接配置**：新增 `telnetMode`/`handshakeTimeoutSec`/`newline`/`localEcho`/`guardWhitelist`/`timeoutMs` 字段；sendAndWait 用配置的换行。
 6. **文件名**：原计划的 `TerminalPanel.tsx`/`ConnectionsTab.tsx`/`TerminalsTab.tsx`/`*.module.css`/`config.ts` 均未采用；实际见下「改动文件（真实）」。
+7. **连接超时单位统一为毫秒（2026-09-07，契约审查 P1）**：`ConnectionConfig.handshakeTimeoutSec`（秒）改名 `connectTimeoutMs`（毫秒），与契约 `ConnectTarget`、`TransportConnectOptions` 三处同名同单位；`session-manager.ts` 的 `connectByConnId` / `reconnect` 两处 `* 1000` 转换删除，直接透传；UI（`client/ConnectionsPanel.tsx`）仍以秒展示（15/30/60/120/180 下拉框），保存 ×1000、回显 ÷1000。
+8. **凭据结构统一为嵌套 auth（2026-09-07，契约审查 P2）**：`AuthConfig` 判别联合定义收敛到契约 `src/types/session-api.ts`（`connection-store.ts` 删本地定义，改 import + re-export）；`ConnectTarget` / `TransportConnectOptions` 扁平 `password/privateKey/passphrase` 改嵌套 `auth?`（`transport/ssh.ts` 从 `options.auth?.kind` 取凭据）；`session-manager.ts` 三处拆装转换（`connectByConnId` / `connect` / `reconnect`）删除，直接透传。边界转换收敛两处：`remotes.ts` `sessions.connect`（前端扁平 payload → auth，前端不感知）、`tools.ts` `tm_connect`（AI 扁平 password → auth，AI 参数 schema 不变）；`smoke-e2e.mjs` 传 RPC payload 不受影响，`src/ext/port-log/` 不引用 `ConnectTarget` 不受影响，`transport/telnet.ts` 不用凭据。
 
 ## 改动文件（真实，M0–M5 已落地）
 
@@ -26,7 +29,7 @@
 | 文件 | 职责 |
 |---|---|
 | `src/index.ts` | Cordis 入口：装配 ConnectionStore、SessionManager、`tm_*` 工具、`/term-manager` 路由、`/term-io` WS；`ctx.effect` 清理 |
-| `src/connection-store.ts` | 连接配置 CRUD + JSON 持久化（0600）+ 校验；含 telnetMode/handshakeTimeoutSec/newline/localEcho 等字段 |
+| `src/connection-store.ts` | 连接配置 CRUD + JSON 持久化（0600）+ 校验；含 telnetMode/connectTimeoutMs/newline/localEcho 等字段（connectTimeoutMs 原名 handshakeTimeoutSec，2026-09-07 统一，见偏离记录 7） |
 | `src/wait-policy.ts` | 完成判定三重机制（静默期/提示符正则/超时）纯函数状态机 |
 | `src/command-guard.ts` | 命令守卫（AI 路径黑名单 + 白名单） |
 | `src/transport/types.ts` | 传输层内部接口 |

@@ -153,9 +153,8 @@ export function connectSsh(
       readyTimeout: timeoutMs,
       // MVP：接受任意主机密钥（风险已记录，后续做首次信任）
       hostVerifier: () => true,
-      ...(options.password !== undefined ? { password: options.password } : {}),
-      ...(options.privateKey !== undefined ? { privateKey: options.privateKey } : {}),
-      ...(options.passphrase !== undefined ? { passphrase: options.passphrase } : {}),
+      ...(options.auth?.kind === 'password' ? { password: options.auth.password } : {}),
+      ...(options.auth?.kind === 'key' ? { privateKey: options.auth.privateKey, ...(options.auth.passphrase !== undefined ? { passphrase: options.auth.passphrase } : {}) } : {}),
     })
   })
 }

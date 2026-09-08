@@ -10,6 +10,7 @@
 - 2026-09-03：S5 定稿——文件传输只做 SSH/SFTP（Telnet 会话远端操作抛 `UNSUPPORTED`，base64 命令模拟与 `telnetFileTransfer` 开关砍掉）；只做单文件（文件夹传输砍掉）；下载双入口（浏览器另存为 GET `/files/download` + `downloadToLocal` 联动/AI，② 后者行内进度条已拍板要做）；进度走 `/term-io` `file-progress` 帧（transferId 关联 + 终态帧，零契约改动）；Transport 加协议无关 `SftpLike`；传输不设独占锁。详见 B10 远端部分与 plan.md S5 节
 - 2026-09-03（S5 落地）：B6 工具加 `tm_upload` / `tm_download`（八只手）；B7a 加传输路由（`/files/upload` POST raw、`/files/download` GET 流式）与 `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（本地源上传，联动用）端点；前端加 F7b 远端文件面板（chips / 3 按钮 / 传输条 / 同名冲突 / 联动 / 编辑器上传入口）。行内进度条先做 ②（确定项），③ 另存为与拖拽细节等周五交互会；见 plan.md S5 偏离记录 9–14
 - 2026-09-03：补齐扩展模块「端口映射 / 会话共享 / 日志」需求与设计，派生自 `intent/port-mapping-sharing-log.md`（Accepted）；严格遵循 commit `badc5fb` 冻结的契约与挂载点。该增量章节已由产品负责人批准进入 Build。
+- 2026-09-07：契约审查 `docs/API-CONTRACT-REVIEW.md` 两个 🔴 高项修复——**P1 连接超时统一毫秒**：`ConnectionConfig.handshakeTimeoutSec`（秒）改名 `connectTimeoutMs`（毫秒），与 `ConnectTarget` / `TransportConnectOptions` 同名同单位，`session-manager.ts` 散落 `* 1000` 转换删除（UI 仍以秒展示）；**P2 凭据结构统一嵌套**：`AuthConfig` 判别联合定义收敛到契约 `src/types/session-api.ts`，`ConnectTarget` / `TransportConnectOptions` 扁平凭据字段改嵌套 `auth?`，`session-manager.ts` 三处拆装转换删除；边界转换收敛两处——`remotes.ts`（前端扁平 payload → auth）与 `tools.ts`（AI 扁平 password → auth），前端 RPC payload 与 AI 工具参数面不变。
 
 ## 需求
 
@@ -136,15 +137,14 @@ interface ConnectionConfig {
   host: string
   port: number                  // 缺省按协议：SSH 22，Telnet 23
   username?: string             // SSH 必填
-  auth?:
-    | { kind: 'password'; password: string }
-    | { kind: 'key'; privateKey: string; passphrase?: string }   // SSH：password | key
+  auth?: AuthConfig             // SSH 凭据判别联合（定义在契约 src/types/session-api.ts，本文件 re-export）：
+                                //   { kind: 'password'; password: string } | { kind: 'key'; privateKey: string; passphrase?: string }
   promptPattern?: string        // 完成判定②的正则源（可选）
   quietMs?: number              // 完成判定①（可选，默认 500）
   timeoutMs?: number            // 完成判定③（可选，默认 30000）
   guardWhitelist?: string[]     // 命令守卫白名单（正则源列表，按连接豁免）
   telnetMode?: 'telnet' | 'raw' // Telnet 模式（默认 telnet：完整 IAC 协商）
-  handshakeTimeoutSec?: number  // SSH 握手超时秒数（默认 15；可选 15/30/60/120/180）
+  connectTimeoutMs?: number     // 连接建立超时毫秒数（默认 15000；UI 仍以秒展示，可选 15/30/60/120/180）【2026-09-07 由 handshakeTimeoutSec（秒）改名统一】
   newline?: 'lf' | 'cr' | 'crlf'// 行尾换行（默认 'crlf'）
   localEcho?: boolean           // 本地回显开关（默认 false；字段已保存后端）
   note?: string                 // 备注（选填）
@@ -231,7 +231,7 @@ interface ConnectionConfig {
 
 - **SftpLike（S5 起，协议无关的 SFTP 门面接口）**：声明在 `transport/types.ts`、**不 import ssh2**（串口等未来实现同一接口，Telnet 不实现——远端文件操作对 Telnet 抛 `UNSUPPORTED`）。方法面：`list / stat / mkdirs / put / get / downloadStream`（unlink/rename 留在门面内部）。实现 = `transport/sftp.ts` 的 `SftpFacade`（implements SftpLike，包 ssh2 `SFTPWrapper`）：上传先写远端同目录临时文件 `<目标>.tm-partial-<rand>`（同目录同文件系统，rename 不撞 EXDEV）成功后 rename 落位（v3 rename 不覆盖已存在目标 → 覆盖走「改名失败 → 删旧 → 再改名」）、中断 best-effort 清理；进度回调节流 200ms 并补发终值；错误统一映射（NO_SUCH_FILE → NOT_FOUND、PERMISSION_DENIED → VALIDATION、断连 → DISCONNECTED、其余 REMOTE_IO）。`getSftp` 断连抛 DISCONNECTED、设备未开 sftp 子系统抛 PROTO_ERROR。
 
-- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。`readyTimeout` = `connectTimeoutMs`（来自连接级 `handshakeTimeoutSec`，默认 15s，UI 可选 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
+- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。认证从 `options.auth?.kind` 取（`password` → 密码认证；`key` → 私钥 + 可选 passphrase，【2026-09-07 起传输层只收嵌套 `auth`，不再收扁平凭据字段】）。`readyTimeout` = 连接级 `connectTimeoutMs`（毫秒，默认 15000，UI 以秒展示 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
 - **TelnetTransport**（`telnet.ts`）：`net.connect`。`telnetMode: 'telnet' | 'raw'`：
   - `telnet`（默认）：**完整 IAC 协商**——连接时主动发送 WILL ECHO + WILL SGA + DO SGA + DO ECHO；响应服务器的 DO/WILL 请求（DO SGA → WILL SGA, DO ECHO → WILL ECHO, DO TTYPE → WILL TTYPE 等）；支持子协商（TTYPE 响应发送 "xterm"，NAWS 在 resize 时发送窗口尺寸）；状态机解析器处理 IAC 序列，支持跨 chunk 拼接。
   - `raw`：裸 TCP 透传字节（`chunk.toString('utf8')`），不做任何协议处理，适合串口服务器/ESL。
@@ -251,7 +251,7 @@ interface ConnectionConfig {
 
 | 工具 | 参数 | 返回 |
 |---|---|---|
-| `tm_connect` | `connId`（已保存连接）**或** `protocol,host,port?,username?,password?,label?`（临时连接，不入库） | `SessionSnapshot` + `banner`（读缓冲尾部 200 行） |
+| `tm_connect` | `connId`（已保存连接）**或** `protocol,host,port?,username?,password?,label?`（临时连接，不入库；AI 参数面仍传扁平 `password`，工具层组装为契约 `auth`【2026-09-07】） | `SessionSnapshot` + `banner`（读缓冲尾部 200 行） |
 | `tm_list` | — | `SessionSnapshot[]` |
 | `tm_send` | `sessionId, command, wait?('complete'\|'immediate'), quietMs?, timeoutMs?` | `{ kind:'completed', output, waitReason, truncated }` 或 `{ kind:'submitted' }` |
 | `tm_send_all` | `command, sessionIds?`（逗号分隔串，缺省=全部 open）, `wait?` | `[{ sessionId, outcome:'ok'\|'busy'\|'disconnected'\|'error', output?, waitReason?, code? }]` |
@@ -272,7 +272,7 @@ interface ConnectionConfig {
   - POST → 解析 `{ type: 'client-request', rpcId, method, payload }`，endpoint 取 body.method 或 URL 路径，经纯函数 `dispatch(endpoint, payload, deps, signal)` 调度，返回 `{ type: 'server-response', rpcId, result }`。
 - 端点：
   - `connections.list` / `connections.create` / `connections.update({id, patch})` / `connections.remove({id})`
-  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
+  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`；扁平凭据 payload 由本层组装为契约 `auth`，前端不感知【2026-09-07】）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
   - 文件：`files.tree` / `files.read` / `files.write` / `files.dirs` / `files.root` / `files.open`（本地，B10）+ `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（S5 远端；`uploadLocal` 给本地面板 / 编辑器联动用——文件在 host 磁盘上，浏览器拿不到字节，由后端按树根围栏读盘再推 SFTP）
 - 错误折叠：领域异常 → `RpcResult.error`，其中 HTTP 层 `code` 统一为 `internal`、领域 code 编进 message（`{ code, message }` 格式，message 永不含凭据）；`AbortSignal` 已中止 → `cancelled`；未知端点 → `internal`（message 带端点名）。
 
@@ -406,7 +406,7 @@ interface ConnectionConfig {
 | 判定顺序 | 提示符 > 静默 > 超时；无输出时只有超时生效 | — | — |
 | 单次返回输出上限 | 256 KB（超出截断并标记 truncated） | — | WAIT_LIMITS.outputCapBytes |
 | 输出环形缓冲 | 每会话 1 MiB | — | BUFFER_CAP_BYTES |
-| 连接建立超时 | 15s（SSH `readyTimeout`；Telnet 同用 `connectTimeoutMs`） | SSH UI：15/30/60/120/180s | `handshakeTimeoutSec` / `connectTimeoutMs` |
+| 连接建立超时 | 15s（SSH `readyTimeout`；Telnet 同用 `connectTimeoutMs`） | SSH UI：15/30/60/120/180s | `connectTimeoutMs`（毫秒，默认 15000）【2026-09-07 由 handshakeTimeoutSec（秒）统一】 |
 | 换行 `newline` | `crlf` | `lf / cr / crlf` | 连接配置 + sendAndWait 调用参数 |
 | 本地回显 `localEcho` | false | 开/关 | 连接配置（后端已保存；xterm 本地回显未接通，见「待确认项」） |
 | 本地工作区根 `workspaceRoot` | DSH 进程 cwd | 任意目录 | 插件 Config schema（`cordis.yml` 的 `config:`）；UI「换目录」临时切换 |
@@ -722,7 +722,7 @@ dsh-terminal-manager/
 │   ├── config.ts              # 插件 Config schema（workspaceRoot）
 │   ├── types/                 # 模块间契约（纯声明；改动单独 PR，两人 review）
 │   │   ├── events.ts          #   TmEvent / TmEventBus
-│   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型
+│   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型 + AuthConfig（凭据判别联合，唯一定义处）
 │   │   └── file-service.ts    #   FileService（本地 + 远端）
 │   └── ext/                   # 扩展模块（扩展模块负责人）：index.ts 是唯一挂载点，模块放 ext/<模块>/
 ├── client/                    # 浏览器半（F1–F6）

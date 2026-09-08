@@ -31,7 +31,7 @@ describe('SFTP 门面（S5 步骤2）', () => {
   const start = async (): Promise<void> => {
     root = await fsp.mkdtemp(nodePath.join(tmpdir(), 'tm-sftp-'))
     const { port } = await lab.startSftpDevice(root)
-    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: () => {}, onClose: () => {} })
     sftp = await transport.getSftp!()
   }
 

@@ -185,7 +185,7 @@ describe('FileService 远端四件套（S5 步骤4，SSH 路径挂 mock SFTP 设
     devRoot = await mkdtemp(join(tmpdir(), 'tm-fs-dev-'))
     wsRoot = await mkdtemp(join(tmpdir(), 'tm-fs-ws-'))
     const { port } = await lab.startSftpDevice(devRoot)
-    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: () => {}, onClose: () => {} })
     const sftp = await transport.getSftp!()
     const bus = createEventBus()
     fileEvents = []

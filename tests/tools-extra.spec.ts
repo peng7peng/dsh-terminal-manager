@@ -191,7 +191,7 @@ describe('tm_upload / tm_download（S5）', () => {
     let sftp: SftpLike | undefined
     if (protocol === 'ssh') {
       const { port } = await lab.startSftpDevice(devRoot)
-      transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+      transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: () => {}, onClose: () => {} })
       sftp = await transport.getSftp!()
     }
     return {

@@ -93,7 +93,7 @@ describe('SSH 补充', () => {
     const { port } = await lab.startSshDevice()
     const out = collector()
     let closed = ''
-    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: (r) => { closed = r } })
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: out.onData, onClose: (r) => { closed = r } })
     await out.waitFor('Welcome to test device')
     expect(() => t.resize(120, 40)).not.toThrow()
     await t.close()
@@ -105,7 +105,7 @@ describe('SSH 补充', () => {
   it('对方不是 SSH 服务 → PROTO_ERROR / HOST_UNREACHABLE（不含凭据）', async () => {
     const { port } = await scriptedServer((socket) => { socket.write('220 not ssh\r\n'); socket.end() })
     try {
-      await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'secret-pw', connectTimeoutMs: 2000 } as never, { onData: () => {}, onClose: () => {} })
+      await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'secret-pw' }, connectTimeoutMs: 2000 }, { onData: () => {}, onClose: () => {} })
       throw new Error('should fail')
     } catch (e) {
       expect(e).toBeInstanceOf(TransportError)
@@ -122,7 +122,7 @@ describe('SSH SFTP（S5 步骤1）', () => {
   it('open 会话可取 sftp（懒开子通道，复用同一连接）', async () => {
     const { port } = await lab.startSshDeviceWithSftp()
     const out = collector()
-    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: out.onData, onClose: () => {} })
     const sftp = await t.getSftp!()
     // SftpLike 门面（协议无关），不再是裸 ssh2 SFTPWrapper
     expect(typeof sftp.list).toBe('function')
@@ -142,7 +142,7 @@ describe('SSH SFTP（S5 步骤1）', () => {
     try {
       const { port } = await lab.startSftpDevice(root)
       const out = collector()
-      const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+      const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: out.onData, onClose: () => {} })
       const a = await t.getSftp!()
       const b = await t.getSftp!()
       expect(b).toBe(a)
@@ -158,7 +158,7 @@ describe('SSH SFTP（S5 步骤1）', () => {
   it('close 后取用抛 DISCONNECTED', async () => {
     const { port } = await lab.startSshDeviceWithSftp()
     const out = collector()
-    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: out.onData, onClose: () => {} })
     await t.close()
     await expect(t.getSftp!()).rejects.toMatchObject({ code: 'DISCONNECTED' })
   })
@@ -166,7 +166,7 @@ describe('SSH SFTP（S5 步骤1）', () => {
   it('设备未开 sftp 子系统 → PROTO_ERROR（消息不含凭据）', async () => {
     const { port } = await lab.startSshDevice()
     const out = collector()
-    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: out.onData, onClose: () => {} })
+    const t = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: out.onData, onClose: () => {} })
     await out.waitFor('Welcome to test device')
     try {
       await t.getSftp!()

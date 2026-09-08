@@ -188,7 +188,7 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     store = new ConnectionStore(join(dir, 'connections.json'))
     await store.load()
     const { port } = await lab.startSftpDevice(devRoot)
-    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', password: 'test-pass' }, { onData: () => {}, onClose: () => {} })
+    transport = await connectSsh({ host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } }, { onData: () => {}, onClose: () => {} })
     const sftp = await transport.getSftp!()
     frames = []
     deps = {

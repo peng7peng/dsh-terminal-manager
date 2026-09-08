@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { portLogRpc, subscribePortLogEvents } from './rpc.ts'
+import { portLogRpc } from './rpc.ts'
+import { subscribeShares } from './share-sync.ts'
 import { applyPortLogEvent, usePortLogState, type ClientShare } from './store.ts'
 
 interface Props {
@@ -16,9 +17,9 @@ export function ShareDialog({ sessionId, label, onClose }: Props): React.JSX.Ele
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
-  // Subscribe to SSE events while dialog is open for real-time client count updates
-  useEffect(() => subscribePortLogEvents(applyPortLogEvent, () => {}), [])
+  useEffect(() => subscribeShares(setSyncError), [])
 
   async function start(): Promise<void> {
     setStarting(true)
@@ -52,6 +53,7 @@ export function ShareDialog({ sessionId, label, onClose }: Props): React.JSX.Ele
           <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', fontSize: 18, cursor: 'pointer', color: 'var(--dsw-alias-label-secondary, #666)', lineHeight: 1 }}>&times;</button>
         </div>
         <div style={{ padding: '12px 16px' }}>
+          {syncError && <div role="status" style={{ fontSize: 12, marginBottom: 6 }}>{syncError}</div>}
           {share ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>

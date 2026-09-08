@@ -113,6 +113,8 @@ export class ConnectionStore {
     const parsed = JSON.parse(raw) as { connections?: ConnectionConfig[] }
     this.connections.clear()
     for (const cfg of parsed.connections ?? []) {
+      // 旧数据可能缺 favorited 字段，归一化为 true（与 create 默认值一致）
+      if (cfg.favorited === undefined) cfg.favorited = true
       validate(cfg)
       this.connections.set(cfg.id, cfg)
     }

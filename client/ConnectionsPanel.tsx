@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { IconLinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { getDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
@@ -139,7 +140,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function toggleFavorite(connId: string): Promise<void> {
     const c = conns.find(x => x.id === connId)
     if (!c) return
-    try { await rpc('connections.update', { id: connId, patch: { ...c, favorited: !c.favorited } }); await refresh() } catch { /* */ }
+    try { await rpc('connections.update', { id: connId, patch: { ...c, favorited: c.favorited === false } }); await refresh() } catch { /* */ }
     setCtxMenu(null)
   }
   function onSessionContext(e: React.MouseEvent, s: SessionSnap): void { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'session', id: s.sessionId }) }
@@ -191,7 +192,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   return (
     <div className="tm-side">
       <div className="tm-sideHead">
-        <span className="t">📡 连接</span>
+        <span className="t"><IconLinkOutline14 className="tm-sideIcon" /> 连接</span>
         <div className="tm-ptabs" style={{ flex: 1, marginLeft: 8 }}>
           <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')} title="SSH：加密远程登录，需用户名+密码或私钥">SSH</div>
           <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')} title="Telnet：明文远程登录，常用于网络设备（ESL 环境）">Telnet</div>

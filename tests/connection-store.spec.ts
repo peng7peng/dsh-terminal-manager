@@ -127,8 +127,8 @@ describe('ConnectionStore', () => {
     })))
     const store = new ConnectionStore(p)
     await store.load()
-    // 旧数据缺字段不报错，前端按"未显式 false = 在收藏"处理
-    expect(store.get('legacy-1')?.favorited).toBeUndefined()
+    // 旧数据缺 favorited 字段时归一化为 true（与 create 默认值一致）
+    expect(store.get('legacy-1')?.favorited).toBe(true)
     expect(store.list()).toHaveLength(1)
   })
 })

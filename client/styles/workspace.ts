@@ -40,8 +40,14 @@ export const WORKSPACE_CSS = `
 .tm-paneBar .dot { width:7px; height:7px; border-radius:50%; background:var(--dsw-static-green-500, #22c55e); }
 .tm-paneBar .nm { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-family:var(--dsw-font-code, monospace); color:var(--dsw-alias-label-primary, #fff); }
 .tm-paneBar .tgt { flex:0 1 auto; min-width:0; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-tertiary, #67718a); font-family:var(--dsw-font-code, monospace); font-size:10px; }
-.tm-paneBar button { flex:none; background:none; border:none; color:var(--dsw-alias-label-caption, #768390); cursor:pointer; font-size:12px; padding:2px 6px; }
+.tm-paneBar button { flex:none; height:20px; display:inline-flex; align-items:center; justify-content:center; line-height:1; background:none; border:none; color:var(--dsw-alias-label-caption, #768390); cursor:pointer; font-size:12px; padding:2px 6px; }
 .tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
+.tm-paneBar .tm-saveBtn { width:24px; padding:0; border-radius:4px; }
+.tm-paneBar .tm-saveBtn svg { display:block; flex:none; }
+.tm-paneBar .tm-saveBtn.is-on, .tm-paneBar .tm-saveBtn.is-on:hover { color:var(--dsw-alias-state-success-primary, #22a447); }
+.tm-paneBar .tm-saveBtn.is-off, .tm-paneBar .tm-saveBtn.is-off:hover { color:var(--dsw-alias-state-error-primary, #d93036); }
+.tm-paneBar .tm-saveBtn:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.08)); }
+.tm-paneBar .tm-saveBtn:disabled { cursor:wait; opacity:.58; }
 .tm-reconnect-btn { background:var(--dsw-alias-state-info-primary, #3b82f6) !important; color:white !important; border-radius:4px; padding:2px 8px !important; }
 .tm-reconnect-btn:hover { background:var(--dsw-alias-state-info-primary, #2563eb) !important; }
 .tm-reconnect-small { background:var(--dsw-alias-state-info-primary, #3b82f6); color:white; border:none; border-radius:3px; padding:1px 5px; font-size:10px; cursor:pointer; margin-left:4px; }
@@ -129,7 +135,7 @@ export const WORKSPACE_CSS = `
 .tm-pane-closed .dot { background:var(--dsw-alias-label-tertiary, #999) !important; }
 .tm-pane-maximized .tm-paneBody { min-height:400px; }
 .tm-closed-label { font-size:11px; color:var(--dsw-alias-label-tertiary, #999); margin-left:auto; }
-.tm-paneBar button { border:none; background:transparent; color:var(--dsw-alias-label-secondary, #666); cursor:pointer; padding:2px 6px; font-size:12px; }
+.tm-paneBar button { height:20px; display:inline-flex; align-items:center; justify-content:center; line-height:1; border:none; background:transparent; color:var(--dsw-alias-label-secondary, #666); cursor:pointer; padding:2px 6px; font-size:12px; }
 .tm-paneBar button:hover { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-ritem.dragging { opacity:.3; }
 .tm-empty { color:var(--dsw-alias-label-secondary, #888); padding:10px; text-align:center; font-size:13px; }

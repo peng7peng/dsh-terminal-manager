@@ -31,13 +31,40 @@ describe('port-log 会话输出日志', () => {
     const { manager, events, logger } = await fixture(undefined, () => new Date(2026, 8, 8, 14, 5, 6))
     expect(manager.list()).toEqual([])
     const started = await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
-    expect(basename(started.path)).toBe('user@secret-host(2026-09-08_14-05-06).log')
+    expect(basename(started.path)).toBe('user@secret-host(2026-09-08_14-05-06-000).log')
     events.emit({ type: 'input', sessionId: 'session-sensitive-label', data: 'direct-secret-input', source: 'human', ts: Date.now() })
     events.emit({ type: 'output', sessionId: 'session-sensitive-label', data: '\x1b[31mdevice-output\x1b[0m\n', ts: Date.now() })
     await manager.stop('session-sensitive-label')
     const text = await readFile(started.path, 'utf8')
     expect(text).toBe('device-output\n')
     expect(text).not.toContain('direct-secret-input')
+    await logger.close()
+  })
+
+  it('每次重新开始存盘都创建不同时间戳的日志文件', async () => {
+    const now = () => new Date(2026, 8, 8, 14, 5, 6, 123)
+    const { manager, logger } = await fixture(undefined, now)
+    const first = await manager.start('session-sensitive-label', { timestamp: true, stripAnsi: true })
+    await manager.stop('session-sensitive-label')
+    const second = await manager.start('session-sensitive-label', { timestamp: true, stripAnsi: true })
+    await manager.stop('session-sensitive-label')
+
+    expect(basename(first.path)).toBe('user@secret-host(2026-09-08_14-05-06-123).log')
+    expect(basename(second.path)).toBe('user@secret-host(2026-09-08_14-05-06-124).log')
+    expect(second.path).not.toBe(first.path)
+    await logger.close()
+  })
+
+  it('同一会话的并发启动请求共用一个日志任务', async () => {
+    const { manager, logger } = await fixture(undefined, () => new Date(2026, 8, 8, 14, 5, 6, 123))
+    const [first, second] = await Promise.all([
+      manager.start('session-sensitive-label', { timestamp: true, stripAnsi: true }),
+      manager.start('session-sensitive-label', { timestamp: true, stripAnsi: true }),
+    ])
+
+    expect(second.path).toBe(first.path)
+    expect(manager.list()).toHaveLength(1)
+    await manager.stop('session-sensitive-label')
     await logger.close()
   })
 

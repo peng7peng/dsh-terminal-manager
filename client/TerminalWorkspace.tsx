@@ -231,11 +231,13 @@ export function TerminalWorkspace(): React.JSX.Element | null {
               <div key={s.sessionId} data-session-id={s.sessionId} className={`${hidden.has(s.sessionId) ? 'tm-term-hidden' : ''} ${s.status === 'closed' ? 'tm-term-closed' : ''} ${maximized === s.sessionId ? 'tm-term-maximized' : ''}`}>
                 <TermView
                   sessionId={s.sessionId}
+                  connId={s.connId}
                   label={s.label}
                   target={s.target}
                   ws={ws}
                   onDisconnect={disconnect}
                   isHidden={hidden.has(s.sessionId)}
+                  isOpen={s.status === 'open'}
                   isClosed={s.status === 'closed'}
                   isMaximized={maximized === s.sessionId}
                   onToggleMaximize={() => toggleMaximize(s.sessionId)}

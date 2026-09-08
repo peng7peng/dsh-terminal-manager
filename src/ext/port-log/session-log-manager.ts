@@ -26,7 +26,8 @@ interface LogRuntime {
 
 function formatFileTimestamp(date: Date): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+  const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}-${milliseconds}`
 }
 
 function safeFileName(value: string): string {
@@ -36,7 +37,9 @@ function safeFileName(value: string): string {
 
 export class SessionLogManager {
   private readonly logs = new Map<string, LogRuntime>()
+  private readonly starting = new Map<string, Promise<SessionLogSnapshot>>()
   private closing = false
+  private lastFileTimestampMs = 0
 
   constructor(
     private readonly directory: string,
@@ -57,6 +60,18 @@ export class SessionLogManager {
   }
 
   async start(sessionId: string, options: SessionLogOptions, directory?: string): Promise<SessionLogSnapshot> {
+    const pending = this.starting.get(sessionId)
+    if (pending !== undefined) return pending
+    const operation = this.startRuntime(sessionId, options, directory)
+    this.starting.set(sessionId, operation)
+    try {
+      return await operation
+    } finally {
+      this.starting.delete(sessionId)
+    }
+  }
+
+  private async startRuntime(sessionId: string, options: SessionLogOptions, directory?: string): Promise<SessionLogSnapshot> {
     if (this.closing) throw new PortLogError('MAPPING_STATE', '扩展正在关闭')
     if (this.logs.has(sessionId)) throw new PortLogError('VALIDATION', '该会话日志已经开启')
     const session = this.sessions.get(sessionId)
@@ -64,7 +79,10 @@ export class SessionLogManager {
     this.validateOptions(options)
     const dir = directory && directory.trim() !== '' ? directory.trim() : this.directory
     await mkdir(dir, { recursive: true, mode: 0o700 })
-    const stamp = formatFileTimestamp(this.now())
+    const currentTimestampMs = this.now().getTime()
+    const fileTimestampMs = Math.max(currentTimestampMs, this.lastFileTimestampMs + 1)
+    this.lastFileTimestampMs = fileTimestampMs
+    const stamp = formatFileTimestamp(new Date(fileTimestampMs))
     const path = join(dir, `${safeFileName(session.label)}(${stamp}).log`)
     const stream = createWriteStream(path, { flags: 'wx', mode: 0o600, encoding: 'utf8' })
     await new Promise<void>((resolve, reject) => {

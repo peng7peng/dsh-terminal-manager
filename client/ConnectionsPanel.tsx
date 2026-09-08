@@ -244,7 +244,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
             </>}
           </div>
-          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>浏览</button></div>}
+          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} title="选择日志存储目录" aria-label="选择日志存储目录" onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>...</button></div>}
           {logDirectoryError && <div className="tm-mNote" role="alert">{logDirectoryError}</div>}
           {showDirPicker && <DirectoryPicker onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} onError={message => { setLogDirectoryError(message); setShowDirPicker(false) }} />}
         </div>

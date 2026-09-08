@@ -68,6 +68,7 @@ export async function loadDefaultLogDirectory(): Promise<string> {
   return defaultDirectoryRequest
 }
 export function setPortLogLoading(loading: boolean): void { replace({ loading }) }
+export function setShares(shares: ClientShare[]): void { replace({ shares }) }
 export function setPortLogError(error?: string): void { replace({ error }) }
 export function setPortLogSnapshot(patch: Pick<PortLogState, 'mappings' | 'sessions' | 'shares' | 'sessionLogs' | 'appLog'>): void { replace(patch) }
 

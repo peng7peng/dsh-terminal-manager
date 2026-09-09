@@ -133,4 +133,224 @@ describe('port-log 控制面', () => {
     expect(rootListed.result.value.parent).toBeNull()
     await logger.close()
   })
+
+  it('未知方法返回 VALIDATION 错误且不抛异常到外层', async () => {
+    const { base, logger } = await fixture()
+    const body = await (await rpc(base, 'not.a.real.method')).json() as any
+    expect(body.result).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: '未知方法' } })
+    await logger.close()
+  })
+
+  it('mappings.update 缺少 id 字段时返回 VALIDATION 错误', async () => {
+    const { base, logger } = await fixture()
+    const noId = await (await rpc(base, 'mappings.update', { patch: { autoStart: true } })).json() as any
+    expect(noId.result).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'id 无效' } })
+    const badPatch = await (await rpc(base, 'mappings.update', { id: 'x', patch: null })).json() as any
+    expect(badPatch.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    const arrayPatch = await (await rpc(base, 'mappings.update', { id: 'x', patch: [] })).json() as any
+    expect(arrayPatch.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    await logger.close()
+  })
+
+  it('mappings.remove 缺少 id、不存在的 id 各返回对应错误', async () => {
+    const { base, logger } = await fixture()
+    const missing = await (await rpc(base, 'mappings.remove', {})).json() as any
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'id 无效' } })
+    const notFound = await (await rpc(base, 'mappings.remove', { id: 'nonexistent-id' })).json() as any
+    expect(notFound.result).toMatchObject({ ok: false, error: { code: 'MAPPING_NOT_FOUND' } })
+    await logger.close()
+  })
+
+  it('mappings.start/stop 在映射运行时未就绪时返回 MAPPING_STATE', async () => {
+    const { base, logger } = await fixture()
+    const startBody = await (await rpc(base, 'mappings.start', { id: 'any' })).json() as any
+    expect(startBody.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const stopBody = await (await rpc(base, 'mappings.stop', { id: 'any' })).json() as any
+    expect(stopBody.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    await logger.close()
+  })
+
+  it('sessions.list/shares.start/shares.stop 在服务未就绪时返回 MAPPING_STATE', async () => {
+    const { base, logger } = await fixture()
+    const sessionsList = await (await rpc(base, 'sessions.list')).json() as any
+    expect(sessionsList.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const sharesStart = await (await rpc(base, 'shares.start', { sessionId: 's1', sharePort: 1234 })).json() as any
+    expect(sharesStart.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const sharesStop = await (await rpc(base, 'shares.stop', { sessionId: 's1' })).json() as any
+    expect(sharesStop.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    await logger.close()
+  })
+
+  it('sessionLogs.start/update/stop/pickDirectory 在服务未就绪时返回对应错误', async () => {
+    const { base, logger } = await fixture()
+    const startBody = await (await rpc(base, 'sessionLogs.start', { sessionId: 's1' })).json() as any
+    expect(startBody.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const updateBody = await (await rpc(base, 'sessionLogs.update', { sessionId: 's1' })).json() as any
+    expect(updateBody.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const stopBody = await (await rpc(base, 'sessionLogs.stop', { sessionId: 's1' })).json() as any
+    expect(stopBody.result).toMatchObject({ ok: false, error: { code: 'MAPPING_STATE' } })
+    const pickBody = await (await rpc(base, 'sessionLogs.pickDirectory')).json() as any
+    expect(pickBody.result).toMatchObject({ ok: false, error: { code: 'IO_ERROR' } })
+    await logger.close()
+  })
+
+  it('shares.list/sessionLogs.list 在服务未就绪时降级返回空数组', async () => {
+    const { base, logger } = await fixture()
+    const sharesList = await (await rpc(base, 'shares.list')).json() as any
+    expect(sharesList.result).toEqual({ ok: true, value: [] })
+    const sessionLogsList = await (await rpc(base, 'sessionLogs.list')).json() as any
+    expect(sessionLogsList.result).toEqual({ ok: true, value: [] })
+    const defaultDir = await (await rpc(base, 'sessionLogs.defaultDirectory')).json() as any
+    expect(defaultDir.result).toEqual({ ok: true, value: { directory: '' } })
+    await logger.close()
+  })
+
+  it('sessionLogs.listDir 空路径使用主目录，无效路径返回 IO_ERROR', async () => {
+    const { base, logger } = await fixture()
+    const empty = await (await rpc(base, 'sessionLogs.listDir', { path: '' })).json() as any
+    expect(empty.result.ok).toBe(true)
+    expect(typeof empty.result.value.path).toBe('string')
+    expect(Array.isArray(empty.result.value.dirs)).toBe(true)
+    const whitespace = await (await rpc(base, 'sessionLogs.listDir', { path: '   ' })).json() as any
+    expect(whitespace.result.ok).toBe(true)
+    const invalid = await (await rpc(base, 'sessionLogs.listDir', { path: join(tmpdir(), `non-existent-${Date.now()}`) })).json() as any
+    expect(invalid.result).toMatchObject({ ok: false, error: { code: 'IO_ERROR' } })
+    const noPath = await (await rpc(base, 'sessionLogs.listDir', {})).json() as any
+    expect(noPath.result.ok).toBe(true)
+    await logger.close()
+  })
+
+  it('mappings.importCsv 缺少 csv 字段返回 VALIDATION', async () => {
+    const { base, logger } = await fixture()
+    const body = await (await rpc(base, 'mappings.importCsv', {})).json() as any
+    expect(body.result).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'csv 无效' } })
+    await logger.close()
+  })
+
+  it('appLogs.status 和 network.localAddresses 正常返回', async () => {
+    const { base, logger } = await fixture()
+    const status = await (await rpc(base, 'appLogs.status')).json() as any
+    expect(status.result.ok).toBe(true)
+    expect(status.result.value).toHaveProperty('level')
+    expect(status.result.value).toHaveProperty('directory')
+    const addresses = await (await rpc(base, 'network.localAddresses')).json() as any
+    expect(addresses.result.ok).toBe(true)
+    expect(Array.isArray(addresses.result.value)).toBe(true)
+    expect(addresses.result.value).toContain('0.0.0.0')
+    await logger.close()
+  })
+
+  it('mappings.create 完成后 mappings.update 改 autoStart 并能导出', async () => {
+    const { base, logger } = await fixture()
+    const created = await (await rpc(base, 'mappings.create', {
+      protocol: 'tcp', localAddr: '127.0.0.1', localPort: 18081,
+      redirectAddr: 'localhost', redirectPort: 22, autoStart: false,
+    })).json() as any
+    expect(created.result.ok).toBe(true)
+    const updated = await (await rpc(base, 'mappings.update', {
+      id: created.result.value.id, patch: { autoStart: true },
+    })).json() as any
+    expect(updated.result.ok).toBe(true)
+    expect(updated.result.value.autoStart).toBe(true)
+    const listed = await (await rpc(base, 'mappings.list')).json() as any
+    expect(listed.result.value[0].autoStart).toBe(true)
+    await logger.close()
+  })
+
+  it('GET /events 订阅 SSE 且收到事件帧', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log/events`, { method: 'GET' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+    const reader = response.body?.getReader()
+    expect(reader).toBeDefined()
+    const { value } = await reader!.read()
+    expect(new TextDecoder().decode(value)).toContain(': connected')
+    reader!.cancel()
+    await logger.close()
+  })
+
+  it('非 POST/GET/OPTIONS 方法返回 405', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log`, { method: 'DELETE' })
+    expect(response.status).toBe(405)
+    const body = await response.json() as any
+    expect(body.error.code).toBe('VALIDATION')
+    await logger.close()
+  })
+
+  it('请求体非 JSON 返回 400', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not-json{',
+    })
+    expect(response.status).toBe(400)
+    const body = await response.json() as any
+    expect(body.result).toMatchObject({ ok: false })
+    await logger.close()
+  })
+
+  it('method 非字符串和 payload 非对象返回 200+错误封包', async () => {
+    const { base, logger } = await fixture()
+    const noMethod = await (await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rpcId: 'r1', payload: {} }),
+    })).json() as any
+    expect(noMethod.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    const arrayPayload = await (await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rpcId: 'r1', method: 'mappings.list', payload: [] }),
+    })).json() as any
+    expect(arrayPayload.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    const nullPayload = await (await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rpcId: 'r1', method: 'mappings.list', payload: null }),
+    })).json() as any
+    expect(nullPayload.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+    await logger.close()
+  })
+
+  it('rpcId 非字符串时回退为 invalid，响应仍包含 rpcId', async () => {
+    const { base, logger } = await fixture()
+    const body = await (await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rpcId: 123, method: 'mappings.list' }),
+    })).json() as any
+    expect(body.rpcId).toBe('invalid')
+    expect(body.result.ok).toBe(true)
+    await logger.close()
+  })
+
+  it('带合法 Origin 且 host 匹配时允许请求', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
+    })
+    expect(response.status).toBe(200)
+    await logger.close()
+  })
+
+  it('带不合法 Origin（host 不匹配）返回 403', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://evil.example' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
+    })
+    expect(response.status).toBe(403)
+    await logger.close()
+  })
+
+  it('带畸形 Origin 返回 403', async () => {
+    const { base, logger } = await fixture()
+    const response = await fetch(`${base}/term-manager/ext/port-log`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'not-a-url' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
+    })
+    expect(response.status).toBe(403)
+    await logger.close()
+  })
 })

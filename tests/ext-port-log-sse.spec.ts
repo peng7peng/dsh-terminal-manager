@@ -37,4 +37,46 @@ describe('port-log SSE', () => {
     hub.close()
     expect(fast.end).toHaveBeenCalledOnce()
   })
+
+  it('close 后订阅立即结束响应', () => {
+    const hub = new RuntimeEventHub()
+    hub.close()
+    const client = response()
+    const unsubscribe = hub.subscribe(client)
+    expect(hub.clientCount).toBe(0)
+    expect(client.end).toHaveBeenCalledOnce()
+    expect(unsubscribe()).toBeUndefined()
+  })
+
+  it('close 后 publish 不发送也不抛异常', () => {
+    const hub = new RuntimeEventHub()
+    const client = response()
+    hub.subscribe(client)
+    hub.close()
+    hub.publish({ type: 'mapping-status', data: { id: 'x' } })
+    expect(client.write).toHaveBeenCalledTimes(1) // 只收到 connected 帧
+  })
+
+  it('事件帧格式包含 event 和 data 行', () => {
+    const hub = new RuntimeEventHub()
+    const client = response()
+    hub.subscribe(client)
+    hub.publish({ type: 'custom-event', data: { key: 'value' } })
+    const frame = (client.write as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as string
+    expect(frame).toContain('event: custom-event')
+    expect(frame).toContain('data: {"key":"value"}')
+    expect(frame.endsWith('\n\n')).toBe(true)
+    hub.close()
+  })
+
+  it('subscribe 返回的 unsubscribe 可主动移除客户端', () => {
+    const hub = new RuntimeEventHub()
+    const client = response()
+    const unsubscribe = hub.subscribe(client)
+    expect(hub.clientCount).toBe(1)
+    unsubscribe()
+    expect(hub.clientCount).toBe(0)
+    hub.publish({ type: 'test', data: {} })
+    expect(client.write).toHaveBeenCalledTimes(1) // 只收到 connected 帧
+  })
 })

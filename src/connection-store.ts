@@ -16,6 +16,17 @@ export type { AuthConfig }
 
 export type Protocol = 'ssh' | 'telnet'
 
+export interface ConnectionLogConfig {
+  /** 连接成功后自动记录会话日志。 */
+  enabled: boolean
+  /** 每行日志是否添加时间戳。 */
+  timestamp: boolean
+  /** 是否清理终端 ANSI 控制序列。 */
+  stripAnsi: boolean
+  /** 日志目录；缺省时使用插件默认日志目录。 */
+  directory?: string
+}
+
 export interface ConnectionConfig {
   id: string
   label: string
@@ -42,6 +53,8 @@ export interface ConnectionConfig {
   localEcho?: boolean
   /** 是否收藏（默认 true；收藏状态跟连接配置一起落盘，不再存浏览器 localStorage） */
   favorited?: boolean
+  /** 会话日志配置。 */
+  log?: ConnectionLogConfig
   note?: string
 }
 
@@ -87,6 +100,14 @@ function validate(cfg: ConnectionConfig): void {
   }
   if (cfg.timeoutMs !== undefined && (cfg.timeoutMs < WAIT_LIMITS.timeoutMs.min || cfg.timeoutMs > WAIT_LIMITS.timeoutMs.max)) {
     fail(`超时必须在 ${WAIT_LIMITS.timeoutMs.min}–${WAIT_LIMITS.timeoutMs.max} 毫秒之间`)
+  }
+  if (cfg.log !== undefined) {
+    if (typeof cfg.log.enabled !== 'boolean' || typeof cfg.log.timestamp !== 'boolean' || typeof cfg.log.stripAnsi !== 'boolean') {
+      fail('日志配置无效')
+    }
+    if (cfg.log.directory !== undefined && (typeof cfg.log.directory !== 'string' || cfg.log.directory.trim().length === 0)) {
+      fail('日志目录无效')
+    }
   }
 }
 

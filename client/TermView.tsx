@@ -7,35 +7,166 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { ShareDialog } from './ext/port-log/ShareDialog.tsx'
-import { usePortLogState } from './ext/port-log/store.ts'
+import { portLogRpc } from './ext/port-log/rpc.ts'
+import { applyPortLogEvent, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
+import { IconSave16 } from './icons.tsx'
 import { rpc } from './rpc.ts'
 import { markUnread } from './store.ts'
+import { toast } from './toast.ts'
+import { parentDir } from './files/localFs.ts'
 import type { TermWs } from './ws.ts'
 
 interface TermViewProps {
   /** TC 编号（D1：在线会话顺序）；undefined = 不显示徽章 */
   tcIndex?: number
   sessionId: string
+  connId?: string
   label: string
   target: string
   ws: TermWs
   onDisconnect: (sessionId: string) => void
   isHidden?: boolean
+  isOpen: boolean
   isClosed?: boolean
   isMaximized?: boolean
   onToggleMaximize?: () => void
   onMinimize?: () => void
 }
 
-export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden, isClosed, isMaximized, onToggleMaximize, onMinimize, tcIndex }: TermViewProps): React.JSX.Element {
+interface StoredLogConfig {
+  timestamp: boolean
+  stripAnsi: boolean
+  directory?: string
+}
+
+interface StoredConnection {
+  id: string
+  log?: StoredLogConfig
+}
+
+export function TermView({ sessionId, connId, label, target, ws, onDisconnect, isHidden, isOpen, isClosed, isMaximized, onToggleMaximize, onMinimize, tcIndex }: TermViewProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Term | undefined>(undefined)
   const hiddenRef = useRef(isHidden)
   hiddenRef.current = isHidden
   const [showShare, setShowShare] = useState(false)
-  const { shares } = usePortLogState()
+  const [logPending, setLogPending] = useState(false)
+  const [autoStartingLog, setAutoStartingLog] = useState(isOpen)
+  const [logging, setLogging] = useState(isOpen)
+  const [logError, setLogError] = useState<string | undefined>()
+  const { shares, sessionLogs } = usePortLogState()
+  const currentLog = sessionLogs.find(log => log.sessionId === sessionId)
   const activeShare = shares.find(s => s.sessionId === sessionId)
   const sharing = activeShare !== undefined
+
+  async function openLogFile(): Promise<void> {
+    if (!isOpen || currentLog?.state !== 'running' || !currentLog.path) return
+    try {
+      await rpc('files.open', { root: parentDir(currentLog.path), path: currentLog.path })
+    } catch (error) {
+      toast(`打开日志失败：${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    }
+  }
+
+  useEffect(() => {
+    if (autoStartingLog || logPending) return
+    setLogging(currentLog?.state === 'running')
+    if (currentLog?.state === 'running') setLogError(undefined)
+    else if (currentLog?.lastError) setLogError(currentLog.lastError)
+  }, [currentLog, autoStartingLog, logPending])
+
+  async function loadLogConfig(): Promise<StoredLogConfig> {
+    if (connId === undefined) return { timestamp: true, stripAnsi: true }
+    try {
+      const connections = await rpc<StoredConnection[]>('connections.list')
+      return connections.find(connection => connection.id === connId)?.log ?? { timestamp: true, stripAnsi: true }
+    } catch {
+      return { timestamp: true, stripAnsi: true }
+    }
+  }
+
+  async function startLog(): Promise<ClientSessionLog> {
+    const config = await loadLogConfig()
+    const started = await portLogRpc<ClientSessionLog>('sessionLogs.start', {
+      sessionId,
+      timestamp: config.timestamp,
+      stripAnsi: config.stripAnsi,
+      ...(config.directory?.trim() ? { directory: config.directory.trim() } : {}),
+    })
+    applyPortLogEvent('session-log-status', started)
+    return started
+  }
+
+  async function toggleLog(): Promise<void> {
+    if (!isOpen || logPending || autoStartingLog) return
+    setLogPending(true)
+    setLogError(undefined)
+    try {
+      if (logging) {
+        await portLogRpc('sessionLogs.stop', { sessionId })
+        applyPortLogEvent('session-log-status', { sessionId, state: 'stopped' })
+        setLogging(false)
+      } else {
+        await startLog()
+        setLogging(true)
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '存盘操作失败')
+      try {
+        const logs = await portLogRpc<ClientSessionLog[]>('sessionLogs.list')
+        const current = logs.find(log => log.sessionId === sessionId)
+        applyPortLogEvent('session-log-status', current ?? { sessionId, state: 'stopped' })
+        setLogging(current?.state === 'running')
+      } catch { /* 保留当前状态，下一次操作继续重试。 */ }
+    } finally {
+      setLogPending(false)
+    }
+  }
+
+  useEffect(() => {
+    // connecting 也未就绪；必须在 false → true 时重新执行启动。
+    if (!isOpen) {
+      setAutoStartingLog(false)
+      setLogging(false)
+      applyPortLogEvent('session-log-status', { sessionId, state: 'stopped' })
+      return
+    }
+    let cancelled = false
+    setAutoStartingLog(true)
+    setLogging(true)
+    setLogError(undefined)
+    void (async () => {
+      try {
+        const started = await startLog()
+        if (cancelled) return
+        applyPortLogEvent('session-log-status', started)
+        setLogging(true)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误'
+        const reportFailure = (): void => {
+          if (cancelled) return
+          setLogError(message)
+          toast(`${label} 自动存盘失败：${message}`, 'error', 10000)
+        }
+        // 可能与另一个启动入口并发；重新读取服务端状态作为最终结果。
+        try {
+          const logs = await portLogRpc<ClientSessionLog[]>('sessionLogs.list')
+          const current = logs.find(log => log.sessionId === sessionId)
+          if (!cancelled) {
+            applyPortLogEvent('session-log-status', current ?? { sessionId, state: 'stopped' })
+            setLogging(current?.state === 'running')
+            if (current?.state !== 'running') reportFailure()
+          }
+        } catch {
+          if (!cancelled) setLogging(false)
+          reportFailure()
+        }
+      } finally {
+        if (!cancelled) setAutoStartingLog(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [sessionId, connId, isOpen])
 
   useEffect(() => {
     const container = containerRef.current
@@ -168,6 +299,7 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         <span className="nm">{label}</span>
         {tcIndex !== undefined && <span className="tm-tcn" title="活跃会话列表顺序（拖动列表即切换）">{tcIndex}</span>}
         <span className="tgt">{target}</span>
+        {!isClosed && <button type="button" className={`tm-saveBtn ${logging ? 'is-on' : 'is-off'}`} disabled={!isOpen || logPending || autoStartingLog} aria-pressed={logging} aria-label={logging ? '停止存盘' : '开始存盘'} title={logError ? `存盘失败：${logError}；点击重试` : !isOpen ? '等待连接后自动存盘' : logging ? '停止存盘' : '开始存盘'} onClick={() => { void toggleLog() }}><IconSave16 size={13} /></button>}
         {!isClosed && <button onClick={() => setShowShare(true)} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
         {isClosed ? (
           <>
@@ -187,6 +319,20 @@ export function TermView({ sessionId, label, target, ws, onDisconnect, isHidden,
         )}
       </div>
       <div className="tm-paneBody" ref={containerRef} />
+      {isOpen && currentLog?.state === 'running' && currentLog.path && <div
+        className="tm-logPath"
+        role="button"
+        tabIndex={0}
+        aria-label={`打开日志文件：${currentLog.path}`}
+        title={`${currentLog.path}\n双击打开日志文件`}
+        onDoubleClick={() => { void openLogFile() }}
+        onKeyDown={event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            void openLogFile()
+          }
+        }}
+      >{currentLog.path}</div>}
       {showShare && <ShareDialog sessionId={sessionId} label={label} onClose={() => setShowShare(false)} />}
     </div>
   )

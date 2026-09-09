@@ -26,6 +26,20 @@ export function IconBroadcast16({ size = 16, className }: { size?: number; class
   )
 }
 
+/** 存盘图标 —— 实心软盘，外壳颜色由按钮状态通过 currentColor 控制。 */
+export function IconSave16({ size = 16, className }: { size?: number; className?: string }): React.JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M2.25 1H11.5L15 4.5V14C15 14.55 14.55 15 14 15H2C1.45 15 1 14.55 1 14V2.25C1 1.56 1.56 1 2.25 1Z" fill="currentColor" />
+      <path d="M3.25 1H11.25V6.5H3.25V1Z" fill="#f7f8fa" />
+      <path d="M9.25 1H11.25V5.5H9.25V1Z" fill="#263238" />
+      <path d="M3.5 9H12.5V15H3.5V9Z" fill="#e5e7eb" />
+      <path d="M5 10.5H11V11.5H5V10.5ZM5 12.5H11V13.5H5V12.5Z" fill="#9ca3af" />
+      <path d="M1 13.75H3.5V15H2C1.45 15 1 14.55 1 14V13.75ZM12.5 13.75H15V14C15 14.55 14.55 15 14 15H12.5V13.75Z" fill="#263238" fillOpacity=".35" />
+    </svg>
+  )
+}
+
 /** 右侧面板图标 —— 矩形右侧有实心条，VSCode panel 风格。visible=true 时实心，false 时镂空。 */
 export function IconPanelRight16({ size = 16, className, visible = true }: { size?: number; className?: string; visible?: boolean }): React.JSX.Element {
   return (

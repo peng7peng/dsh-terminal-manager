@@ -8,10 +8,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconLinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
-import { getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState } from './ext/port-log/store.ts'
+import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
 
-export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean }
+export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
 export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string }
 
@@ -101,7 +101,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
   function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setLogEnabled(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogEnabled(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogEnabled(c.log?.enabled ?? false); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -112,7 +112,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function save(): Promise<void> {
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho }
+    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho, log: { enabled: logEnabled, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) } }
     try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
@@ -125,6 +125,22 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     }
   }
   async function delConn(id: string): Promise<void> { try { await rpc('connections.remove', { id }); await refresh(); if (editing === id) resetForm() } catch { /* */ } }
+
+  async function toggleSessionLog(sessionId: string, hasLog: boolean): Promise<void> {
+    try {
+      if (hasLog) {
+        await portLogRpc('sessionLogs.stop', { sessionId })
+        applyPortLogEvent('session-log-status', { sessionId, state: 'stopped' })
+      } else {
+        const started = await portLogRpc<ClientSessionLog>('sessionLogs.start', { sessionId, timestamp: true, stripAnsi: true })
+        applyPortLogEvent('session-log-status', started)
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '日志操作失败')
+    } finally {
+      setCtxMenu(null)
+    }
+  }
 
   // 检查当前表单是否与已收藏的连接重复（protocol + host + port + username）
   const isDuplicateFavorite = (): boolean => {
@@ -244,7 +260,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
             </>}
           </div>
-          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>浏览</button></div>}
+          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} title="选择日志存储目录" aria-label="选择日志存储目录" onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>...</button></div>}
           {logDirectoryError && <div className="tm-mNote" role="alert">{logDirectoryError}</div>}
           {showDirPicker && <DirectoryPicker onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} onError={message => { setLogDirectoryError(message); setShowDirPicker(false) }} />}
         </div>
@@ -280,7 +296,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
                 {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
                 {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
                 {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
-                {sessionLogMap.has(s.sessionId) && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
+                {sessionLogMap.get(s.sessionId)?.state === 'running' && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
               </div>
             )
           })}
@@ -304,7 +320,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
               <>
                 <div className="tm-ctxItem" onClick={() => togglePin(ctxMenu.id)}>{pinned.has(ctxMenu.id) ? '取消置顶' : '置顶'}</div>
                 <div className="tm-ctxItem" onClick={() => startRename(ctxMenu.id, s.label)}>重命名</div>
-                {s.status === 'open' && <div className="tm-ctxItem" onClick={async () => { try { if (hasLog) await portLogRpc('sessionLogs.stop', { sessionId: s.sessionId }); else await portLogRpc('sessionLogs.start', { sessionId: s.sessionId, timestamp: true, stripAnsi: true }) } catch { /* */ } setCtxMenu(null) }}>{hasLog ? '停止日志' : '开启日志'}</div>}
+                {s.status === 'open' && <div className="tm-ctxItem" onClick={() => { void toggleSessionLog(s.sessionId, hasLog) }}>{hasLog ? '停止日志' : '开启日志'}</div>}
                 <div className="tm-ctxSep" />
                 <div className="tm-ctxItem" style={{ color: 'var(--dsw-alias-state-error-primary, #ef4444)' }} onClick={() => { onDisconnect(ctxMenu.id); setCtxMenu(null) }}>断开</div>
               </>

@@ -1,12 +1,24 @@
 /**
  * B10 文件服务本地四件套：在临时目录里跑，不碰用户文件。
  */
+// 仅对 rename/unlink 做可控包装（默认透传真实实现），供 U-FS-WL-01 模拟 rename 失败 + 验证 unlink 清理。
+// 其余 fs 方法直接透传，不影响现有 32 个测试。
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    unlink: vi.fn(actual.unlink),
+    readFile: vi.fn(actual.readFile),
+  }
+})
+import * as fsp from 'node:fs/promises'
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createEventBus } from '../src/event-bus.ts'
 import { FileServiceError } from '../src/file-errors.ts'
 import type { FileSessionGateway } from '../src/file-service.ts'
@@ -57,6 +69,22 @@ describe('listLocal', () => {
     expect(await codeOf(svc.listLocal({ root, path: outside }))).toBe('PATH_OUTSIDE_ROOT')
     expect(await codeOf(svc.listLocal({ root, path: join(root, 'nope') }))).toBe('NOT_FOUND')
   })
+
+  // U-FS-LL-01：listLocal readdir 失败 → mapFsError 映射
+  // 场景：传入一个存在但非目录的路径（文件），resolveInsideRoot 成功（文件存在），
+  // 但 readdir(文件) 抛 ENOTDIR → 走 file-service.ts 91 行 mapFsError → NOT_FOUND。
+  // 验证映射逻辑本身：ENOTDIR 映射为 NOT_FOUND，message 含"目录不存在"。
+  it('传文件路径给 listLocal → readdir ENOTDIR → FileServiceError(NOT_FOUND, "目录不存在")', async () => {
+    let caught: unknown
+    try {
+      await svc.listLocal({ root, path: join(root, 'b.txt') })
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(FileServiceError)
+    expect((caught as FileServiceError).code).toBe('NOT_FOUND')
+    expect((caught as FileServiceError).message).toBe('目录不存在')
+  })
 })
 
 describe('readLocal', () => {
@@ -71,6 +99,47 @@ describe('readLocal', () => {
   it('目录 → VALIDATION；根外 → PATH_OUTSIDE_ROOT', async () => {
     expect(await codeOf(svc.readLocal({ root, path: join(root, 'zdir') }))).toBe('VALIDATION')
     expect(await codeOf(svc.readLocal({ root, path: join(outside, 'x') }))).toBe('PATH_OUTSIDE_ROOT')
+  })
+
+  // U-FS-RL-01：readLocal 读取失败 → 抛 FileServiceError
+  // 场景：传入一个不存在的文件路径，resolveInsideRoot 解析到 ENOENT 后抛 NOT_FOUND。
+  // 验证 readLocal 对不存在路径的错误映射：抛 FileServiceError，code=NOT_FOUND，message 含"不存在"。
+  it('不存在路径给 readLocal → FileServiceError(NOT_FOUND, 含"不存在")', async () => {
+    let caught: unknown
+    try {
+      await svc.readLocal({ root, path: join(root, 'absent-file.txt') })
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(FileServiceError)
+    const err = caught as FileServiceError
+    expect(err.code).toBe('NOT_FOUND')
+    expect(err.message).toContain('不存在')
+  })
+
+  // U-FS-RL-02：readLocal stat 成功后 readFile 失败 → 121 行 mapFsError 映射
+  // 场景：文件存在（stat 成功，size <= maxBytes 走 readFile 路径），但 readFile 抛 ENOENT
+  // （模拟 stat 后文件被删除的竞态）→ 走 file-service.ts 121 行 mapFsError(error, '文件')。
+  // 验证映射逻辑本身：ENOENT → NOT_FOUND, message="文件不存在"。
+  it('stat 成功后 readFile 抛 ENOENT → FileServiceError(NOT_FOUND, "文件不存在")', async () => {
+    const readMock = vi.mocked(fsp.readFile).mockRejectedValueOnce(
+      Object.assign(new Error('文件已消失'), { code: 'ENOENT' }),
+    )
+    try {
+      let caught: unknown
+      try {
+        // b.txt 存在且 size=11 <= maxBytes，走 readFile 路径（109 行）
+        await svc.readLocal({ root, path: join(root, 'b.txt') })
+      } catch (e) {
+        caught = e
+      }
+      expect(caught).toBeInstanceOf(FileServiceError)
+      const err = caught as FileServiceError
+      expect(err.code).toBe('NOT_FOUND')
+      expect(err.message).toBe('文件不存在')
+    } finally {
+      readMock.mockRestore()
+    }
   })
 })
 
@@ -91,6 +160,45 @@ describe('writeLocal', () => {
   it('目标是目录 → VALIDATION；根外 → PATH_OUTSIDE_ROOT', async () => {
     expect(await codeOf(svc.writeLocal({ root, path: join(root, 'zdir') }, 'x'))).toBe('VALIDATION')
     expect(await codeOf(svc.writeLocal({ root, path: join(outside, 'x.txt') }, 'x'))).toBe('PATH_OUTSIDE_ROOT')
+  })
+
+  // U-FS-WL-01：writeLocal 写入失败 → 清理 tmp + mapFsError
+  // 场景：writeFile(tmp) 成功创建临时文件后，renameAtomic(tmp→path) 抛 EACCES
+  // （跨平台稳定：用 vi.spyOn 模拟 rename 拒绝，带 errno code='EACCES'）。
+  // 走 file-service.ts 140-141 行：unlink(tmp).catch + mapFsError(EACCES) → VALIDATION。
+  // 验证映射逻辑本身（EACCES → VALIDATION, message 含"没有访问权限"）+ 临时文件被 unlink 清理。
+  it('rename 失败(EACCES) → 清理 tmp + FileServiceError(VALIDATION, "没有访问权限")', async () => {
+    const wsDir = await mkdtemp(join(tmpdir(), 'tm-fs-wl-'))
+    try {
+      // rename 被 vi.mock 包装为 vi.fn（默认透传真实实现），此处改为始终抛 EACCES
+      // （renameAtomic 会重试 6 次 EACCES 后透传错误 → writeLocal catch → unlink(tmp) + mapFsError）
+      const accErr = Object.assign(new Error('权限拒绝'), { code: 'EACCES' })
+      const renameMock = vi.mocked(fsp.rename).mockRejectedValue(accErr)
+      // unlink 同样被 vi.mock 包装；spy 其调用以验证临时文件清理
+      const unlinkMock = vi.mocked(fsp.unlink)
+
+      let caught: unknown
+      try {
+        await svc.writeLocal({ root: wsDir, path: join(wsDir, 'x.txt') }, 'data')
+      } catch (e) {
+        caught = e
+      }
+      expect(caught).toBeInstanceOf(FileServiceError)
+      const err = caught as FileServiceError
+      expect(err.code).toBe('VALIDATION')
+      expect(err.message).toContain('没有访问权限')
+      // 临时文件清理：unlink 被调用，且参数为 .tm-tmp 临时文件路径
+      expect(unlinkMock).toHaveBeenCalled()
+      const unlinkedPaths = unlinkMock.mock.calls.map(c => String(c[0]))
+      expect(unlinkedPaths.some(p => p.includes('.tm-tmp-'))).toBe(true)
+      // 工作目录下无 .tm-tmp 残留（writeFile 真实创建了 tmp，unlink 清理了它）
+      const leftovers = (await readdir(wsDir)).filter(n => n.includes('.tm-tmp-'))
+      expect(leftovers).toEqual([])
+      renameMock.mockRestore()
+      unlinkMock.mockClear()
+    } finally {
+      await rm(wsDir, { recursive: true, force: true })
+    }
   })
 })
 

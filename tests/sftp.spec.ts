@@ -200,3 +200,55 @@ describe('SFTP 门面：下载取消传播（审查 M1，stub SFTPWrapper 直测
     expect(rs.readableEnded).toBe(true)
   })
 })
+
+describe('SFTP 门面：realpath 错误映射（stub SFTPWrapper）', () => {
+  it('realpath NO_SUCH_FILE → reject 带 NOT_FOUND + what 拼入 message', async () => {
+    const wrapper = {
+      realpath: (_p: string, cb: (err: Error | null, absPath?: string) => void) => {
+        const err = new Error('no such file') as Error & { code: number }
+        err.code = 2 // ssh2 STATUS_CODE.NO_SUCH_FILE
+        cb(err)
+      },
+    }
+    const facade = new SftpFacade(wrapper as never)
+    await expect(facade.realpath('/x')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: '解析路径 /x不存在',
+    })
+  })
+
+  it('realpath not connected → reject 带 DISCONNECTED（message 正则匹配）', async () => {
+    const wrapper = {
+      realpath: (_p: string, cb: (err: Error | null, absPath?: string) => void) => {
+        cb(new Error('Not connected'))
+      },
+    }
+    const facade = new SftpFacade(wrapper as never)
+    await expect(facade.realpath('/y')).rejects.toMatchObject({ code: 'DISCONNECTED' })
+  })
+})
+
+describe('SFTP 门面：place rename fallback（stub SFTPWrapper）', () => {
+  it('place: rename 失败 → unlink 旧文件再改名（覆盖 fallback 分支）', async () => {
+    const renameArgs: Array<{ from: string; to: string }> = []
+    let unlinkPath = ''
+    const wrapper = {
+      fastPut: (_local: string, _temp: string, _opts: unknown, cb: (err: Error | null) => void) => cb(null),
+      rename: (from: string, to: string, cb: (err: Error | null) => void) => {
+        renameArgs.push({ from, to })
+        if (renameArgs.length === 1) cb(new Error('rename failed'))
+        else cb(null)
+      },
+      unlink: (path: string, cb: (err: Error | null) => void) => { unlinkPath = path; cb(null) },
+    }
+    const facade = new SftpFacade(wrapper as never)
+    await facade.put({ kind: 'path', path: '/local.txt' }, '/remote.txt')
+
+    // rename 被调两次，都是 temp → remote
+    expect(renameArgs).toHaveLength(2)
+    expect(renameArgs[0]).toMatchObject({ to: '/remote.txt' })
+    expect(renameArgs[1]).toMatchObject({ to: '/remote.txt' })
+    // unlink 收到的是旧目标 remotePath，不是临时文件
+    expect(unlinkPath).toBe('/remote.txt')
+  })
+})

@@ -168,6 +168,8 @@ export interface RemoteFsStore {
   refresh(): Promise<void>
   enter(path: string): Promise<void>
   up(): Promise<void>
+  /** 跟随终端当前路径（SFTP realpath('.')）；返回获取到的路径和错误信息 */
+  goTerminalCwd(): Promise<{ cwd: string | null; error: string | null }>
   select(path: string | null): void
   setExpanded(expanded: boolean): void
   toggleExpanded(): void
@@ -348,6 +350,17 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
       const sid = state.sessionId
       if (sid === null || state.cwd === '/') return
       await load(sid, remoteParent(state.cwd))
+    },
+    async goTerminalCwd(): Promise<{ cwd: string | null; error: string | null }> {
+      const sid = state.sessionId
+      if (sid === null) return { cwd: null, error: '未选择会话' }
+      try {
+        const cwd = await deps.rpc<string>('files.remoteCwd', { sessionId: sid })
+        if (cwd.length > 0 && cwd !== state.cwd) await load(sid, cwd)
+        return { cwd, error: null }
+      } catch (e) {
+        return { cwd: null, error: e instanceof Error ? e.message : String(e) }
+      }
     },
     select(path) { set({ selected: path }) },
     setExpanded(expanded) {

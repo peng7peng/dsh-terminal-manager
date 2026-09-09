@@ -93,6 +93,19 @@ export class SftpFacade implements SftpLike {
     })
   }
 
+  /** 解析路径为绝对路径（'.' = 终端当前目录） */
+  realpath(path: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.sftp.realpath(path, (err, absPath) => {
+        if (err) {
+          reject(mapSftpError(err, `解析路径 ${path}`))
+          return
+        }
+        resolve(absPath)
+      })
+    })
+  }
+
   /** 单个路径的信息（lstat 语义） */
   stat(path: string): Promise<SftpStatInfo> {
     return new Promise((resolve, reject) => {

@@ -248,6 +248,25 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     expect(value<{ name: string }[]>(r).map(e => e.name)).toEqual(['rdir', 'rb.txt'])
   })
 
+  it('RPC files.remoteCwd：SFTP realpath(".") 返回绝对路径', async () => {
+    const r = await dispatch('files.remoteCwd', { sessionId: SESSION }, deps, abort)
+    expect(r.ok).toBe(true)
+    const cwd = value<string>(r)
+    expect(cwd).toMatch(/^\//)
+  })
+
+  it('RPC files.remoteCwd：会话不存在 → SESSION_NOT_FOUND', async () => {
+    const notFoundDeps: RemoteDeps = {
+      ...deps,
+      files: new LocalFileService(
+        { get: () => undefined, getSftp: async () => { throw new Error('should not reach') } },
+      ),
+    }
+    const r = await dispatch('files.remoteCwd', { sessionId: 'nope' }, notFoundDeps, abort)
+    expect(r.ok).toBe(false)
+    expect(errMsg(r)).toMatch(/^SESSION_NOT_FOUND:/)
+  })
+
   it('RPC files.downloadToLocal：落到工作区、返回 transferId、终态帧 ok', async () => {
     await writeFile(join(devRoot, 'dl.txt'), 'rpc-download')
     const r = await dispatch('files.downloadToLocal', { sessionId: SESSION, remotePath: '/dl.txt', root, path: join(root, 'dl.txt'), transferId: 'r1' }, deps, abort)
@@ -322,5 +341,82 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     const b = fakeRes()
     await handler(fakeReq('POST', '/term-manager/files/download') as never, b as never)
     expect(b._calls[0]?.statusCode).toBe(405)
+  })
+})
+
+describe('download 流已发送后出错（覆盖 res.headersSent → res.destroy 分支）', () => {
+  let dir: string
+  let store: ConnectionStore
+  let frames: FileProgressFrame[]
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'tm-dl-err-'))
+    store = new ConnectionStore(join(dir, 'connections.json'))
+    await store.load()
+    frames = []
+  })
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  /** 假 req：GET 请求无 body */
+  function fakeGetReq(url: string) {
+    const readable = Readable.from([])
+    return Object.assign(readable, { method: 'GET', url, headers: { host: '127.0.0.1:3180' } })
+  }
+
+  it('headersSent 后 pipeline 失败 → res.destroy 被调、终态帧 ok:false', async () => {
+    // mock FileService：download 返回一个先吐数据再报错的流
+    const mockFiles = {
+      download: async () => ({
+        stream: Readable.from((async function* () {
+          yield Buffer.from('partial')
+          throw new Error('transfer interrupted')
+        })()),
+        size: 100,
+      }),
+    } as never
+
+    // 用与 S5 describe 相同的 fakeFactory 模式（类型安全，不绕过 TransportFactory 签名）
+    const factory: TransportFactory = async (_t, callbacks) => ({
+      write: () => {},
+      close: async () => { callbacks.onClose('done') },
+    })
+    const errorDeps: RemoteDeps = {
+      sessions: new SessionManager(store, factory),
+      store,
+      files: mockFiles,
+      broadcastFileProgress: (f) => frames.push(f),
+    }
+    const localHandler = createHttpHandler(errorDeps)
+
+    // 假 res：PassThrough + headersSent + destroy 计数
+    const res = new PassThrough() as PassThrough & {
+      headersSent: boolean
+      writeHead(statusCode: number, headers?: Record<string, string>): void
+      _destroyCalls: number
+    }
+    res.headersSent = false
+    res.writeHead = (_statusCode: number, _headers?: Record<string, string>) => { res.headersSent = true }
+    res._destroyCalls = 0
+    const origDestroy = res.destroy.bind(res)
+    res.destroy = ((err?: Error) => { res._destroyCalls++; return origDestroy(err) }) as typeof res.destroy
+
+    // pipeline 失败时 PassThrough 会 emit error；记录而非吞掉，验证是预期的传输中断
+    let streamError: Error | null = null
+    res.on('error', (e: Error) => { streamError = e })
+
+    await localHandler(
+      fakeGetReq('/term-manager/files/download?sessionId=s1&remotePath=%2Fbig.bin&transferId=err1') as never,
+      res as never,
+    )
+
+    expect(res.headersSent).toBe(true)
+    expect(res._destroyCalls).toBeGreaterThanOrEqual(1)
+    // pipeline 销毁传播的错误应包含原始中断信息
+    expect(streamError).not.toBeNull()
+    expect(streamError!.message).toContain('transfer interrupted')
+    expect(frames.filter((f) => f.transferId === 'err1').at(-1)).toMatchObject({ transferId: 'err1', done: true, ok: false })
   })
 })

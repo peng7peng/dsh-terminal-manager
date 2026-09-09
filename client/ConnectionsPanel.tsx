@@ -63,7 +63,6 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; type: 'session' | 'conn'; id: string } | null>(null)
   const [favCollapse, setFavCollapse] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const [logEnabled, setLogEnabled] = useState(false)
   const [logTimestamp, setLogTimestamp] = useState(true)
   const [logStripAnsi, setLogStripAnsi] = useState(true)
   const [logDirectory, setLogDirectory] = useState('')
@@ -71,19 +70,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [logDirectoryError, setLogDirectoryError] = useState<string | null>(null)
   const portLogState = usePortLogState()
   const sessionLogMap = new Map(portLogState.sessionLogs.map(l => [l.sessionId, l]))
-  useEffect(() => { void loadDefaultLogDirectory().catch(() => { /* 勾选日志时允许重试并显示错误。 */ }) }, [])
-
-  async function toggleLog(enabled: boolean): Promise<void> {
-    setLogDirectoryError(null)
-    if (!enabled) { setLogEnabled(false); setShowDirPicker(false); return }
-    try {
-      const directory = logDirectory || await loadDefaultLogDirectory()
-      setLogDirectory(directory)
-      setLogEnabled(true)
-    } catch (error) {
-      setLogDirectoryError(error instanceof Error ? error.message : '无法读取默认日志目录')
-    }
-  }
+  useEffect(() => { void loadDefaultLogDirectory().catch(() => { /* 目录选择器仍可重试并显示错误。 */ }) }, [])
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
   useEffect(() => { void refresh() }, [refresh])
@@ -100,8 +87,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   }, [ctxMenu])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setLogEnabled(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogEnabled(c.log?.enabled ?? false); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -112,7 +99,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function save(): Promise<void> {
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho, log: { enabled: logEnabled, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) } }
+    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho, log: { enabled: true, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) } }
     try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
@@ -120,7 +107,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     const snap = editing !== null
       ? await onConnect({ connId: editing })
       : await onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() })
-    if (logEnabled && snap) {
+    if (snap) {
       try { await portLogRpc('sessionLogs.start', { sessionId: snap.sessionId, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) }) } catch { /* silent */ }
     }
   }
@@ -254,13 +241,10 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
           </div>
           <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
-            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="连接后自动记录该会话的输出到日志文件">日志</label><input type="checkbox" checked={logEnabled} onChange={e => { void toggleLog(e.target.checked) }} /></div>
-            {logEnabled && <>
-              <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>时间戳</label><input type="checkbox" checked={logTimestamp} onChange={e => setLogTimestamp(e.target.checked)} /></div>
-              <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
-            </>}
+            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>时间戳</label><input type="checkbox" checked={logTimestamp} onChange={e => setLogTimestamp(e.target.checked)} /></div>
+            <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>清理ANSI</label><input type="checkbox" checked={logStripAnsi} onChange={e => setLogStripAnsi(e.target.checked)} /></div>
           </div>
-          {logEnabled && <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} title="选择日志存储目录" aria-label="选择日志存储目录" onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>...</button></div>}
+          <div className="tm-fld"><label title="日志文件存放目录；默认为插件数据目录下的 session_logs">日志目录</label><input value={logDirectory || getDefaultLogDirectory()} readOnly style={{ cursor: 'default' }} /><button type="button" className="tm-btn" disabled={showDirPicker} style={{ flex: 'none', fontSize: 11, padding: '4px 8px' }} title="选择日志存储目录" aria-label="选择日志存储目录" onClick={() => { setLogDirectoryError(null); setShowDirPicker(true) }}>...</button></div>
           {logDirectoryError && <div className="tm-mNote" role="alert">{logDirectoryError}</div>}
           {showDirPicker && <DirectoryPicker onSelect={path => { setLogDirectory(path); setShowDirPicker(false) }} onCancel={() => setShowDirPicker(false)} onError={message => { setLogDirectoryError(message); setShowDirPicker(false) }} />}
         </div>

@@ -173,4 +173,31 @@ describe('HTTP 路由 handler', () => {
     expect(local._calls[0].statusCode).toBe(200)
     expect(local._calls[0].headers['access-control-allow-origin']).toBe('http://127.0.0.1:3180')
   })
+
+  it('JSON.stringify 序列化结果失败 → catch 回包 ok:false（覆盖 L436-437）', async () => {
+    // dispatch 内部有 try-catch，所有异常都转成 RpcResult 返回，不会抛出。
+    // 要覆盖 L436-437 的 catch，需让 res.end(JSON.stringify(...)) 抛——
+    // 即 dispatch 成功返回，但返回值含循环引用导致序列化失败。
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const throwingDeps: RemoteDeps = {
+      ...deps,
+      store: {
+        ensureLoaded: store.ensureLoaded.bind(store),
+        list: () => [circular],
+      } as never,
+    }
+    const localHandler = createHttpHandler(throwingDeps)
+    const body = JSON.stringify({ type: 'client-request', rpcId: 'circ', method: 'connections.list', payload: {} })
+    const req = fakeReq('POST', '/term-manager/connections.list', body)
+    const res = fakeRes()
+    await localHandler(req as never, res as never)
+    expect(res._calls[0].statusCode).toBe(200)
+    const parsed = res._json()
+    // catch 回包结构：result.ok=false + error 带 code 和 message
+    const result = parsed.result as { ok: boolean; error: { code: string; message: string } }
+    expect(result.ok).toBe(false)
+    expect(result.error.code).toBe('internal')
+    expect(result.error.message).toBeTruthy()
+  })
 })

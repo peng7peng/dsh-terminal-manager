@@ -188,6 +188,12 @@ export class LocalFileService implements FileService {
     return (await sftp.list(req.path)).sort(compareEntries)
   }
 
+  /** 获取远端终端当前工作目录（SFTP realpath('.')） */
+  async remoteCwd(req: { sessionId: string }): Promise<string> {
+    const sftp = await this.requireSftp(req.sessionId)
+    return await sftp.realpath('.')
+  }
+
   async upload(req: { sessionId: string; remotePath: string; source: UploadSource; onProgress?: (p: TransferProgress) => void }): Promise<TransferResult> {
     const sftp = await this.requireSftp(req.sessionId)
     const started = Date.now()

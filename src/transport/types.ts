@@ -82,6 +82,8 @@ export interface SftpTransferOptions {
 export interface SftpLike {
   /** 列一层目录（readdir 属性，符号链接不跟随） */
   list(path: string): Promise<FileEntry[]>
+  /** 解析路径为绝对路径（realpath 语义；'.' = 终端当前目录） */
+  realpath(path: string): Promise<string>
   /** 单个路径的信息（lstat 语义） */
   stat(path: string): Promise<SftpStatInfo>
   /** 逐级建目录（已存在且是目录则跳过；中间有同名非目录则 REMOTE_IO） */

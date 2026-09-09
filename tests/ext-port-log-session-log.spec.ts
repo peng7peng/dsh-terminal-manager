@@ -87,4 +87,91 @@ describe('port-log 会话输出日志', () => {
     await vi.waitFor(() => expect(manager.list()).toEqual([]))
     await logger.close()
   })
+
+  it('停止不存在的会话日志抛出 VALIDATION', async () => {
+    const { manager, logger } = await fixture()
+    await expect(manager.stop('nonexistent')).rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(manager.update('nonexistent', { timestamp: false, stripAnsi: true })).rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('重复启动同一会话日志抛出 VALIDATION', async () => {
+    const { manager, logger } = await fixture()
+    await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
+    await expect(manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await manager.stop('session-sensitive-label')
+    await logger.close()
+  })
+
+  it('只记录已打开的会话，未打开的抛 VALIDATION', async () => {
+    const { manager, snapshot, logger } = await fixture()
+    snapshot.status = 'closed'
+    await expect(manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('无效的日志选项抛出 VALIDATION', async () => {
+    const { manager, logger } = await fixture()
+    await expect(manager.start('session-sensitive-label', { timestamp: 'yes' as unknown as boolean, stripAnsi: true }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('update 切换选项并刷新半行', async () => {
+    const { manager, events, logger } = await fixture()
+    await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
+    events.emit({ type: 'output', sessionId: 'session-sensitive-label', data: '\x1b[31mhalf', ts: Date.now() })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    const updated = await manager.update('session-sensitive-label', { timestamp: true, stripAnsi: false })
+    expect(updated.timestamp).toBe(true)
+    expect(updated.stripAnsi).toBe(false)
+    await manager.stop('session-sensitive-label')
+    await logger.close()
+  })
+
+  it('closeAll 后新操作抛出 MAPPING_STATE', async () => {
+    const { manager, logger } = await fixture()
+    await manager.closeAll()
+    await expect(manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true }))
+      .rejects.toMatchObject({ code: 'MAPPING_STATE' })
+    await logger.close()
+  })
+
+  it('closeAll 停止所有活跃日志', async () => {
+    const { manager, logger } = await fixture()
+    await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
+    expect(manager.list()).toHaveLength(1)
+    await manager.closeAll()
+    expect(manager.list()).toEqual([])
+    await logger.close()
+  })
+
+  it('会话被 removed 时自动停止日志', async () => {
+    const { manager, events, snapshot, logger } = await fixture()
+    await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true })
+    snapshot.status = 'removed'
+    events.emit({ type: 'status', sessionId: 'session-sensitive-label', status: 'removed', snapshot, ts: Date.now() })
+    await vi.waitFor(() => expect(manager.list()).toEqual([]))
+    await logger.close()
+  })
+
+  it('getDefaultDirectory 返回配置的目录', async () => {
+    const { manager, logger, directory } = await fixture()
+    expect(manager.getDefaultDirectory()).toBe(directory)
+    await logger.close()
+  })
+
+  it('指定自定义目录时日志写入自定义目录', async () => {
+    const { manager, events, logger, directory } = await fixture()
+    const customDir = join(directory, 'custom')
+    const started = await manager.start('session-sensitive-label', { timestamp: false, stripAnsi: true }, customDir)
+    expect(started.path).toContain('custom')
+    events.emit({ type: 'output', sessionId: 'session-sensitive-label', data: 'custom-dir\n', ts: Date.now() })
+    await manager.stop('session-sensitive-label')
+    const text = await readFile(started.path, 'utf8')
+    expect(text).toBe('custom-dir\n')
+    await logger.close()
+  })
 })

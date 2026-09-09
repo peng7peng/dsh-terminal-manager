@@ -95,4 +95,95 @@ describe('port-log 会话共享', () => {
     await expect(manager.stop('session-1')).resolves.toBeUndefined()
     await logger.close()
   })
+
+  it('重复共享同一会话抛出 SHARE_ALREADY_ACTIVE', async () => {
+    const { manager, logger } = await fixture()
+    const port = await freeTcpPort()
+    await manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' })
+    await expect(manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'SHARE_ALREADY_ACTIVE' })
+    await manager.stopAll()
+    await logger.close()
+  })
+
+  it('共享未打开的会话抛出 VALIDATION', async () => {
+    const events = createEventBus()
+    const snapshot: SessionSnapshot = { sessionId: 'session-closed', label: '设备', target: 'target', protocol: 'ssh', status: 'closed' }
+    const sessions = { events, get: () => snapshot, list: () => [snapshot], write: vi.fn() } as unknown as SessionManagerApi
+    const directory = await mkdtemp(join(tmpdir(), 'tm-share-'))
+    const logger = new AppLogger(join(directory, 'log'))
+    const manager = new ShareManager(sessions, events, logger, new RuntimeEventHub())
+    const port = await freeTcpPort()
+    await expect(manager.start({ sessionId: 'session-closed', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('maxClients 超出范围抛出 VALIDATION', async () => {
+    const { manager, logger } = await fixture()
+    const port = await freeTcpPort()
+    await expect(manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: -1, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await expect(manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 10001, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('欢迎语超过 512 字符抛出 VALIDATION', async () => {
+    const { manager, logger } = await fixture()
+    const port = await freeTcpPort()
+    await expect(manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: 'x'.repeat(513) }))
+      .rejects.toMatchObject({ code: 'VALIDATION' })
+    await logger.close()
+  })
+
+  it('端口被占用抛出 PORT_IN_USE', async () => {
+    const { manager, logger } = await fixture()
+    const port = await freeTcpPort()
+    await manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' })
+    // 第二次用同端口但不同 sessionId（会话状态需为 open）
+    const events = createEventBus()
+    const snapshot2: SessionSnapshot = { sessionId: 'session-2', label: '设备2', target: 'target', protocol: 'ssh', status: 'open' }
+    const sessions2 = { events, get: () => snapshot2, list: () => [snapshot2], write: vi.fn() } as unknown as SessionManagerApi
+    const directory = await mkdtemp(join(tmpdir(), 'tm-share-'))
+    const logger2 = new AppLogger(join(directory, 'log'))
+    const manager2 = new ShareManager(sessions2, events, logger2, new RuntimeEventHub())
+    await expect(manager2.start({ sessionId: 'session-2', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'PORT_IN_USE' })
+    await manager.stopAll()
+    await logger.close()
+    await logger2.close()
+  })
+
+  it('stopAll 后新操作抛出 MAPPING_STATE', async () => {
+    const { manager, logger } = await fixture()
+    await manager.stopAll()
+    const port = await freeTcpPort()
+    await expect(manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 0, welcomeMessage: '' }))
+      .rejects.toMatchObject({ code: 'MAPPING_STATE' })
+    await logger.close()
+  })
+
+  it('maxClients 限制达到上限时新客户端被拒绝', async () => {
+    const { manager, logger } = await fixture()
+    const port = await freeTcpPort()
+    await manager.start({ sessionId: 'session-1', localAddr: '127.0.0.1', sharePort: port, maxClients: 1, welcomeMessage: '' })
+    const client1 = await connectTcp(port)
+    sockets.push(client1)
+    await vi.waitFor(() => expect(manager.list()[0]?.clients).toHaveLength(1))
+    const client2 = await connectTcp(port)
+    sockets.push(client2)
+    // 第二个客户端应收到拒绝消息并被服务器 end
+    const received = await new Promise<Buffer>((resolve) => {
+      let all = Buffer.alloc(0)
+      client2.on('data', (chunk) => {
+        all = Buffer.concat([all, chunk])
+        if (all.includes('上限')) resolve(all)
+      })
+      client2.on('close', () => resolve(all))
+    })
+    expect(received.toString()).toContain('上限')
+    await manager.stopAll()
+    await logger.close()
+  })
 })

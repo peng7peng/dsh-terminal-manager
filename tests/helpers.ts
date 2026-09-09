@@ -324,7 +324,9 @@ export function createDeviceLab() {
                     .catch((err: NodeJS.ErrnoException) => fail(sftp, reqid, err))
                 })
                 sftp.on('REALPATH', (reqid, p) => {
-                  sftp.name(reqid, [{ filename: toLocal(p) }])
+                  // realpath('.') → '/'（设备根 = rootDir）；其他路径原样返回（测试设备不支持符号链接解析）
+                  const resolved = p === '.' ? '/' : p
+                  sftp.name(reqid, [{ filename: resolved }])
                 })
                 sftp.on('SETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))
                 sftp.on('FSETSTAT', (reqid) => sftp.status(reqid, STATUS_CODE.OK))
@@ -355,6 +357,7 @@ export function fakeSftpLike(): SftpLike & { calls: string[] } {
   return {
     calls,
     list: async (p) => { calls.push(`list ${p}`); return [] },
+    realpath: async (p) => { calls.push(`realpath ${p}`); return p === '.' ? '/' : p },
     stat: async (p) => { calls.push(`stat ${p}`); return { isDirectory: false, isFile: true, isSymlink: false } },
     mkdirs: async (p) => { calls.push(`mkdirs ${p}`) },
     put: async (_source, remotePath) => { calls.push(`put ${remotePath}`); return { bytes: 0 } },

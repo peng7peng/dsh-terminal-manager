@@ -264,6 +264,39 @@ describe('remoteFs store（S5）', () => {
     expect(store.getState().cwd).toBe('/')           // 到顶不动
   })
 
+  it('goTerminalCwd：跟随终端路径跳转；同路径不跳；失败返回 error', async () => {
+    const rpc = remoteRpcFake((method) => {
+      if (method === 'files.remoteCwd') return '/etc'
+      return undefined
+    })
+    const store = createRemoteFsStore({ rpc, uuid: uuidSeq() })
+    await store.setSession('s1')
+    expect(store.getState().cwd).toBe('/')
+    // 跳转到 /etc
+    const r1 = await store.goTerminalCwd()
+    expect(r1.cwd).toBe('/etc')
+    expect(r1.error).toBeNull()
+    expect(store.getState().cwd).toBe('/etc')
+    // 同路径不再跳
+    const r2 = await store.goTerminalCwd()
+    expect(r2.cwd).toBe('/etc')
+    expect(store.getState().cwd).toBe('/etc')
+  })
+
+  it('goTerminalCwd：无会话返回 error；RPC 失败返回 error', async () => {
+    const rpc = remoteRpcFake(() => { throw new Error('REMOTE_IO: SFTP 未就绪') })
+    const store = createRemoteFsStore({ rpc, uuid: uuidSeq() })
+    // 无会话
+    const r0 = await store.goTerminalCwd()
+    expect(r0.cwd).toBeNull()
+    expect(r0.error).toBe('未选择会话')
+    // 有会话但 RPC 失败
+    await store.setSession('s1')
+    const r1 = await store.goTerminalCwd()
+    expect(r1.cwd).toBeNull()
+    expect(r1.error).toMatch(/REMOTE_IO/)
+  })
+
   it('uploadLocalFile：无冲突直接传（payload 齐）；进度帧按 transferId 生效；成功刷新列表', async () => {
     const rpc = remoteRpcFake((method) => method === 'files.uploadLocal' ? { bytes: 42 } : undefined)
     const store = createRemoteFsStore({ rpc, uuid: uuidSeq() })

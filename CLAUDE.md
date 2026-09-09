@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**446 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**462 项全绿是基线**，改挂必须修绿再提交）
 - 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（21 场景，对活服务；前置 mock-device 2323/2324 + mock-ssh-device 2222）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
@@ -50,6 +50,7 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 9. **用户数据（连接/收藏等）存后端不存浏览器 localStorage**——localStorage 跟着浏览器走，DSH 重启/换浏览器/清缓存就丢。后端落盘到 `~/.dsh/terminal-manager/connections.json`（`ConnectionConfig` 字段）。向后兼容：旧数据缺字段按"未显式 false = 默认在收藏"处理（`c.favorited !== false`）。
 10. **`node_modules/@deepseek-ai/*` 是指向 `../deepseek-harness` 的符号链接**——上游一升级（如 0.1.2-alpha.3 把 `CallId` 改名 `ToolCallId`），这边测试会莫名挂掉；先 `git -C ../deepseek-harness log -3` 看上游动没动，再怀疑自己的改动。
 11. **worktree（junction node_modules）里 pnpm 命令带 `--config.verify-deps-before-run=false`**，否则 run 前校验依赖误报；另外 `tsdown`/`vitest` 都不做类型检查——纯逻辑改完要靠 vitest 跑真路径兜底，别只看构建过（S5-8 的 `pushFrame` 作用域笔误就是这么漏的）。
+12. **stub 测试断言要验证映射逻辑本身而非 fallback**——传普通 Error 走 fallback 分支返回 `REMOTE_IO`，断言 `code:'REMOTE_IO'` 能过但无法区分"走了映射"和"原样透传"；应传带 SFTP `STATUS_CODE`（如 `code=2` = NO_SUCH_FILE）的错误，断言映射后的 `code:'NOT_FOUND'` + `message` 含 `what` 参数。`mapSftpError` 的 4 个分支（NOT_FOUND/VALIDATION/DISCONNECTED/REMOTE_IO）各需独立用例。
 
 ## 钩子（Hooks）
 

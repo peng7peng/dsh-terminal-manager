@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconGlobeOutline14, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconGlobeOutline14, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import type { SessionSnap } from '../ConnectionsPanel.tsx'
@@ -98,9 +98,11 @@ export function RemoteFilePanel(props: { sessions: SessionSnap[] }): React.JSX.E
             ))}
           </div>
           <div className="tm-fpToolbar">
+            <button className="tm-tbtn icon" disabled={st.sessionId === null || st.cwd === '/'} onClick={() => void store.up()} title="上一级" aria-label="上一级"><IconChevronUpOutline14 /></button>
+            <button className="tm-tbtn icon" disabled={st.sessionId === null} onClick={() => { void store.goTerminalCwd().then(r => { if (r.error !== null) toast(`跟随终端失败：${r.error}`, 'error'); else if (r.cwd === st.cwd) toast(`已在 ${r.cwd}`); else toast(`已跟随终端 → ${r.cwd}`) }) }} title="跟随终端当前路径" aria-label="跟随终端"><IconGoalOutline16 /></button>
+            <button className="tm-tbtn icon" disabled={st.sessionId === null} onClick={() => { void store.refresh(); toast('远端列表已刷新') }} title="刷新" aria-label="刷新"><IconRefreshOutline14 /></button>
             <button className="tm-tbtn" disabled={st.sessionId === null} onClick={() => fileInputRef.current?.click()} title="上传本机文件到远端当前目录（也可拖文件进来）">⬆ 上传文件</button>
             <button className="tm-tbtn" disabled={selectedEntry === null || selectedEntry.kind !== 'file'} onClick={saveSelectedAs} title="另存为到本机（浏览器选择保存位置）">⬇ 下载</button>
-            <button className="tm-tbtn icon" disabled={st.sessionId === null} onClick={() => { void store.refresh(); toast('远端列表已刷新') }} title="刷新" aria-label="刷新"><IconRefreshOutline14 /></button>
           </div>
           {st.sessionId !== null && (
             <div className="tm-fpPath">

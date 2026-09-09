@@ -110,6 +110,7 @@ describe('listDirectories（换目录选择器）', () => {
 describe('远端（未接入会话池的本地服务）', () => {
   it('四个方法都抛 UNSUPPORTED', async () => {
     expect(await codeOf(svc.listRemote({ sessionId: 's', path: '/' }))).toBe('UNSUPPORTED')
+    expect(await codeOf(svc.remoteCwd({ sessionId: 's' }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.download({ sessionId: 's', remotePath: '/x' }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.downloadToLocal({ sessionId: 's', remotePath: '/x', target: { root, path: root } }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.upload({ sessionId: 's', remotePath: '/x', source: { kind: 'local', ref: { root, path: root } } }))).toBe('UNSUPPORTED')
@@ -125,17 +126,20 @@ describe('远端分派骨架（S5 步骤3）', () => {
   it('会话不存在 → SESSION_NOT_FOUND', async () => {
     const svc = new LocalFileService({ get: () => undefined, getSftp: async () => fakeSftpLike() })
     expect(await codeOf(svc.listRemote({ sessionId: 'gone', path: '/' }))).toBe('SESSION_NOT_FOUND')
+    expect(await codeOf(svc.remoteCwd({ sessionId: 'gone' }))).toBe('SESSION_NOT_FOUND')
   })
 
   it('closed 会话 → DISCONNECTED', async () => {
     const svc = new LocalFileService({ get: () => sshSnap('closed'), getSftp: async () => fakeSftpLike() })
     expect(await codeOf(svc.listRemote({ sessionId: 's-1', path: '/' }))).toBe('DISCONNECTED')
+    expect(await codeOf(svc.remoteCwd({ sessionId: 's-1' }))).toBe('DISCONNECTED')
   })
 
-  it('telnet 会话 → UNSUPPORTED（四个方法一致，且不取门面）', async () => {
+  it('telnet 会话 → UNSUPPORTED（五个方法一致，且不取门面）', async () => {
     let tookSftp = false
     const svc = new LocalFileService({ get: () => telnetSnap, getSftp: async () => { tookSftp = true; return fakeSftpLike() } })
     expect(await codeOf(svc.listRemote({ sessionId: 's-2', path: '/' }))).toBe('UNSUPPORTED')
+    expect(await codeOf(svc.remoteCwd({ sessionId: 's-2' }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.upload({ sessionId: 's-2', remotePath: '/a', source: { kind: 'stream', stream: Readable.from(['x']) } }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.download({ sessionId: 's-2', remotePath: '/a' }))).toBe('UNSUPPORTED')
     expect(await codeOf(svc.downloadToLocal({ sessionId: 's-2', remotePath: '/a', target: { root, path: root } }))).toBe('UNSUPPORTED')
@@ -147,8 +151,9 @@ describe('远端分派骨架（S5 步骤3）', () => {
     let tookSftp = false
     const svc = new LocalFileService({ get: () => sshSnap(), getSftp: async () => { tookSftp = true; return sftp } })
     expect(await svc.listRemote({ sessionId: 's-1', path: '/' })).toEqual([])
+    expect(await svc.remoteCwd({ sessionId: 's-1' })).toBe('/')
     expect(tookSftp).toBe(true)
-    expect(sftp.calls).toEqual(['list /'])
+    expect(sftp.calls).toEqual(['list /', 'realpath .'])
   })
 
   it('传输层错误映射：DISCONNECTED 保留，其余归 REMOTE_IO', async () => {
@@ -247,6 +252,12 @@ describe('FileService 远端四件套（S5 步骤4，SSH 路径挂 mock SFTP 设
     expect(entries.map((e) => e.name)).toEqual(['zdir', 'A.txt', 'b.txt'])
     expect(entries.map((e) => e.kind)).toEqual(['dir', 'file', 'file'])
     expect(entries[2]?.size).toBe(10)
+  })
+
+  it('remoteCwd：SFTP realpath(".") 返回绝对路径', async () => {
+    await start()
+    const cwd = await svc.remoteCwd({ sessionId: SESSION })
+    expect(cwd).toMatch(/^\//)
   })
 
   it('download：流内容一致、进度终值 100、结束 file 事件 ok（bytes=总大小）', async () => {

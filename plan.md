@@ -9,6 +9,7 @@
   - 2026-09-02 追加「九月迭代」计划：契约先行 PR + 主线 S1–S5 + 扩展模块轨道
   - 2026-09-03 补齐扩展模块「端口映射 / 会话共享 / 日志」E0–E8 文件级计划；产品负责人已批准，进入 Build
   - 2026-09-07 契约审查 P1/P2 修复：连接超时统一毫秒、凭据结构统一嵌套 auth（偏离记录 7–8）
+  - 2026-09-09 `feat/remote-file-toolbar` 分支：远端文件面板工具栏 + files.remoteCwd RPC + 测试批次 1（偏离记录 16–17）
 
 ## 实现偏离记录（规则 6：偏离即同提交更新）
 
@@ -499,6 +500,11 @@ DSH_PORT=3180 node scripts/ext-port-log-smoke.mjs
 
 批准后只执行 E0，不直接并行铺开全部代码。E0 证明分支基线、挂载点和契约边界可用后，再按 E1→E8 推进；任何实际文件/接口偏离都在同一提交更新本节。
 
+### feat/remote-file-toolbar 偏离记录（2026-09-09，规则 6）
+
+16. **远端文件面板工具栏对齐本地**：新增"上一级"按钮（复用已有 `up()`）和"跟随终端当前路径"按钮。跟随终端通过 `SftpLike.realpath('.')` → `FileService.remoteCwd()` → `remotes.ts files.remoteCwd` RPC → `remoteFs.goTerminalCwd()` 全链路落地。`goTerminalCwd` 返回 `{ cwd, error }` 供前端 toast 展示成功/失败/已在同路径。`SftpLike` 接口新增 `realpath` 方法（契约改动，`src/transport/types.ts`）。
+17. **测试批次 1（P1 主线缺口覆盖）**：新增 5 项测试覆盖 sftp/remotes 错误分支——U-SFTP-RL-01~03（realpath 正常 + NOT_FOUND/DISCONNECTED 错误映射）、U-SFTP-PL-01（place rename fallback：unlink 旧文件再改名）、U-RMT-DL-01（download 流已发送后出错走 `res.destroy`）、U-RMT-WS-01（WS RPC 序列化失败走 catch 回包）。另有 7 项测试覆盖 remoteCwd/goTerminalCwd 全链路（之前提交）。测试基线 457→462 项全绿；sftp 分支 71.76→75.29%，remotes 分支 75.43→76.6%。`vitest.config.ts` 排除纯类型声明文件出覆盖率统计。
+
 ### 开放问题（九月）
 
 1. TC 语法真实样例未到——解析器按原型设想语法先做，样例到位后只改 `tc-parser.ts`。
@@ -507,6 +513,6 @@ DSH_PORT=3180 node scripts/ext-port-log-smoke.mjs
 
 ## 证据
 
-- `tests/` 167 项全绿；`pnpm build` 产出 host + client 双半包；覆盖率阈值 72/72/60/74。
+- `tests/` 462 项全绿（2026-09-09）；`pnpm build` 产出 host + client 双半包；覆盖率 86.82/76.26/89.7/90.69（阈值 90/80/90/90）。
 - 真实启动冒烟：DSH profile tm-dev，`/plugins/dsh-terminal-manager/client.js` 200 + 首页含 `dsh-terminal-manager` 行。
-- `scripts/smoke-e2e.mjs` 19 场景对活服务。
+- `scripts/smoke-e2e.mjs` 21 场景对活服务。

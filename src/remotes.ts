@@ -174,6 +174,10 @@ export async function dispatch(
         const { sessionId, path } = payload as { sessionId: string; path: string }
         return ok(await requireFiles(deps).listRemote({ sessionId, path }))
       }
+      case 'files.remoteCwd': {
+        const { sessionId } = payload as { sessionId: string }
+        return ok(await requireFiles(deps).remoteCwd({ sessionId }))
+      }
       case 'files.downloadToLocal': {
         const { sessionId, remotePath, root, path, transferId } = payload as {
           sessionId: string; remotePath: string; root: string; path: string; transferId?: string

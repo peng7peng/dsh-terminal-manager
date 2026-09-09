@@ -6,8 +6,9 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**462 项全绿是基线**，改挂必须修绿再提交）
-- 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（21 场景，对活服务；前置 mock-device 2323/2324 + mock-ssh-device 2222）
+- 测试：`pnpm test`（vitest；**596 项全绿是基线**，改挂必须修绿再提交）
+- E2E：`node scripts/run-e2e.mjs`（24 场景，自动拉起 mock 设备 + DSH 服务，一键跑完；可选环境变量 `DSH_PORT`/`DSH_PROFILE`/`SKIP_BUILD=1`）
+- 冒烟（旧）：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（需手动起服务，已被 run-e2e.mjs 替代）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
   - 健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
@@ -16,6 +17,7 @@
 ## 验证你的工作
 
 报告任务完成前跑 `pnpm build` + `pnpm test` 并粘贴输出。
+E2E 改动跑 `node scripts/run-e2e.mjs` 并确认 24/24 全绿。
 测试失败修代码，不改测试。测试用 `tests/helpers.ts` 的模拟设备，不碰用户真实设备。
 
 ## 约定

@@ -1,15 +1,13 @@
-# DSH 终端管理插件 —— GitHub Actions 端到端冒烟
+# DSH 终端管理插件 —— E2E 自动化测试
 #
 # 触发：PR 打到 main；push v* 标签。
-# 运行：起完整环境（tm-ci profile 的活 DSH + 两个 Telnet 模拟设备），
-#       跑 scripts/smoke-e2e.mjs 的 15 个 RPC 场景。
+# 运行：run-e2e.mjs 一键编排（自动拉起 mock 设备 + DSH tm-ci 服务 + 24 场景 + 结果落盘 + 进程清理）。
 #
 # 关键点：
 #  - deepseek-harness 检出为兄弟目录（../deepseek-harness），与本地开发布局一致，
 #  - dsh-terminal-manager 的 devDependencies 用 `link:` 指向它。
 #  - dsh CLI 用仓库内的 `node --import tsx/esm apps/cli/src/bin.ts`（tsx 随 install 装好）。
-#  - GH Actions 的 run 步骤结束时 bash 退出：后台服务一律 `nohup ... &` + `disown`，
-#    用 `curl --retry-connrefused --retry 30 --retry-delay 1` 等在起服务的那一步里。
+#  - run-e2e.mjs 自动管理进程生命周期，workflow 只需安装、初始化 profile、跑脚本。
 
 name: smoke
 
@@ -27,8 +25,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  smoke:
-    name: smoke
+  e2e:
+    name: e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -70,21 +68,16 @@ jobs:
           cd "$GITHUB_WORKSPACE"
 
           # ── 1) 确认 dsh CLI 可用 ──
-          # 优先 deepseek-harness 仓库内的 CLI（等价于任务里的
-          # `node ../deepseek-harness/apps/cli/src/bin.ts`，需 tsx；tsx 是仓库根 devDep，随 install 装好）。
-          # --import tsx/esm 从 cwd 解析 tsx，所以 node 在 harness 根运行（子 shell，不改外层 cwd）。
           if [ -x "$GITHUB_WORKSPACE/../deepseek-harness/node_modules/.bin/tsx" ]; then
             run_dsh() {
               ( cd "$GITHUB_WORKSPACE/../deepseek-harness" && node --import tsx/esm apps/cli/src/bin.ts "$@" )
             }
           else
-            # 兜底：npm 上发布的 CLI
             run_dsh() { npx --yes @deepseek-ai/dsh "$@"; }
           fi
           run_dsh --version
 
           # ── 2) 初始化 tm-ci profile + link 安装本插件 ──
-          # 显式指定包名（pnpm 在 Windows 上可能用目录名做别名，导致 dsh.bundle 检测失败）。
           run_dsh plugin --profile tm-ci add "dsh-terminal-manager@link:$GITHUB_WORKSPACE"
 
           # ── 3) 把 profile 的 bundles 固化为冒烟三件套 ──
@@ -99,68 +92,20 @@ jobs:
             m.dsh.profile = m.dsh.profile ?? {};
             m.dsh.profile.bundles = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-terminal-manager"];
             fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
-            console.log("[smoke] tm-ci bundles =>", JSON.stringify(m.dsh.profile.bundles));
+            console.log("[e2e] tm-ci bundles =>", JSON.stringify(m.dsh.profile.bundles));
           '
 
-      - name: 后台起模拟设备（2323 / 2324）
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          nohup node scripts/mock-device.mjs 2323 > /tmp/mock-device-2323.log 2>&1 &
-          disown
-          nohup node scripts/mock-device.mjs 2324 > /tmp/mock-device-2324.log 2>&1 &
-          disown
-
-          # 等两个 Telnet 端口就绪（最多 10 秒）
-          up=0
-          for i in $(seq 1 10); do
-            up=0
-            for p in 2323 2324; do
-              if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
-                up=$((up + 1))
-              fi
-            done
-            [ "$up" -eq 2 ] && break
-            sleep 1
-          done
-          if [ "$up" -ne 2 ]; then
-            echo "[smoke] 模拟设备未就绪："
-            tail -n 20 /tmp/mock-device-2323.log || true
-            tail -n 20 /tmp/mock-device-2324.log || true
-            exit 1
-          fi
-          echo "[smoke] 模拟设备 2323/2324 已就绪"
-
-      - name: 后台起 DSH（tm-ci profile）并等 HTTP 200
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE/../deepseek-harness"
-          nohup pnpm dsh --profile tm-ci --port 3180 --no-open > /tmp/dsh-boot.log 2>&1 &
-          disown
-
-          # 最多等约 30 秒：连接被拒就重试，直到 http://127.0.0.1:3180/ 返回 200
-          if curl --retry-connrefused --retry 30 --retry-delay 1 --fail \
-               --silent --show-error --max-time 3 http://127.0.0.1:3180/ -o /dev/null; then
-            echo "[smoke] DSH 健康：http://127.0.0.1:3180/ 返回 200"
-          else
-            echo "[smoke] DSH 30 秒内未就绪，boot 日志尾："
-            tail -n 60 /tmp/dsh-boot.log || true
-            exit 1
-          fi
-
-      - name: 跑端到端冒烟（15 个 RPC 场景）
+      - name: 跑 E2E 自动化测试（24 场景）
         working-directory: ${{ github.workspace }}
         env:
           DSH_PORT: '3180'
-        run: node scripts/smoke-e2e.mjs
+          DSH_PROFILE: 'tm-ci'
+          SKIP_BUILD: '1'
+        run: node scripts/run-e2e.mjs
 
-      - name: 拆除（模拟设备 + DSH 进程）
+      - name: 上传 E2E 结果
         if: always()
-        run: |
-          set +e
-          pkill -f 'mock-device\.mjs' 2>/dev/null
-          pkill -f 'apps/cli/src/bin\.ts' 2>/dev/null
-          pkill -f 'pnpm dsh' 2>/dev/null
-          pkill -f '--profile tm-ci' 2>/dev/null
-          sleep 1
-          exit 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: ../.codeartswork/tests/dsh-terminal-manager/e2e-results.json

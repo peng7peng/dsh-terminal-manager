@@ -1,6 +1,16 @@
+import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { openCommandFor, openWithSystem } from '../src/open-external.ts'
-import { openTargetFor, isTextEditable } from '../client/files/openRule.ts'
+
+// vi.mock 被提升到文件顶部执行；mockedSpawn 在工厂里创建，
+// 各测试通过 mockedSpawn.mockReturnValue(child) 注入不同的 child 对象
+const mockChild = new EventEmitter() as EventEmitter & { unref: ReturnType<typeof vi.fn> }
+mockChild.unref = vi.fn()
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(() => mockChild),
+}))
+
+const { defaultSpawn, openCommandFor, openWithSystem } = await import('../src/open-external.ts')
+const { openTargetFor, isTextEditable } = await import('../client/files/openRule.ts')
 
 describe('系统默认程序打开', () => {
   it('Windows 日志直接用记事本打开，中文、空格和括号路径作为完整参数传递', async () => {
@@ -20,6 +30,44 @@ describe('系统默认程序打开', () => {
     expect(spawnFn).toHaveBeenCalledWith('xdg-open', ['/tmp/a.xlsx'])
   })
 })
+
+describe('defaultSpawn（缺省 spawn 实现）', () => {
+  it('spawn 事件触发 → resolve + unref', async () => {
+    const child = new EventEmitter() as EventEmitter & { unref: ReturnType<typeof vi.fn> }
+    child.unref = vi.fn()
+    const { spawn: mockedSpawn } = await import('node:child_process')
+    ;(mockedSpawn as ReturnType<typeof vi.fn>).mockReturnValue(child)
+
+    const p = defaultSpawn('xdg-open', ['/x.pdf'])
+    child.emit('spawn')
+    await expect(p).resolves.toBeUndefined()
+    expect(child.unref).toHaveBeenCalled()
+  })
+
+  it('error 事件触发 → reject', async () => {
+    const child = new EventEmitter() as EventEmitter & { unref: ReturnType<typeof vi.fn> }
+    child.unref = vi.fn()
+    const { spawn: mockedSpawn } = await import('node:child_process')
+    ;(mockedSpawn as ReturnType<typeof vi.fn>).mockReturnValue(child)
+
+    const p = defaultSpawn('badcmd', [])
+    child.emit('error', new Error('spawn badcmd ENOENT'))
+    await expect(p).rejects.toThrow('spawn badcmd ENOENT')
+  })
+})
+
+describe('openCommandFor 平台分支', () => {
+  it('Windows .log → notepad.exe；Windows 其他 → cmd /c start', () => {
+    expect(openCommandFor('win32', 'C:\\test.log')).toEqual({ cmd: 'notepad.exe', args: ['C:\\test.log'] })
+    expect(openCommandFor('win32', 'D:\\report.pdf')).toEqual({ cmd: 'cmd', args: ['/c', 'start', '', 'D:\\report.pdf'] })
+  })
+  it('darwin → open；其他 → xdg-open', () => {
+    expect(openCommandFor('darwin', '/x/y.pdf')).toEqual({ cmd: 'open', args: ['/x/y.pdf'] })
+    expect(openCommandFor('linux', '/x/y.pdf')).toEqual({ cmd: 'xdg-open', args: ['/x/y.pdf'] })
+    expect(openCommandFor('freebsd', '/x/y.pdf')).toEqual({ cmd: 'xdg-open', args: ['/x/y.pdf'] })
+  })
+})
+
 
 describe('双击分流规则（前端纯函数）', () => {
   it('文本类进编辑器，Office / PDF / 图片 / 压缩包走系统程序，无扩展名当文本', () => {

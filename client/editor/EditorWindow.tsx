@@ -4,16 +4,30 @@
  * @module dsh-terminal-manager/client/editor/EditorWindow
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconCheckOutline14, IconChevronDownOutline14, IconCloseFill14, IconFullscreenOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { localFsStore } from '../files/FilePanel.tsx'
 import { formatSize } from '../files/localFs.ts'
 import { CodeEditor, type EditorHandle } from './CodeEditor.tsx'
+import { CsvView } from './CsvView.tsx'
 import { EditorTabs } from './EditorTabs.tsx'
-import { createEditorStore, useEditorState, type EditorStore } from './editorStore.ts'
+import { createEditorStore, extOf, useEditorState, type EditorStore } from './editorStore.ts'
 import { RESIZE_DIRS, useFloatWindow } from './useFloatWindow.ts'
+
+/** CSV 类文件的扩展名集合 */
+const CSV_EXTS = new Set(['csv', 'tsv'])
+
+/** 判断文件是否为 CSV 类（.csv / .tsv） */
+function isCsvFile(path: string): boolean {
+  return CSV_EXTS.has(extOf(path))
+}
+
+/** CSV 文件对应的分隔符 */
+function csvDelimiter(path: string): string {
+  return extOf(path) === 'tsv' ? '\t' : ','
+}
 
 let singleton: EditorStore | undefined
 /** 模块级单例：文件面板双击 → editorStore().openFile(path)。 */
@@ -64,9 +78,14 @@ export function EditorWindow(props: {
   const s = useEditorState(store)
   const win = useFloatWindow(s.maximized)
   const handleRef = useRef<EditorHandle | null>(null)
+  /** CSV 视图模式：'table' = 表格渲染，'text' = 纯文本编辑。仅对 .csv/.tsv 文件生效。 */
+  const [csvView, setCsvView] = useState<'table' | 'text'>('table')
 
   const active = s.tabs.find(t => t.id === s.activeId) ?? null
+  const isCsv = active !== null && isCsvFile(active.path)
   useEffect(() => { activeHandle = handleRef.current; return () => { activeHandle = null } })
+  // 切换 Tab 时重置为表格视图
+  useEffect(() => { setCsvView('table') }, [s.activeId])
 
   if (!s.open) return null
 
@@ -103,6 +122,12 @@ export function EditorWindow(props: {
         </div>
         <div className="tm-feToolbar">
           <button type="button" className="tm-feBtn" disabled={active === null || active.truncated || !active.dirty || active.saving} onClick={() => void store.save()} title="保存 (Ctrl/Cmd+S)"><IconCheckOutline14 /> 保存</button>
+          {isCsv && !active?.loading && (
+            <div className="tm-feViewToggle">
+              <button type="button" className={csvView === 'table' ? 'on' : ''} onClick={() => setCsvView('table')}>表格</button>
+              <button type="button" className={csvView === 'text' ? 'on' : ''} onClick={() => setCsvView('text')}>文本</button>
+            </div>
+          )}
           {props.actions}
         </div>
         <div className="tm-feBody">
@@ -110,6 +135,11 @@ export function EditorWindow(props: {
             <div className="tm-feLoading">没有打开的文件</div>
           ) : active.loading ? (
             <div className="tm-feLoading">加载 {active.name} …</div>
+          ) : isCsv && csvView === 'table' ? (
+            <>
+              {active.truncated && <div className="tm-feBanner">文件超过 10MB，只显示前 10MB，只读。</div>}
+              <CsvView content={active.content} delimiter={csvDelimiter(active.path)} />
+            </>
           ) : (
             <>
               {active.truncated && <div className="tm-feBanner">文件超过 10MB，只显示前 10MB，只读。</div>}

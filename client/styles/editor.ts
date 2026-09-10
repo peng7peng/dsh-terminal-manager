@@ -51,4 +51,20 @@ export const EDITOR_CSS = `
 .tm-feMinIcon:hover { transform:scale(1.08); }
 .tm-feMinIcon .cnt { position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--dsw-alias-state-business-primary, #4170e6); color:#fff; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; }
 .tm-feMinIcon.dirty .cnt { background:var(--dsw-alias-state-warn-primary, #d29922); }
+
+/* CSV 表格视图 */
+.tm-feViewToggle { display:inline-flex; gap:0; border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); border-radius:7px; overflow:hidden; }
+.tm-feViewToggle button { border:none; background:transparent; color:var(--dsw-alias-label-tertiary, #888); padding:4px 12px; font-size:12px; cursor:pointer; font-weight:600; }
+.tm-feViewToggle button.on { background:var(--dsw-alias-state-business-primary, #4170e6); color:#fff; }
+.tm-feViewToggle button:not(.on):hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06)); color:var(--dsw-alias-label-primary, #000); }
+.tm-feCsv { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.tm-feCsvScroll { flex:1; min-height:0; overflow:auto; }
+.tm-feCsvTable { border-collapse:collapse; width:100%; font:12px/1.5 var(--dsw-font-code, "JetBrains Mono", Consolas, monospace); }
+.tm-feCsvTable th, .tm-feCsvTable td { border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); padding:4px 8px; text-align:left; white-space:nowrap; max-width:400px; overflow:hidden; text-overflow:ellipsis; }
+.tm-feCsvTable th { position:sticky; top:0; background:var(--dsw-alias-bg-module-platform, #f5f6f7); font-weight:600; z-index:1; }
+.tm-feCsvTable tbody tr:nth-child(even) { background:var(--dsw-alias-bg-layer-1, rgba(0,0,0,.02)); }
+.tm-feCsvTable tbody tr:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(59,130,246,.08)); }
+.tm-feCsvIdx { color:var(--dsw-alias-label-caption, #aaa); text-align:right; user-select:none; width:40px; min-width:40px; }
+.tm-feCsvTrunc { flex:none; padding:4px 12px; font-size:11.5px; background:var(--dsw-alias-state-warn-tertiary, #fff7e6); color:var(--dsw-alias-state-warn-primary, #d29922); border-top:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }
+.tm-feCsvEmpty { flex:1; display:flex; align-items:center; justify-content:center; color:var(--dsw-alias-label-tertiary, #888); }
 `

@@ -16,6 +16,7 @@ import { resolveConfig, type Config } from './config.ts'
 import { registerExtensions } from './ext/index.ts'
 import { LocalFileService } from './file-service.ts'
 import { openWithSystem } from './open-external.ts'
+import { createLocalPanelState } from './local-panel-state.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
@@ -44,8 +45,9 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const store = new ConnectionStore(join(dataDir, 'connections.json'))
   const sessions = new SessionManager(store)
   const files = new LocalFileService(sessions, sessions.events)
+  const localPanel = createLocalPanelState()
 
-  registerTerminalTools(ctx, { sessions, files, workspaceRoot: cfg.workspaceRoot })
+  registerTerminalTools(ctx, { sessions, files, workspaceRoot: cfg.workspaceRoot, localPanel })
   registerAmbiguityHandling(ctx, sessions)
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
@@ -53,7 +55,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   // B7a→B7b 依赖边：传输路由的进度帧经 /term-io 广播，所以 wsIo 要先于 registerRemotes
   const wsIo = registerWsIo(ctx, sessions)
   registerRemotes(ctx, {
-    sessions, store, config: cfg, files,
+    sessions, store, config: cfg, files, localPanel,
     openExternal: (p) => openWithSystem(p),
     broadcastFileProgress: wsIo.broadcastFileProgress,
   })

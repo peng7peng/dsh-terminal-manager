@@ -7,10 +7,15 @@
  * @module dsh-terminal-manager/tools
  */
 
+import { stat } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { FileService } from './types/file-service.ts'
+import type { LocalPanelState } from './local-panel-state.ts'
+import { effectiveCwd, effectiveRoot } from './local-panel-state.ts'
+import { isWithin } from './path-security.ts'
 import type { SessionSnapshot } from './session-manager.ts'
 import { SessionManager, type WaitPolicyConfig } from './session-manager.ts'
 
@@ -74,6 +79,7 @@ const TRANSFER_RESULT_SCHEMA = {
     ok: { type: 'boolean', required: true },
     bytes: { type: 'number', required: true },
     durationMs: { type: 'number', required: true },
+    localPath: { type: 'string', description: '下载到本机的实际绝对路径（仅下载返回）' },
   },
 } as const
 
@@ -126,6 +132,11 @@ function waitOptions(args: { quietMs?: number; timeoutMs?: number }): { wait?: W
   return Object.keys(wait).length > 0 ? { wait } : {}
 }
 
+/** 文件是否存在（不区分文件/目录；ENOENT → false，其他错误也 → false 不阻塞流程）。 */
+async function fileExists(path: string): Promise<boolean> {
+  try { await stat(path); return true } catch { return false }
+}
+
 /** FileServiceError / SessionError 带 code；折叠成「CODE: 消息」前缀便于 AI 自纠。 */
 function recode(error: unknown): never {
   if (error instanceof Error && 'code' in error) throw new Error(`${String((error as { code: unknown }).code)}: ${error.message}`)
@@ -137,17 +148,19 @@ export interface TerminalToolDeps {
   sessions: SessionManager
   /** 文件服务（tm_upload / tm_download 用） */
   files: FileService
-  /** 本地工作区树根（与 files.root 端点一致；工具的 localPath 围栏基准） */
+  /** 本地工作区树根（与 files.root 端点一致；面板未同步时的围栏回退基准） */
   workspaceRoot: string
+  /** 本地面板状态镜像（root/cwd）；前端推送，工具层读 */
+  localPanel: LocalPanelState
 }
 
 /** 注册 tm_* 工具。需在 ctx.tools / ctx.systemPrompt 就绪后调用。 */
 export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): void {
-  const { sessions, files, workspaceRoot } = deps
+  const { sessions, files, workspaceRoot, localPanel } = deps
   ctx.systemPrompt.section({
     name: 'tool:term-manager',
     order: 107,
-    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。文件在工作区与 SSH 设备间用 tm_upload / tm_download 传输（localPath 是绝对路径，先用 files.root 工具查工作区树根；Telnet 会话不支持文件传输）。',
+    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。文件用 tm_upload / tm_download 传输（仅 SSH 会话）：上传时 localPath 可传文件名（自动在工作目录和面板根目录查找）或绝对路径（必须在两者之一内）；找不到文件时询问用户提供路径；下载时先问用户保存到哪个目录，用户不指定则下载到面板当前目录。工作目录和面板根目录之外的文件无法通过工具上传，需用文件面板手动拖拽。',
   })
 
   ctx.tools.register(defineTool({
@@ -371,10 +384,10 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
 
   ctx.tools.register(defineTool({
     name: 'tm_upload',
-    description: '把本机工作区文件上传到远端设备（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。localPath 必须是工作区树根内的绝对路径——先用 files.root 工具查树根。远端同名文件会被覆盖。',
+    description: '把本机文件上传到远端设备（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。localPath 可以是绝对路径或文件名：文件名时自动在工作目录和面板根目录下查找（工作目录优先）；绝对路径必须在两者之一内。两处都找不到时询问用户提供具体路径。工作目录和面板根目录之外的文件无法通过此工具上传，需用文件面板手动拖拽。远端同名文件会被覆盖。',
     parameters: {
       sessionId: { type: 'string', required: true, description: 'SSH 会话编号（tm_connect / tm_list 返回）' },
-      localPath: { type: 'string', required: true, description: '本机文件绝对路径（必须在工作区树根内；先调 files.root 查）' },
+      localPath: { type: 'string', required: true, description: '本机文件路径：可以是文件名（如 readme.md，自动在工作目录和面板根目录查找）或绝对路径（必须在两者之一内）' },
       remotePath: { type: 'string', required: true, description: '远端绝对路径（POSIX 风格，如 /root/app.log）' },
     },
     output: {
@@ -386,13 +399,48 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
     },
     async execute(args: TransferArgs, _exec) {
       if (args.sessionId === undefined || args.sessionId.length === 0) throw new Error('需要 sessionId（SSH 会话编号）')
-      if (args.localPath === undefined || args.localPath.length === 0) throw new Error('需要 localPath（本机文件绝对路径，先调 files.root 查工作区树根）')
+      if (args.localPath === undefined || args.localPath.length === 0) throw new Error('需要 localPath（文件名或绝对路径）')
       if (args.remotePath === undefined || args.remotePath.length === 0) throw new Error('需要 remotePath（远端绝对路径）')
+
+      // 围栏基准：工作目录（DSH cwd）+ 面板根目录；两者之外拒绝（防 AI 偷传敏感文件）
+      const cwdRoot = process.cwd()
+      const panelRoot = effectiveRoot(localPanel, workspaceRoot)
+      let uploadRoot: string
+      let absPath: string
+
+      if (isAbsolute(args.localPath)) {
+        // 绝对路径：必须在工作目录或面板根目录内
+        if (isWithin(cwdRoot, args.localPath)) {
+          uploadRoot = cwdRoot
+          absPath = args.localPath
+        } else if (isWithin(panelRoot, args.localPath)) {
+          uploadRoot = panelRoot
+          absPath = args.localPath
+        } else {
+          throw new Error('PATH_OUTSIDE_ROOT: 文件不在工作目录或面板根目录内。工作区外的文件请用文件面板手动拖拽上传。')
+        }
+      } else {
+        // 相对路径/文件名：先在工作目录找，再在面板根目录找
+        const cwdCandidate = join(cwdRoot, args.localPath)
+        if (await fileExists(cwdCandidate)) {
+          uploadRoot = cwdRoot
+          absPath = cwdCandidate
+        } else {
+          const panelCandidate = join(panelRoot, args.localPath)
+          if (await fileExists(panelCandidate)) {
+            uploadRoot = panelRoot
+            absPath = panelCandidate
+          } else {
+            throw new Error(`NOT_FOUND: 在工作目录(${cwdRoot})和面板根目录(${panelRoot})下均未找到 ${args.localPath}，请询问用户提供文件的绝对路径`)
+          }
+        }
+      }
+
       try {
         return await files.upload({
           sessionId: args.sessionId,
           remotePath: args.remotePath,
-          source: { kind: 'local', ref: { root: workspaceRoot, path: args.localPath } },
+          source: { kind: 'local', ref: { root: uploadRoot, path: absPath } },
         })
       } catch (error) {
         recode(error)
@@ -403,33 +451,54 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
 
   ctx.tools.register(defineTool({
     name: 'tm_download',
-    description: '把远端设备文件下载到本机工作区（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。localPath 必填（工作区树根内的绝对路径，先调 files.root 查树根）；下载完成后可用 files.read 工具读取内容。本机同名文件会被覆盖。',
+    description: '把远端设备文件下载到本机（仅 SSH 会话；Telnet 会话报 UNSUPPORTED）。下载前先问用户保存到哪个目录——用户不指定则下载到本地面板当前目录（调 files.root 可查面板当前目录）。localPath 可省略——省略时自动下载到面板当前目录下（文件名取远端文件名）。如需指定保存位置，必须是面板树根内的绝对路径（面板树根 ≠ DSH 当前目录，先调 files.root 查）。下载完成后可用 files.read 工具读取内容。本机同名文件会被覆盖。',
     parameters: {
       sessionId: { type: 'string', required: true, description: 'SSH 会话编号（tm_connect / tm_list 返回）' },
       remotePath: { type: 'string', required: true, description: '远端绝对路径（POSIX 风格）' },
-      localPath: { type: 'string', required: true, description: '本机保存位置绝对路径（必须在工作区树根内；先调 files.root 查）' },
+      localPath: { type: 'string', description: '本机保存位置绝对路径（可选；省略 = 下载到面板当前目录，文件名取远端文件名；填则必须在面板树根内，先调 files.root 查）' },
     },
     output: {
       schema: TRANSFER_RESULT_SCHEMA,
       render: (args, value) => {
-        const v = value as { bytes: number; durationMs: number }
-        return [{ type: 'text', text: `已下载 ${(args as TransferArgs).remotePath}，${v.bytes} 字节 → ${(args as TransferArgs).localPath}（${v.durationMs}ms）；可用 files.read 读取` }]
+        const v = value as { bytes: number; durationMs: number; localPath?: string }
+        const dest = v.localPath ?? (args as TransferArgs).localPath ?? '(面板当前目录)'
+        return [{ type: 'text', text: `已下载 ${(args as TransferArgs).remotePath}，${v.bytes} 字节 → ${dest}（${v.durationMs}ms）；可用 files.read 读取` }]
       },
     },
     async execute(args: TransferArgs, _exec) {
       if (args.sessionId === undefined || args.sessionId.length === 0) throw new Error('需要 sessionId（SSH 会话编号）')
       if (args.remotePath === undefined || args.remotePath.length === 0) throw new Error('需要 remotePath（远端绝对路径）')
-      if (args.localPath === undefined || args.localPath.length === 0) throw new Error('需要 localPath（本机保存位置绝对路径，先调 files.root 查工作区树根）')
+      // 围栏基准：面板根目录优先，面板未同步时回退工作区根目录；绝对路径也接受工作目录内
+      const cwdRoot = process.cwd()
+      const panelRoot = effectiveRoot(localPanel, workspaceRoot)
+      const defaultDir = effectiveCwd(localPanel, workspaceRoot)
+      const remoteBasename = args.remotePath.split('/').pop() ?? args.remotePath
+      const localPath = (args.localPath !== undefined && args.localPath.length > 0)
+        ? args.localPath
+        : join(defaultDir, remoteBasename)
+      // 绝对路径必须在工作目录或面板根目录内（围栏：防 AI 往任意位置写文件）
+      let downloadRoot: string
+      if (isAbsolute(localPath)) {
+        if (isWithin(cwdRoot, localPath)) {
+          downloadRoot = cwdRoot
+        } else if (isWithin(panelRoot, localPath)) {
+          downloadRoot = panelRoot
+        } else {
+          throw new Error('PATH_OUTSIDE_ROOT: 保存路径不在工作目录或面板根目录内。')
+        }
+      } else {
+        downloadRoot = panelRoot
+      }
       try {
         return await files.downloadToLocal({
           sessionId: args.sessionId,
           remotePath: args.remotePath,
-          target: { root: workspaceRoot, path: args.localPath },
+          target: { root: downloadRoot, path: localPath },
         })
       } catch (error) {
         recode(error)
       }
     },
-    presentCall: (args) => ({ card: 'generic', title: `下载 ${(args as TransferArgs).remotePath ?? ''} → ${(args as TransferArgs).localPath ?? ''}`, kind: 'execute' }),
+    presentCall: (args) => ({ card: 'generic', title: `下载 ${(args as TransferArgs).remotePath ?? ''} → ${(args as TransferArgs).localPath ?? '(面板当前目录)'}`, kind: 'execute' }),
   }))
 }

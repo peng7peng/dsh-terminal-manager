@@ -155,6 +155,8 @@ export function createLocalFsStore(deps: LocalFsDeps): LocalFsStore {
       if (seq !== loadSeq) return
       // 成功才提交 cwd：进不去的目录不改面包屑
       set({ entries, cwd, loading: false })
+      // 同步面板状态到 host（工具层 tm_download 默认目录 + 围栏基准用）
+      void deps.rpc('files.setLocalPanel', { root: state.root, cwd }).catch(() => {})
     } catch (error) {
       if (seq !== loadSeq) return
       set({ entries: [], loading: false, error: humanError(error) })

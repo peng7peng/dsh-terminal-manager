@@ -14,6 +14,7 @@ import { LocalFileService } from '../src/file-service.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
 import { registerTerminalTools } from '../src/tools.ts'
+import { createLocalPanelState } from '../src/local-panel-state.ts'
 
 /** 假传输：每会话一个槽位。 */
 function fakeFactory(): { emit: (slot: number, chunk: string) => void; factory: TransportFactory } {
@@ -69,7 +70,7 @@ async function setup() {
   await ctx.plugin(AgentRegistry)
   const { emit, factory } = fakeFactory()
   const sessions = new SessionManager(store, factory)
-  registerTerminalTools(ctx, { sessions, files: new LocalFileService(), workspaceRoot: dir })
+  registerTerminalTools(ctx, { sessions, files: new LocalFileService(), workspaceRoot: dir, localPanel: createLocalPanelState() })
   const agent = fakeAgent(ctx, 'm3-tools')
   const signal = new AbortController().signal
   let callNumber = 0

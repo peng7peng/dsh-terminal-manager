@@ -59,6 +59,8 @@ export interface TransferResult {
   ok: true
   bytes: number
   durationMs: number
+  /** 下载到本机的实际绝对路径（仅 downloadToLocal 填；upload 不填） */
+  localPath?: string
 }
 
 /** 上传的数据来源：本地树根内文件，或浏览器直传的流（远端面板「上传」按钮） */

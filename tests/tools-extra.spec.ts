@@ -20,6 +20,7 @@ import type { SftpLike, Transport, TransportCallbacks } from '../src/transport/t
 import type { FileService } from '../src/types/file-service.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import { registerTerminalTools } from '../src/tools.ts'
+import { createLocalPanelState } from '../src/local-panel-state.ts'
 import { createDeviceLab } from './helpers.ts'
 
 function fakeFactory(): { emit: (slot: number, chunk: string) => void; written: string[]; factory: TransportFactory } {
@@ -72,6 +73,7 @@ async function setup(opts: { files?: FileService; workspaceRoot?: string } = {})
     sessions,
     files: opts.files ?? new LocalFileService(),
     workspaceRoot: opts.workspaceRoot ?? dir,
+    localPanel: createLocalPanelState(),
   })
   const agent = fakeAgent(ctx, 'tools-extra')
   const signal = new AbortController().signal

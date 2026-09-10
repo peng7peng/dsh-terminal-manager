@@ -19,6 +19,7 @@ import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
 import type { FileProgressFrame } from './ws-io.ts'
 import type { FileService, LocalPathRef } from './types/file-service.ts'
+import type { LocalPanelState } from './local-panel-state.ts'
 import type { SendOptions } from './types/session-api.ts'
 import { stat } from 'node:fs/promises'
 import { FileServiceError, mapFsError } from './file-errors.ts'
@@ -37,6 +38,8 @@ export interface RemoteDeps {
   openExternal?: (path: string) => Promise<void>
   /** 文件传输进度帧广播（B7b /term-io；未注入时传输仍可用，只是没有进度帧） */
   broadcastFileProgress?: (frame: FileProgressFrame) => void
+  /** 本地面板状态镜像（root/cwd）；前端推送、工具层读 */
+  localPanel?: LocalPanelState
 }
 
 function requireFiles(deps: RemoteDeps): FileService {
@@ -158,7 +161,21 @@ export async function dispatch(
         return ok(await requireFiles(deps).listDirectories(path))
       }
       case 'files.root':
-        return ok({ root: deps.config?.workspaceRoot ?? process.cwd() })
+        return ok({
+          root: deps.config?.workspaceRoot ?? process.cwd(),
+          ...(deps.localPanel !== undefined && deps.localPanel.cwd.length > 0
+            ? { localCwd: deps.localPanel.cwd, localRoot: deps.localPanel.root }
+            : {}),
+        })
+      // 前端面板每次目录切换后推送 { root, cwd }，工具层据此做下载默认目录 + 围栏基准
+      case 'files.setLocalPanel': {
+        const { root, cwd } = payload as { root: string; cwd: string }
+        if (deps.localPanel !== undefined) {
+          deps.localPanel.root = root
+          deps.localPanel.cwd = cwd
+        }
+        return ok({})
+      }
       // 非文本文件（xlsx / docx / pdf …）交给用户本机的默认程序打开；只允许树根内的文件
       case 'files.open': {
         const { root, path } = payload as unknown as LocalPathRef

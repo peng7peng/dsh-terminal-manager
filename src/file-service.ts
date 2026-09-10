@@ -238,7 +238,7 @@ export class LocalFileService implements FileService {
       const { bytes } = await sftp.get(req.remotePath, temp, { ...(onProgress !== undefined ? { onProgress } : {}) })
       await rename(temp, targetPath)
       this.emitFile(req.sessionId, 'download', req.remotePath, true, bytes)
-      return { ok: true, bytes, durationMs: Date.now() - started }
+      return { ok: true, bytes, durationMs: Date.now() - started, localPath: targetPath }
     } catch (error) {
       if (temp !== undefined) await unlink(temp).catch(() => {})
       this.emitFile(req.sessionId, 'download', req.remotePath, false, undefined, error)

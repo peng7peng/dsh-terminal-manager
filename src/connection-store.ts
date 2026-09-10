@@ -10,12 +10,22 @@ import { promises as fs } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { WAIT_LIMITS } from './wait-policy.ts'
+import type { AuthConfig } from './types/session-api.ts'
+
+export type { AuthConfig }
 
 export type Protocol = 'ssh' | 'telnet'
 
-export type AuthConfig =
-  | { kind: 'password'; password: string }
-  | { kind: 'key'; privateKey: string; passphrase?: string }
+export interface ConnectionLogConfig {
+  /** 连接成功后自动记录会话日志。 */
+  enabled: boolean
+  /** 每行日志是否添加时间戳。 */
+  timestamp: boolean
+  /** 是否清理终端 ANSI 控制序列。 */
+  stripAnsi: boolean
+  /** 日志目录；缺省时使用插件默认日志目录。 */
+  directory?: string
+}
 
 export interface ConnectionConfig {
   id: string
@@ -35,14 +45,16 @@ export interface ConnectionConfig {
   guardWhitelist?: string[]
   /** Telnet 模式：'telnet'（完整 IAC 协商，默认）| 'raw'（裸 TCP 透传） */
   telnetMode?: 'telnet' | 'raw'
-  /** SSH 握手超时秒数（默认 15） */
-  handshakeTimeoutSec?: number
+  /** SSH 握手超时毫秒（默认 15000；UI 可选 15/30/60/120/180 秒，存毫秒） */
+  connectTimeoutMs?: number
   /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
   newline?: 'lf' | 'cr' | 'crlf'
   /** 本地回显开关（默认 false） */
   localEcho?: boolean
   /** 是否收藏（默认 true；收藏状态跟连接配置一起落盘，不再存浏览器 localStorage） */
   favorited?: boolean
+  /** 会话日志配置。 */
+  log?: ConnectionLogConfig
   note?: string
 }
 
@@ -89,6 +101,14 @@ function validate(cfg: ConnectionConfig): void {
   if (cfg.timeoutMs !== undefined && (cfg.timeoutMs < WAIT_LIMITS.timeoutMs.min || cfg.timeoutMs > WAIT_LIMITS.timeoutMs.max)) {
     fail(`超时必须在 ${WAIT_LIMITS.timeoutMs.min}–${WAIT_LIMITS.timeoutMs.max} 毫秒之间`)
   }
+  if (cfg.log !== undefined) {
+    if (typeof cfg.log.enabled !== 'boolean' || typeof cfg.log.timestamp !== 'boolean' || typeof cfg.log.stripAnsi !== 'boolean') {
+      fail('日志配置无效')
+    }
+    if (cfg.log.directory !== undefined && (typeof cfg.log.directory !== 'string' || cfg.log.directory.trim().length === 0)) {
+      fail('日志目录无效')
+    }
+  }
 }
 
 /** 连接清单的存取。一个实例对应一个落盘文件。 */
@@ -114,6 +134,8 @@ export class ConnectionStore {
     const parsed = JSON.parse(raw) as { connections?: ConnectionConfig[] }
     this.connections.clear()
     for (const cfg of parsed.connections ?? []) {
+      // 旧数据可能缺 favorited 字段，归一化为 true（与 create 默认值一致）
+      if (cfg.favorited === undefined) cfg.favorited = true
       validate(cfg)
       this.connections.set(cfg.id, cfg)
     }

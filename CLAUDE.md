@@ -6,9 +6,10 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**185 项全绿是基线**，改挂必须修绿再提交）
-- 冒烟：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（19 场景，对活服务）
-- 覆盖率：`pnpm vitest run --coverage`（阈值 72/72/60/74，src-only）
+- 测试：`pnpm test`（vitest；**596 项全绿是基线**，改挂必须修绿再提交）
+- E2E：`node scripts/run-e2e.mjs`（24 场景，自动拉起 mock 设备 + DSH 服务，一键跑完；可选环境变量 `DSH_PORT`/`DSH_PROFILE`/`SKIP_BUILD=1`）
+- 冒烟（旧）：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（需手动起服务，已被 run-e2e.mjs 替代）
+- 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
 - 启动验证：在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`
   - 健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行
   - **3080 被用户自己的 DSH 占用，别动**；验证一律 3180
@@ -16,6 +17,7 @@
 ## 验证你的工作
 
 报告任务完成前跑 `pnpm build` + `pnpm test` 并粘贴输出。
+E2E 改动跑 `node scripts/run-e2e.mjs` 并确认 24/24 全绿。
 测试失败修代码，不改测试。测试用 `tests/helpers.ts` 的模拟设备，不碰用户真实设备。
 
 ## 约定
@@ -46,9 +48,11 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 5. **多会话测试里每个 connect 要独立回调槽位**——共用一个回调变量会被后连的会话覆盖，导致先连的会话收不到数据（测试挂 20 秒超时）。
 6. **`ctx.effect(fn)` 的 fn 是 setup、返回值是清理函数**——别把清理函数本身当 fn 传（那会立即执行清理、删掉刚注册的路由，请求 405）。正解：`ctx.effect(() => webServer.register(route))`（register 是 setup，返回的 disposer 才是 cleanup）。
 7. **xterm.css / 第三方 CSS 用虚拟模块内联**（`tm:xterm-css` 插件），别用 `?raw`/`?inline`（tsdown 默认不认，会留成 external require → "missed the module table"）。
-8. **浏览器 POST `application/json` 会先发 OPTIONS 预检**——自建路由必须处理 OPTIONS（返回 204+CORS 头），否则预检 405 卡住。
+8. **浏览器 POST `application/json` 会先发 OPTIONS 预检**——自建路由必须处理 OPTIONS（返回 204），否则预检 405 卡住。**但别回 `access-control-allow-origin: *`**：`/term-manager` 有 `files.*` 能读写本机文件，通配 CORS 等于让互联网上任何网页借浏览器打进来（CSRF ≈ 任意文件写）。现有做法：`isTrustedOrigin` 只放行无 Origin / loopback / 与 Host 相同的来源，其余 403；允许的来源原样回显（2026-09-02 审查发现）。
 9. **用户数据（连接/收藏等）存后端不存浏览器 localStorage**——localStorage 跟着浏览器走，DSH 重启/换浏览器/清缓存就丢。后端落盘到 `~/.dsh/terminal-manager/connections.json`（`ConnectionConfig` 字段）。向后兼容：旧数据缺字段按"未显式 false = 默认在收藏"处理（`c.favorited !== false`）。
 10. **`node_modules/@deepseek-ai/*` 是指向 `../deepseek-harness` 的符号链接**——上游一升级（如 0.1.2-alpha.3 把 `CallId` 改名 `ToolCallId`），这边测试会莫名挂掉；先 `git -C ../deepseek-harness log -3` 看上游动没动，再怀疑自己的改动。
+11. **worktree（junction node_modules）里 pnpm 命令带 `--config.verify-deps-before-run=false`**，否则 run 前校验依赖误报；另外 `tsdown`/`vitest` 都不做类型检查——纯逻辑改完要靠 vitest 跑真路径兜底，别只看构建过（S5-8 的 `pushFrame` 作用域笔误就是这么漏的）。
+12. **stub 测试断言要验证映射逻辑本身而非 fallback**——传普通 Error 走 fallback 分支返回 `REMOTE_IO`，断言 `code:'REMOTE_IO'` 能过但无法区分"走了映射"和"原样透传"；应传带 SFTP `STATUS_CODE`（如 `code=2` = NO_SUCH_FILE）的错误，断言映射后的 `code:'NOT_FOUND'` + `message` 含 `what` 参数。`mapSftpError` 的 4 个分支（NOT_FOUND/VALIDATION/DISCONNECTED/REMOTE_IO）各需独立用例。
 
 ## 钩子（Hooks）
 

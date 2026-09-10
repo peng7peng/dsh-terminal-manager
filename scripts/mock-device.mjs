@@ -56,6 +56,29 @@ function respond(cmd) {
   return `\x1b[31m% Unknown command: "${c}"\x1b[0m\r\n\x1b[32mrouter>\x1b[0m `
 }
 
+// 剥掉入站 IAC 序列（WILL/WONT/DO/DONT+选项字节、SB…SE 子协商、IAC IAC=数据255），
+// 其余字节原样保留。不剥的话，客户端的 NAWS 窗口协商会被当成键盘输入回显成乱码。
+// 简化处理：跨 TCP 包切断的半截 IAC 序列直接丢弃（协商字节都走单次 write，实际不会发生）。
+function stripIac(buf) {
+  const out = []
+  let i = 0
+  while (i < buf.length) {
+    const b = buf[i]
+    if (b !== 0xff) { out.push(b); i++; continue }
+    if (i + 1 >= buf.length) break
+    const cmd = buf[i + 1]
+    if (cmd === 0xff) { out.push(0xff); i += 2; continue }
+    if (cmd === 0xfa) { // SB：吞到 IAC SE
+      let j = i + 2
+      while (j < buf.length - 1 && !(buf[j] === 0xff && buf[j + 1] === 0xf0)) j++
+      i = j + 2
+      continue
+    }
+    i += cmd >= 0xfb && cmd <= 0xfe ? 3 : 2 // WILL/WONT/DO/DONT 带 1 字节选项
+  }
+  return Buffer.from(out)
+}
+
 const server = createServer((socket) => {
   // IAC 模式：连接时发 IAC WILL ECHO + DO TERMINAL_TYPE（模拟真网络设备的协商请求）
   if (USE_IAC) {
@@ -64,7 +87,7 @@ const server = createServer((socket) => {
   socket.write(banner())
   let lineBuf = ''
   socket.on('data', (chunk) => {
-    const str = chunk.toString('utf8')
+    const str = stripIac(chunk).toString('utf8')
     // 逐字符处理：退止单独处理(\b\x1b[K)，其他正常回显
     for (let i = 0; i < str.length; i++) {
       const ch = str[i]

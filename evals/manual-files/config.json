@@ -1,0 +1,7 @@
+{
+  "workspaceRoot": "D:/tc-test",
+  "devices": [
+    { "name": "mock-1", "host": "127.0.0.1", "port": 2323 },
+    { "name": "mock-2", "host": "127.0.0.1", "port": 2324 }
+  ]
+}

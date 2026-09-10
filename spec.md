@@ -6,6 +6,11 @@
 - 日期：2026-08-25
 - 2026-08-28：本文件合并了原 `docs/solution.zh.md`（v4，随 M1 定稿），为**唯一设计源**（requirements + design + gotchas + verification）；原方案文档已归档至 `docs/archive/solution.zh.md`
 - 2026-09-02：九月迭代开工。新增「模块间契约（`src/types/`）与扩展模块」一节（两人分支并行的接口冻结）与 B9 事件总线；九月新功能（文件面板 / 浮动编辑器 / TC 执行 / 选中发送 / 文件传输）的设计见仓库外 `../开发过程文档/` 下的「设计方案」与「交互设计」（不入库），实现落地后再并入本文件
+- 2026-09-02（下午）：按 S1–S3 开工需要，落地 B10 文件服务（本地）、B11 TC 脚本解析（语法按真实样例改写，原「`N:` 前缀」假设作废）、前端 F7–F11 模块边界、Config 项与文件错误码；决策：同事不新增工作区面板，本地文件面板 / 浮动编辑器 / TC 确认框与汇总条随本轮一起做
+- 2026-09-03：S5 定稿——文件传输只做 SSH/SFTP（Telnet 会话远端操作抛 `UNSUPPORTED`，base64 命令模拟与 `telnetFileTransfer` 开关砍掉）；只做单文件（文件夹传输砍掉）；下载双入口（浏览器另存为 GET `/files/download` + `downloadToLocal` 联动/AI，② 后者行内进度条已拍板要做）；进度走 `/term-io` `file-progress` 帧（transferId 关联 + 终态帧，零契约改动）；Transport 加协议无关 `SftpLike`；传输不设独占锁。详见 B10 远端部分与 plan.md S5 节
+- 2026-09-03（S5 落地）：B6 工具加 `tm_upload` / `tm_download`（八只手）；B7a 加传输路由（`/files/upload` POST raw、`/files/download` GET 流式）与 `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（本地源上传，联动用）端点；前端加 F7b 远端文件面板（chips / 3 按钮 / 传输条 / 同名冲突 / 联动 / 编辑器上传入口）。行内进度条先做 ②（确定项），③ 另存为与拖拽细节等周五交互会；见 plan.md S5 偏离记录 9–14
+- 2026-09-03：补齐扩展模块「端口映射 / 会话共享 / 日志」需求与设计，派生自 `intent/port-mapping-sharing-log.md`（Accepted）；严格遵循 commit `badc5fb` 冻结的契约与挂载点。该增量章节已由产品负责人批准进入 Build。
+- 2026-09-07：契约审查 `docs/API-CONTRACT-REVIEW.md` 两个 🔴 高项修复——**P1 连接超时统一毫秒**：`ConnectionConfig.handshakeTimeoutSec`（秒）改名 `connectTimeoutMs`（毫秒），与 `ConnectTarget` / `TransportConnectOptions` 同名同单位，`session-manager.ts` 散落 `* 1000` 转换删除（UI 仍以秒展示）；**P2 凭据结构统一嵌套**：`AuthConfig` 判别联合定义收敛到契约 `src/types/session-api.ts`，`ConnectTarget` / `TransportConnectOptions` 扁平凭据字段改嵌套 `auth?`，`session-manager.ts` 三处拆装转换删除；边界转换收敛两处——`remotes.ts`（前端扁平 payload → auth）与 `tools.ts`（AI 扁平 password → auth），前端 RPC payload 与 AI 工具参数面不变。
 
 ## 需求
 
@@ -28,6 +33,7 @@
 - **可靠性**：设备断连自动标记会话状态并即时推送 `status` 帧；重连是显式动作，不做静默自动重连；WS 通道断线自动重连（指数退避，重连后由前端重建终端状态）。
 - **安全**：
   - 数据面 WebSocket（`/term-io`）MVP 信任栅栏 = **仅 loopback**（`127.0.0.1` / `localhost` / `[::1]`，见 `ws-io.ts` 的 `isLoopback`）；trustedHosts 白名单列为后续项。
+  - 控制面 HTTP（`/term-manager`）**来源围栏**（2026-09-02 起）：`remotes.ts` 的 `isTrustedOrigin`——请求无 `Origin`（同源）、或 `Origin` 是 loopback、或与 `Host` 相同才处理，其余 403；CORS 头只回显被允许的来源，**不再回 `*`**。原因：`files.*` 端点能读写本机文件，通配 CORS 会让互联网网页借浏览器跨源发 JSON POST（CSRF）写任意文件。前端 `fetch` 用相对路径、与页面同源，不受影响。
   - 凭据本地明文保存（产品负责人已接受的风险）；落盘 `connections.json` 权限尽力 0600（Windows 平滑降级）；错误消息/日志/工具返回值**永不含密码或密钥内容**；文档明示该风险。
   - MVP 阶段 SSH 主机密钥不做严格校验（`hostVerifier` 接受任意主机密钥，见 `transport/ssh.ts`）；TOFU（首次信任）+ 指纹核对列为 MVP 后首个安全迭代。
 - **可维护性**：对 DSH 的集成面最小化（不依赖 `ctx.terminals` / `tool-terminal`；控制面不用 `ctx.typert.remotes`），以耐受开发者预览期的破坏性变更。
@@ -131,15 +137,14 @@ interface ConnectionConfig {
   host: string
   port: number                  // 缺省按协议：SSH 22，Telnet 23
   username?: string             // SSH 必填
-  auth?:
-    | { kind: 'password'; password: string }
-    | { kind: 'key'; privateKey: string; passphrase?: string }   // SSH：password | key
+  auth?: AuthConfig             // SSH 凭据判别联合（定义在契约 src/types/session-api.ts，本文件 re-export）：
+                                //   { kind: 'password'; password: string } | { kind: 'key'; privateKey: string; passphrase?: string }
   promptPattern?: string        // 完成判定②的正则源（可选）
   quietMs?: number              // 完成判定①（可选，默认 500）
   timeoutMs?: number            // 完成判定③（可选，默认 30000）
   guardWhitelist?: string[]     // 命令守卫白名单（正则源列表，按连接豁免）
   telnetMode?: 'telnet' | 'raw' // Telnet 模式（默认 telnet：完整 IAC 协商）
-  handshakeTimeoutSec?: number  // SSH 握手超时秒数（默认 15；可选 15/30/60/120/180）
+  connectTimeoutMs?: number     // 连接建立超时毫秒数（默认 15000；UI 仍以秒展示，可选 15/30/60/120/180）【2026-09-07 由 handshakeTimeoutSec（秒）改名统一】
   newline?: 'lf' | 'cr' | 'crlf'// 行尾换行（默认 'crlf'）
   localEcho?: boolean           // 本地回显开关（默认 false；字段已保存后端）
   note?: string                 // 备注（选填）
@@ -222,9 +227,11 @@ interface ConnectionConfig {
 
 #### B2/B3 传输层（`src/transport/`，接口见 `types.ts`）
 
-内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。
+内部接口 `Transport { write(data): void; resize?(cols, rows): void; close(): Promise<void>; getSftp?(): Promise<SftpLike> }` + 回调 `TransportCallbacks { onData(utf8 chunk), onClose(reason) }`；统一的 `TransportError`（`AUTH_FAILED` / `HOST_UNREACHABLE` / `CONN_TIMEOUT` / `PROTO_ERROR` / `DISCONNECTED`）。传输层只被 B4 接触。
 
-- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。`readyTimeout` = `connectTimeoutMs`（来自连接级 `handshakeTimeoutSec`，默认 15s，UI 可选 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
+- **SftpLike（S5 起，协议无关的 SFTP 门面接口）**：声明在 `transport/types.ts`、**不 import ssh2**（串口等未来实现同一接口，Telnet 不实现——远端文件操作对 Telnet 抛 `UNSUPPORTED`）。方法面：`list / stat / mkdirs / put / get / downloadStream`（unlink/rename 留在门面内部）。实现 = `transport/sftp.ts` 的 `SftpFacade`（implements SftpLike，包 ssh2 `SFTPWrapper`）：上传先写远端同目录临时文件 `<目标>.tm-partial-<rand>`（同目录同文件系统，rename 不撞 EXDEV）成功后 rename 落位（v3 rename 不覆盖已存在目标 → 覆盖走「改名失败 → 删旧 → 再改名」）、中断 best-effort 清理；进度回调节流 200ms 并补发终值；错误统一映射（NO_SUCH_FILE → NOT_FOUND、PERMISSION_DENIED → VALIDATION、断连 → DISCONNECTED、其余 REMOTE_IO）。`getSftp` 断连抛 DISCONNECTED、设备未开 sftp 子系统抛 PROTO_ERROR。
+
+- **SshTransport**（`ssh.ts`）：`ssh2.Client` → `conn.shell({ term: 'xterm-256color', cols, rows })` 交互通道（带 PTY）；stderr 也并入数据流。认证从 `options.auth?.kind` 取（`password` → 密码认证；`key` → 私钥 + 可选 passphrase，【2026-09-07 起传输层只收嵌套 `auth`，不再收扁平凭据字段】）。`readyTimeout` = 连接级 `connectTimeoutMs`（毫秒，默认 15000，UI 以秒展示 15/30/60/120/180）；`hostVerifier: () => true`（MVP 接受任意主机密钥）。`resize` → `channel.setWindow(rows, cols)`。连接失败时不触发 `onClose` 回调（通过 `connected` 标志位判断），避免产生幽灵会话。
 - **TelnetTransport**（`telnet.ts`）：`net.connect`。`telnetMode: 'telnet' | 'raw'`：
   - `telnet`（默认）：**完整 IAC 协商**——连接时主动发送 WILL ECHO + WILL SGA + DO SGA + DO ECHO；响应服务器的 DO/WILL 请求（DO SGA → WILL SGA, DO ECHO → WILL ECHO, DO TTYPE → WILL TTYPE 等）；支持子协商（TTYPE 响应发送 "xterm"，NAWS 在 resize 时发送窗口尺寸）；状态机解析器处理 IAC 序列，支持跨 chunk 拼接。
   - `raw`：裸 TCP 透传字节（`chunk.toString('utf8')`），不做任何协议处理，适合串口服务器/ESL。
@@ -238,39 +245,92 @@ interface ConnectionConfig {
 
 纯逻辑。默认黑名单（`DEFAULT_DANGEROUS_RULES`，大小写不敏感）：`rm -rf /` 类、`mkfs*`、`dd of=/dev/…`、`shutdown|reboot|halt|poweroff`、`init 0`、fork 炸弹。`GuardOptions { extraRules?, whitelist? }`，白名单优先豁免（含连接级 `guardWhitelist`）。**只检查 AI 发起的发送**（`tm_send`/`tm_send_all`，`guard` 参数）；人的键盘输入不经过它。
 
-#### B6 AI 工具层（`src/tools.ts`）——AI 的六只"手"
+#### B6 AI 工具层（`src/tools.ts`）——AI 的八只"手"
 
-全部经 `defineTool` 注册到 `ctx.tools`，`execute` 遵守 `exec.signal` 取消；AI 路径发送必传 `guard: {}`。注册 `ctx.systemPrompt.section`（name: `tool:term-manager`）：「先用 tm_list 查看会话；同一会话一次只跑一条命令；waitReason: 'timeout' 不代表命令失败，用 tm_read 复查；危险命令会被拦截」。`presentCall` 用 `card: 'generic'`（`tm_send` 例外为 `card: 'terminal'`），`presentResult` 返回原始输出卡片。
+全部经 `defineTool` 注册到 `ctx.tools`，`execute` 遵守 `exec.signal` 取消；AI 路径发送必传 `guard: {}`。注册 `ctx.systemPrompt.section`（name: `tool:term-manager`）：「先用 tm_list 查看会话；同一会话一次只跑一条命令；waitReason: 'timeout' 不代表命令失败，用 tm_read 复查；危险命令会被拦截；文件在工作区与 SSH 设备间用 tm_upload / tm_download 传输（localPath 是绝对路径，先用 files.root 工具查工作区树根；Telnet 会话不支持文件传输）」。`presentCall` 用 `card: 'generic'`（`tm_send` 例外为 `card: 'terminal'`，`tm_upload` / `tm_download` 为 `kind: 'execute'` 的方向+路径卡片），`presentResult` 返回原始输出卡片。工具层错误折叠成 `CODE: 消息`（AI 可自纠）；`registerTerminalTools(ctx, { sessions, files, workspaceRoot })`（传输需要文件服务与树根）。
 
 | 工具 | 参数 | 返回 |
 |---|---|---|
-| `tm_connect` | `connId`（已保存连接）**或** `protocol,host,port?,username?,password?,label?`（临时连接，不入库） | `SessionSnapshot` + `banner`（读缓冲尾部 200 行） |
+| `tm_connect` | `connId`（已保存连接）**或** `protocol,host,port?,username?,password?,label?`（临时连接，不入库；AI 参数面仍传扁平 `password`，工具层组装为契约 `auth`【2026-09-07】） | `SessionSnapshot` + `banner`（读缓冲尾部 200 行） |
 | `tm_list` | — | `SessionSnapshot[]` |
 | `tm_send` | `sessionId, command, wait?('complete'\|'immediate'), quietMs?, timeoutMs?` | `{ kind:'completed', output, waitReason, truncated }` 或 `{ kind:'submitted' }` |
 | `tm_send_all` | `command, sessionIds?`（逗号分隔串，缺省=全部 open）, `wait?` | `[{ sessionId, outcome:'ok'\|'busy'\|'disconnected'\|'error', output?, waitReason?, code? }]` |
 | `tm_read` | `sessionId, count?`（缺省 500） | `{ text, totalLines, truncated }` |
 | `tm_disconnect` | `sessionId` | `{ sessionId, outcome:'closed' }` |
+| `tm_upload` | `sessionId, localPath`（工作区树根内绝对路径）, `remotePath` | `{ ok, bytes, durationMs }`；树根外 `PATH_OUTSIDE_ROOT`、Telnet `UNSUPPORTED` |
+| `tm_download` | `sessionId, remotePath, localPath`（落工作区树根内） | `{ ok, bytes, durationMs }`；下载后可用 `files.read` 读 |
 
 #### B7a 控制面指令通道（`src/remotes.ts`）——/term-manager 前缀路由
 
 - 挂载：`registerRemotes(ctx, deps)` → `ctx.effect(() => webServer.register({ kind: 'prefix', path: '/term-manager', handler }))`。⚠️ `ctx.effect(fn)` 的 fn 是 setup、返回值是清理函数——把 `webServer.register(...)` 的 disposer 直接当 fn 传会立即删掉路由（405）。绕开 `connection.rpc.handle`（ctx 作用域问题）与 `/api`（api-gateway 冲突）。
 - `createHttpHandler(deps)`（可独立单测）：
-  - `OPTIONS` 预检 → `204` + `access-control-allow-origin: *` + `allow-methods: POST, OPTIONS` + `allow-headers: content-type`；
+  - 来源围栏先行：`isTrustedOrigin`（无 Origin / loopback / 与 Host 相同放行，其余 403）；允许的来源原样回显 CORS 头（**不用 `*`**——`files.*` 能读写本机文件，通配等于给互联网网页开 CSRF 写通道）；
+  - S5 传输路由在 JSON 分流**之前**按 path 处理（共用同一围栏，不单独注册路由）：`POST /files/upload`（raw body 直传）、`GET /files/download`（流式另存为），方法不对 → `405`，错误 NOT_FOUND → `404` / 其余 → `400`（`{ok:false, error}` 裸信封）；
+  - `OPTIONS` 预检 → `204` + 回显来源 + `allow-methods: POST, GET, OPTIONS` + `allow-headers: content-type`；
   - 非 POST → `405`；
   - 坏 JSON → `400`（返回 `bad-request`）；
   - POST → 解析 `{ type: 'client-request', rpcId, method, payload }`，endpoint 取 body.method 或 URL 路径，经纯函数 `dispatch(endpoint, payload, deps, signal)` 调度，返回 `{ type: 'server-response', rpcId, result }`。
 - 端点：
   - `connections.list` / `connections.create` / `connections.update({id, patch})` / `connections.remove({id})`
-  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
+  - `sessions.list` / `sessions.connect`（`connId` 或临时连接字段：`protocol,host,port,username,password,label,telnetMode,connectTimeoutMs,newline,localEcho`；扁平凭据 payload 由本层组装为契约 `auth`，前端不感知【2026-09-07】）/ `sessions.disconnect({sessionId})` / `sessions.reconnect({sessionId})` / `sessions.read({sessionId, count?})`
+  - 文件：`files.tree` / `files.read` / `files.write` / `files.dirs` / `files.root` / `files.open`（本地，B10）+ `files.remoteTree` / `files.downloadToLocal` / `files.uploadLocal`（S5 远端；`uploadLocal` 给本地面板 / 编辑器联动用——文件在 host 磁盘上，浏览器拿不到字节，由后端按树根围栏读盘再推 SFTP）
 - 错误折叠：领域异常 → `RpcResult.error`，其中 HTTP 层 `code` 统一为 `internal`、领域 code 编进 message（`{ code, message }` 格式，message 永不含凭据）；`AbortSignal` 已中止 → `cancelled`；未知端点 → `internal`（message 带端点名）。
 
 #### B7b 数据面数据流通道（`src/ws-io.ts`）——/term-io WebSocket
 
 - 挂载：`registerWsIo` → `ctx.effect(() => webServer.registerUpgrade({ path: '/term-io', handler }))`；卸载时清心跳、关全部连接、清订阅。
-- 上行帧：`attach / detach / input / resize`（均带 `sessionId`）；下行帧：`output { sessionId, data }` / `status`（`{ kind:'status' } & SessionSnapshot`，会话状态变化即推全量快照）。
-- `TermIoConnection`：attach 登记「该会话输出 → 本管道」的订阅；detach/关闭时逐条退订。**订阅随连接生灭**：WS 关闭 → 清掉该连接挂的所有订阅。MVP 信任栅栏 `isLoopback`（仅 127.0.0.1 / localhost / ::1）。
+- 上行帧：`attach / detach / input / resize`（均带 `sessionId`）；下行帧：`output { sessionId, data }` / `status`（`{ kind:'status' } & SessionSnapshot`，会话状态变化即推全量快照）/ `file-progress`（S5：传输进度 + 终态 `done`/`ok`，带 `transferId`——广播给所有连接，前端按 transferId 过滤；见 B10 远端部分）。
+- `TermIoConnection`：attach 登记「该会话输出 → 本管道」的订阅；detach/关闭时逐条退订。**订阅随连接生灭**：WS 关闭 → 清掉该连接挂的所有订阅。MVP 信任栅栏 `isLoopback`（仅 127.0.0.1 / localhost / ::1）**+ Origin 校验**（2026-09-03 审查补：浏览器发 WS 必带 Origin，与 /term-manager 同一 `isTrustedOrigin` 标准——无 Origin 的非浏览器客户端放行，loopback / 同 Host 放行，其余销毁；否则恶意网页可跨站连上 WS 偷终端输出、或以人工键入路径注入命令）。
 - 心跳：每 30s `ws.ping()` 探活（`HEARTBEAT_INTERVAL_MS`）；`input`/`resize` 对不存在/已断会话静默忽略。
 - **回放历史不走 attach 帧**：终端窗格挂载时由客户端经控制面 `sessions.read` 拉缓冲尾部（`client/TermView.tsx` 的 `loadHistory`）。
+
+#### B10 FileService（`src/file-service.ts`，契约 `src/types/file-service.ts`）——本地部分【S1】
+
+- **树根模型**：所有本地读写限定在「当前树根」内。树根由前端每次调用传入（`LocalPathRef.root`），默认值来自 Config `workspaceRoot`（缺省 = DSH 进程 cwd），用户在 UI「换目录」后前端记住新根（localStorage，UI 偏好）。切换根 = 用户主动授权该目录。
+- **路径安全（`src/path-security.ts`，纯函数 + 一次 `realpath`）**：`resolveInsideRoot(root, path)` → 先 `path.resolve` 归一化，再对存在的最深祖先做 `fs.realpath` 解析符号链接，最后校验结果以 `realpath(root) + sep` 开头；不满足抛 `PATH_OUTSIDE_ROOT`。空路径 / 含 `\0` 抛 `VALIDATION`。Windows 大小写不敏感比较（`toLowerCase` 后比）。
+- **四件套**：
+  - `listLocal(ref)`：`readdir(withFileTypes)` 一层，目录在前、按名排序，返回 `FileEntry[]`（symlink 标 `symlink`，不跟随）。
+  - `readLocal(ref, { maxBytes = 10MiB })`：先 `stat`，超上限只读前 `maxBytes` 并 `truncated: true`（编辑器按只读打开）；按 UTF-8 解码。
+  - `writeLocal(ref, content)`：原子写——写到同目录 `.<name>.tm-tmp-<random>` 再 `rename`；失败清理临时文件。不创建父目录（越权风险），父目录不存在抛 `NOT_FOUND`。
+  - `listDirectories(absPath)`：只返回子目录，用于「换目录」选择器；不受树根限制（只读、只列目录名）。
+- **错误**：`FileServiceError { code: FileErrorCode }`；系统错误映射：`ENOENT → NOT_FOUND`，`EACCES/EPERM → VALIDATION`（消息不含绝对路径之外的信息），其余 `REMOTE_IO`（本地也复用此码，含义为 I/O 失败）。
+- **控制面端点（挂在 B7a `dispatch`）**：`files.tree { root, path }` / `files.read { root, path, maxBytes? }` / `files.write { root, path, content }` / `files.dirs { path }`，返回值与四件套一致；`files.root` 返回配置树根；`files.open { root, path }` 用系统默认程序打开树根内的**文件**（`src/open-external.ts`：Windows `cmd /c start ""`、macOS `open`、Linux `xdg-open`；不在 FileService 契约内，是主线自己的功能）。
+- **打开规则（前端 `client/files/openRule.ts`）**：文本类扩展名（txt / md / sh / py / json / ini / csv / log / yaml / xml / conf / toml / bat / ps1 …）双击进编辑器；其余（xlsx / docx / pdf / 图片 / 压缩包 …）双击交给系统程序；右键菜单两项都有。
+- **远端部分**（`listRemote` / `upload` / `download` / `downloadToLocal`）S5 实现；S1 里这四个方法抛 `UNSUPPORTED`。
+- **事件**：本地读写不派发 `file` 事件（S5 远端传输才派发）。
+
+#### B10 FileService 远端部分（`src/file-service.ts`）【S5，2026-09-03 定稿】
+
+- **协议分派**：`listRemote / upload / download / downloadToLocal` 按会话协议分派——SSH → SFTP（经 B4 的 `getSftp(sessionId)` 拿 SftpLike 门面）；Telnet → 抛 `UNSUPPORTED`（base64 命令模拟已砍）。`SessionManager.getSftp` 只做 `requireOpen` + 返回门面，**不设传输独占锁**——SFTP 是 SSH 独立子通道，不碰 PTY 字节流，与 `sendAndWait` 互不干扰（上锁只会造成「传大文件时终端不让打字」）。每次 `getSftp` 开新 SFTP 子通道，并发先不限（sshd 默认 MaxSessions 10）。
+- **远端路径无围栏**：与 SSH 终端同等权限，只做基本规范化（空路径 / `\0` 拒绝），`..` 交设备自己解释；UI 面包屑防误操作。
+- **上传**（`upload`）：来源 = 本地树根内文件（`{kind:'local'}`，经 `resolveInsideRoot` 围栏解析）或流（HTTP 路由把 `req` 直接当流，浏览器直传）。落位用门面的临时文件 + rename（见 B2/B3 SftpLike）。
+- **下载双入口**：
+  - `download`（返回流）→ HTTP GET `/term-manager/files/download?sessionId&remotePath&transferId` 流式 pipe 到响应，`content-disposition: attachment`（文件名 RFC 5987 编码，中文名不乱）+ `cache-control: no-store` → **浏览器另存为**（用户选任意目录，浏览器下载栏原生进度/完成/失败/取消）。`stat` 前置——NOT_FOUND 等在写响应头**之前**返回（响应中途出错无法改状态码）。
+  - `downloadToLocal` → 落到本地树根内（本地面板联动 + AI `tm_download`；树根外拒绝，`PATH_OUTSIDE_ROOT`）。**本地半成品保护**：先写 `<目标>.tm-partial-<rand>`，成功后本地 rename，失败清理（fastGet 直写会在工作区留半个文件）。
+- **HTTP 上传路由**：`POST /term-manager/files/upload?sessionId&remotePath&transferId`，**raw body**（二进制）。`createHttpHandler` **入口内按 path 分流**（upload/download 走专用分支，其余走 JSON dispatch）——分流在入口内做，保证 `isTrustedOrigin` + CORS 回显单处维护（不单独注册路由复制围栏）。CORS 无需新增 allow-headers（octet-stream 是 content-type 的**值**，不是头名）。
+- **进度（`/term-io` `file-progress` 帧）**：FileService 的 `onProgress` 由路由接住 → broadcaster（`registerWsIo` 返回 `{ disposer, broadcastFileProgress }`，index.ts 接线进 RemoteDeps）→ 广播给所有 WS 连接，前端按 `transferId` 过滤（服务端当不透明字符串回显，限长 ≤64）。**零契约改动**：transferId 只在 HTTP query / RPC payload 与 WS 帧（OutFrame 是主线自有类型），路由组装帧时塞入，`TransferProgress` / `events.ts` 不动。路由在响应 `finish`/`close` 补发**终态帧**（`done: true` + `ok`/`error`）——另存为导航式下载前端看不到 HTTP 响应，终态帧是唯一完成/失败信号；XHR/fetch 路径仍以响应 settle 为准（双保险）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03）；另存为要不要行内进度条周五交互会定。
+- **事件**：`file` 结束事件成功 / 失败 / 取消都发（失败也是 `ok:false`）；`path` = 远端路径（upload=远端目标 / download=远端源）。事件总线不发进度（进度是前端 UI 瞬时数据）。
+
+#### B11 TC 脚本解析（`src/tc-parser.ts`，纯函数）【S3，语法按 2026-09-02 真实样例】
+
+真实脚本不是逐行前缀，而是**块状态切换**：一行 `##>数字串` 把「当前目标窗口」切过去，后续命令都发到这些窗口，直到下一个 `##>`。窗口编号 0–9 对应 TC0–TC9（= 活跃会话窗口顺序，D1）。
+
+| 行首形式 | 类型 | 处理 |
+|---|---|---|
+| `##>012`（`##>` 后仅数字，可带空白） | `target` | 当前目标 = 去重后的各个数字；不发送 |
+| `[标题]` / `[!标题]` | `section` | 大标题，不发送，**不重置目标**；记录名字与行号供「执行本节」 |
+| `###内容` | `command` | 「可发送的注释」：整行原样发送 |
+| `##内容`（非 `##>`） | `comment` | 不发送。含「间隔 N 秒」类人读提示 |
+| `#内容`（单个 `#`） | `subtitle` | 小标题，不发送（真实 shell 注释也会被归入此类，反正不发送） |
+| 空白行 | `blank` | 跳过 |
+| 其他 | `command` | 右侧去空白后发送到当前目标；文件开头未切换过时默认目标 `[0]` |
+
+- **输出**：`parseTcScript(text): TcLine[]`，每项 `{ lineNo, kind, raw, targets: number[], command?: string, section?: string }`；`targets` 是该行生效的目标（对非命令行也带，便于 UI 显示）。
+- **选区执行**：`resolveTargetsAt(lines, lineNo)` 返回某行之前最后一次 `##>` 的目标（无则 `[0]`），供「执行选中脚本」在选区不含 `##>` 时继承上文目标。
+- **本节范围**：`sectionRange(lines, lineNo)` 返回所在 `[标题]` 到下一个 `[标题]` 前一行的范围，供「执行本节」。
+- **执行模型**：前端把 `TcLine` 翻译成 `{ sessionId, command }` 序列（TC 编号 → sessionId 查 `sortedSessions`，执行期间冻结快照），逐条调用控制面 `sessions.send { sessionId, command, source: 'script', wait? }`（= 一次 `sendAndWait`），上一条完成或超时再发下一条；后端不知道 TC 概念。超时项可「跳过」或「中止」。
+- **暂定决策（待与同事确认，默认按此实现）**：① 选区不含 `##>` 时继承上文目标并在确认框显示；② `##间隔…` 只当注释，确认框列出提醒，不自动等待；③ `##>01` 后紧跟空行 = 纯切换，不报错；④ 多行 shell 函数体逐行发送，靠静默判定兜底，汇总条如实显示 `quiet`；⑤ 提供右键「执行本节」；⑥ `#` 真实注释被当小标题，接受。
+- **不做**：坐标模式、`[!…]` 的显示差异（解析层一律当标题）。
 
 #### 前端模块（`client/`，F1–F6）
 
@@ -296,6 +356,25 @@ interface ConnectionConfig {
 - 可见性：模块级 `useSyncExternalStore`；`setWorkspaceVisible` **同步** capture/restore 原始 frame grid（不依赖 React effect 时序）。
 - 布局：`useFrameLayout(active, chat)` 把 frame 网格强制为 `${sidebar}px ${有效聊天宽}px 0px`（`MutationObserver`/`ResizeObserver`/窗口 resize 时重算）；`TARGET_TERM_WIDTH = 480`、`PANEL_WIDTH = 300`，未拖动时 `有效聊天宽 = 视口 - 侧栏 - 480 - 300`（聊天自动填满左侧、无留白）；手动拖动后用手动值（下限 300，上限 `max(760, 视口宽-764)`——大屏可把终端收窄至约 200px）。
 - 未读：新输出时未读会话条目显示蓝点，点击标记已读。
+
+#### 前端新增模块（F7–F11，九月）【S1–S3】
+
+叠加在现有工作区上，**不改 DSH 骨架、不改连接面板与广播栏**（设计方案 2.1「零迁移」）。交互细节以仓库外的交互设计文档为准，这里只定模块边界与状态归属。
+
+| 模块 | 文件 | 职责 | 状态归属 |
+|---|---|---|---|
+| F7 本地文件面板 | `client/files/FilePanel.tsx` + `client/files/localFs.ts` | 广播栏下方的收起条 / 展开面板：面包屑、上一级、刷新、换目录（目录选择弹窗，走 `files.dirs`）、列表单击选中 / 双击目录进入 / 双击文件 → 编辑器打开。远端面板复用同一列表组件。S5 联动按钮：⬆ 上传选中文件到远端当前目录、⬇ 下载远端选中文件到本地当前目录 | 树根 + 折叠态 + 当前目录：localStorage（UI 偏好）；选中项：组件内 |
+| F7b 远端文件面板（S5） | `client/files/RemoteFilePanel.tsx` + `client/files/remoteFs.ts` | 本地面板**上方**的收起条：chips 切换在线 SSH 会话（无会话提示「请先连接 SSH 设备」，Telnet 不支持）；3 按钮 = ⬆ 上传文件（本机文件选择 + OS 拖拽直传，HTTP `/files/upload` raw）/ ⬇ 下载（另存为，GET `/files/download`）/ 刷新；POSIX 面包屑 + 列表（双击目录进入、双击文件另存为、右键菜单含「下载到工作区」）；传输条（transferId 关联 `file-progress` 帧，② `downloadToLocal` 行内进度，终态 ✓/✗）；同名冲突弹窗（覆盖 / 跳过 / 重命名 `a (1).txt`）；`EditorUploadButton` 注入编辑器底栏 actions 槽 | 会话选择 / cwd（每会话记忆）/ 传输列表 / 冲突：`remoteFs.ts` store（内存，不落盘）；折叠态：localStorage |
+| F8 浮动编辑器窗 | `client/editor/EditorWindow.tsx` + `client/editor/useFloatWindow.ts` | `position: fixed` 窗体，z-index 60–90：标题条拖动、右下角缩放、最大化、最小化成底部标签；每次打开居中偏下默认尺寸（D3 不记忆几何）；内部 TabBar（开 / 关 / 切换 / 脏点 / 关前保存确认） | Tab 列表 + 激活 Tab + 脏标记：`client/editor/editorStore.ts`（内存，不落盘） |
+| F9 代码编辑器 | `client/editor/CodeEditor.tsx` | CodeMirror 6 封装：按扩展名装语言包（sh / py / json / md，csv 与其余走纯文本）、Ctrl/Cmd+S 保存（`files.write`）、选区变化回调、只读模式（>10MB）。CSS 走虚拟模块 `tm:codemirror-css`（同 `tm:xterm-css` 机制） | 文档内容在 CodeMirror state 内 |
+| F10 TC 执行 | `client/tc/TcConfirmDialog.tsx`、`client/tc/TcSummaryBar.tsx`、`client/tc/runScript.ts` | [▶ 执行脚本] / 右键「执行选中脚本」/「执行本节」→ 解析（B11）→ 冻结映射快照 → 确认框（逐条命令将发往哪些终端、无对应终端标 ✗、「本次会话不再确认」）→ 逐条 `sessions.send`（source `script`）→ 常驻汇总条（逐端口 ✓ / ✗ / waitReason，可关闭）。执行中窗格闪烁（复用现有 focus-flash） | 「不再确认」：sessionStorage；执行进度：`runScript` 内部状态机 |
+| F11 发送选中 | `client/tc/SendSelectionDialog.tsx` | [▶ 发送选中→] / 右键「发送选中到终端…」→ 在线终端复选框（默认勾当前激活）、发送(N)、>20 行提示 → 逐条 `sessions.send`（source `script`）→ toast 汇总 | 组件内 |
+| TC 徽章 | `client/TermView.tsx` 标题条、`client/ConnectionsPanel.tsx` 活跃会话项 | 在线会话 ≥1 即显示 TC0/TC1…（D4）；编号 = `sortedSessions` 中 open 会话的序号；拖动排序即换编号（D1）；单终端时拖动手柄禁用 | 派生自现有 `sessionOrder`，不新增状态 |
+
+- **按钮可用性矩阵（D5）**：`.txt` 两个按钮都可用；`.md` 只可「发送选中」；其他类型都禁用（tooltip 说明）。
+- **编辑器只编辑本地文件**（交互设计 §11.4）；远端文件不进编辑器。
+- **样式**：每个模块一个文件 `client/styles/files.ts` / `editor.ts` / `tc.ts`，在 `client/styles/index.ts` 拼接。
+- **打包**：CodeMirror 全量打进 `client.js`（设计方案 2.7 方案 B），预计 ~2MB；不做 chunk 基建。
 
 ### 核心需求 → 代码路径（走一遍）
 
@@ -327,9 +406,11 @@ interface ConnectionConfig {
 | 判定顺序 | 提示符 > 静默 > 超时；无输出时只有超时生效 | — | — |
 | 单次返回输出上限 | 256 KB（超出截断并标记 truncated） | — | WAIT_LIMITS.outputCapBytes |
 | 输出环形缓冲 | 每会话 1 MiB | — | BUFFER_CAP_BYTES |
-| 连接建立超时 | 15s（SSH `readyTimeout`；Telnet 同用 `connectTimeoutMs`） | SSH UI：15/30/60/120/180s | `handshakeTimeoutSec` / `connectTimeoutMs` |
+| 连接建立超时 | 15s（SSH `readyTimeout`；Telnet 同用 `connectTimeoutMs`） | SSH UI：15/30/60/120/180s | `connectTimeoutMs`（毫秒，默认 15000）【2026-09-07 由 handshakeTimeoutSec（秒）统一】 |
 | 换行 `newline` | `crlf` | `lf / cr / crlf` | 连接配置 + sendAndWait 调用参数 |
 | 本地回显 `localEcho` | false | 开/关 | 连接配置（后端已保存；xterm 本地回显未接通，见「待确认项」） |
+| 本地工作区根 `workspaceRoot` | DSH 进程 cwd | 任意目录 | 插件 Config schema（`cordis.yml` 的 `config:`）；UI「换目录」临时切换 |
+| 编辑器打开上限 | 10 MiB（超出只读 + 截断） | — | `files.read` 的 `maxBytes` |
 
 ### 订阅与会话的生命周期（谁看、谁连、谁清理）
 
@@ -357,6 +438,11 @@ interface ConnectionConfig {
 | `DISCONNECTED` | 会话已断开（设备掉线或手动断开） |
 | `COMMAND_BLOCKED` | 命令命中黑名单（命令守卫拦截） |
 | `PROTO_ERROR` | 协议层错误（SSH 通道建立失败等） |
+| `PATH_OUTSIDE_ROOT` | 文件路径落在当前树根之外（含符号链接逃逸）【B10】 |
+| `NOT_FOUND` | 文件 / 目录不存在【B10】 |
+| `FILE_TOO_LARGE` | 超过读取 / 传输上限【B10】 |
+| `REMOTE_IO` | 文件 I/O 失败（本地或 SFTP）【B10】 |
+| `UNSUPPORTED` | 该操作不被当前协议支持（如 Telnet 会话的远端文件操作）或当前阶段未实现【B10】 |
 
 ### 命令安全防护（AI 发危险命令怎么办）
 
@@ -380,9 +466,217 @@ interface ConnectionConfig {
 3. 挂载点：host 半 `src/ext/index.ts` 的 `registerExtensions(ctx, { sessions, events, files?, dataDir })`；浏览器半 `client/ext/index.tsx` 的 `registerClientExtensions(ctx)`；样式 `client/styles/index.ts` 的 `EXT_CSS`。主线在这三处各留一行调用，扩展模块的代码放 `src/ext/<模块>/`、`client/ext/<模块>/`、`client/styles/<模块>.ts`、`tests/ext-<模块>.spec.ts`。
 4. `dataDir`（`~/.dsh/terminal-manager`）下扩展模块开自己的子目录落盘，不写 `connections.json`。
 
-#### 扩展模块：日志管理 / 共享端口（扩展模块负责人）——待补充
+#### 扩展模块：端口映射 / 会话共享 / 日志（扩展模块负责人）【2026-09-03 Approved】
 
-> 需求文档尚未成稿。本节由扩展模块负责人按上面的规则补写：模块职责、订阅哪些事件、落盘格式、对外路由 / UI 入口、测试点。主线不代写。
+**实现状态（2026-09-03）：** E0–E7 已实现；自动构建、单元/集成测试、覆盖率和真实 3180 host 冒烟通过。E8 的浏览器截图仍需在可用浏览器环境中人工补验。
+
+**意图与边界。** 本模块实现独立 TCP/UDP 端口映射、已打开终端会话的 TCP 共享、插件应用日志和会话输出日志。它是九月迭代扩展轨道，不修改主线终端、文件、编辑器或 AI 工具。IPOP 文档只提供功能语义和缺陷清单；实现使用 TypeScript、Node 事件循环和当前 DSH 插件接口。
+
+##### E1 功能需求
+
+| ID | 必须做到 | 可验收结果 |
+|---|---|---|
+| PM-01 | 映射配置 CRUD、独立启停、持久化、autoStart | 插件重启配置仍在；自动启动单条失败不影响其他条目 |
+| PM-02 | TCP 双向转发 | 多个连接互不串流；单个目标失败不关闭监听 |
+| PM-03 | UDP 按来源端点转发 | 数据报边界保留；不同来源响应不串包；零长度数据报合法 |
+| PM-04 | IPv4/IPv6、状态和统计 | UI 显示状态、最近错误、活跃连接/对端数和双向字节 |
+| PM-05 | CSV 导入/导出和列表排序 | 兼容 IPOP 3/5 字段及扩展 6 字段；整批校验后原子 merge |
+| PS-01 | 对 open SSH/Telnet 会话启停共享 | 默认监听 0.0.0.0；同一会话最多一个共享实例 |
+| PS-02 | 共享无认证且完全可写 | 多客户端实时看输出；输入只调用 SessionManagerApi.write |
+| PS-03 | Telnet 兼容、背压与清理 | 消费 IAC；慢客户端单独断开；会话关闭/卸载释放全部资源 |
+| AL-01 | 应用日志四级和轮转 | debug/info/warn/error；单文件 5 MiB，最多 5 个 |
+| AL-02 | 应用日志不泄密 | 不记录 output/input、RPC 原始载荷、密码、私钥或认证内容 |
+| SL-01 | 会话日志按会话启停 | 默认关闭，只消费 TmEvent.output；不直接记录 input |
+| SL-02 | 会话日志格式处理 | 时间戳、跨 chunk ANSI 清理、退格/CR/LF 和停止刷盘正确 |
+| SL-03 | 会话日志不轮转不清理 | 文件持续增长到日志或会话关闭；UI 明示磁盘风险 |
+| UI-01 | 全部端口操作由用户手动完成 | 不新增 tm_*；Agent 不能开放、关闭或修改监听端口 |
+| UI-02 | 扩展 UI 与主线隔离 | 独立侧栏入口 + shell.overlay 浮层；不改 TerminalWorkspace/TermView |
+
+##### E2 契约落实
+
+扩展模块的依赖固定为 `ExtensionDeps`：
+
+- `events: TmEventBus`：会话共享和会话日志只订阅 `output/status`；应用日志可订阅 `status/file`，永不订阅或落盘 `input/output` 内容。
+- `sessions: SessionManagerApi`：只用 `list/get/write`；共享输入调用 `write`。不 import `session-manager.ts` 或 transport。
+- `dataDir`：扩展只在 `dataDir/ext/port-log/` 下写数据。
+- `files?: FileService`：本期不依赖。冻结的 FileService 没有追加写/流式轮转能力，日志使用扩展目录内的 Node WriteStream；将来若增加日志下载，可复用 FileService，不能为本期修改契约。
+
+功能分支禁止修改 `src/types/`。若实现发现必须新增事件、输入来源或文件方法，立即停止相应工作，另开契约 PR 到 main，待两人 review 后 rebase；不得在扩展内部强转绕过契约。
+
+扩展只允许修改三个主线挂载点，各一行：
+
+1. `src/ext/index.ts` 调用 `registerPortLogExtension(ctx, deps)`；
+2. `client/ext/index.tsx` 调用 `registerPortLogClient(ctx)`；
+3. `client/styles/index.ts` 引入并拼接 `PORT_LOG_CSS`。
+
+除此之外不改 `src/index.ts`、`src/remotes.ts`、`src/ws-io.ts`、`src/session-manager.ts`、`client/TerminalWorkspace.tsx`、`client/TermView.tsx`、`client/rpc.ts`、`client/ws.ts` 或 `client/store.ts`。
+
+##### E3 模块结构
+
+~~~text
+src/ext/port-log/
+  index.ts                    host 总装配与 ctx.effect 清理
+  types.ts                    扩展私有配置/快照类型
+  errors.ts                   扩展错误与安全消息映射
+  router.ts                   /term-manager/ext/port-log 控制面
+  sse.ts                      扩展运行状态 Server-Sent Events
+  network.ts                  地址枚举、校验、网络错误归一化
+  csv.ts                      3/5/6 字段 CSV 解析与生成
+  mapping-store.ts            mappings.json
+  mapping-manager.ts          映射状态机和操作串行化
+  tcp-forwarder.ts            TCP 监听与双向流
+  udp-forwarder.ts            UDP 来源端点会话
+  share-manager.ts            会话共享服务器
+  telnet-server-codec.ts      共享客户端 IAC 状态机
+  app-logger.ts               应用日志与 5 MiB × 5 轮转
+  session-log-manager.ts      会话日志状态/订阅/写流
+  terminal-text-normalizer.ts ANSI、退格、CR/LF、时间戳
+
+client/ext/port-log/
+  index.tsx                   注册侧栏入口和 shell.overlay
+  rpc.ts                      扩展自有 RPC/SSE 客户端
+  store.ts                    可见性和运行态外部 store
+  PortLogWorkspace.tsx        浮层外壳和三页签
+  MappingsTab.tsx             映射 CRUD/启停/CSV/排序
+  SharesTab.tsx               会话选择、风险确认、客户端列表
+  LogsTab.tsx                 应用/会话日志状态与控制
+
+client/styles/port-log.ts      PORT_LOG_CSS
+~~~
+
+测试全部放 `tests/ext-port-log-*.spec.ts`；测试 helper 新建 `tests/ext-port-log-helpers.ts`，不修改 `tests/helpers.ts`。
+
+##### E4 端口映射设计
+
+配置：
+
+~~~typescript
+type MappingProtocol = 'tcp' | 'udp'
+type MappingState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error'
+
+interface PortMappingConfig {
+  id: string
+  protocol: MappingProtocol
+  localAddr: string
+  localPort: number
+  redirectAddr: string
+  redirectPort: number
+  autoStart: boolean
+}
+~~~
+
+- `localAddr` 必须是 IP 字面量；候选来自 `os.networkInterfaces()`，固定补入 `0.0.0.0` 和 `::`。`redirectAddr` 可为 IP 或域名。
+- 两端端口均为 1–65535；不使用 0 号临时端口。运行状态、错误和计数不落盘。
+- `mappings.json` 使用 `version: 1`；同目录临时文件 + rename 原子保存，目录/文件权限尽力设为 0700/0600。
+- 每个 id 有独立 Promise 操作链。重复 start/stop 幂等；update 为“停旧 → 存新 → 原先运行则重启”；remove 必须停完再删除。
+- autoStart 用 `Promise.allSettled`，失败只把该条置为 error 并写应用日志。
+
+TCP 使用 `node:net`：实际 `listen` 是端口占用的权威判据；目标连接前暂停入站，连接超时 3 秒；成功后双向 `pipe` 使用 Node 背压；一侧错误只销毁该连接对。stop 先停止 accept，最多给活动连接 2 秒排空，随后强制销毁。
+
+UDP 使用 `node:dgram`：启动时解析目标地址族；来源键为 family/address/port，每个来源使用独立目标 socket，单次 send 保留数据报边界。来源 60 秒空闲回收，每 10 秒统一 sweep；每条映射最多 1024 个来源；目标 socket 建立前每来源最多排队 64 个报文或 1 MiB。零长度报文照常转发。stop 清理 sweep、监听 socket 和全部来源 socket。
+
+计数统一为 `activeCount`、`bytesClientToTarget`、`bytesTargetToClient`；状态切换立即通知扩展 SSE，纯计数更新最多每 500ms 合并一次。
+
+CSV 导出为 UTF-8、CRLF、带 6 字段表头：
+
+~~~text
+protocol,localAddr,localPort,redirectAddr,redirectPort,autoStart
+~~~
+
+导入兼容 6 字段、IPOP 5 字段（autoStart=false）和 `protocol,local:port,redirect:port` 3 字段；IPv6 端点必须写为 `[::1]:8080`。支持双引号转义、可选表头、BOM 和空行。文件最大 1 MiB、1000 条；模式固定 merge；解析、校验和重复检查全部成功后才一次写入，失败返回行号/字段名而不回显整行。
+
+##### E5 会话共享设计
+
+- 配置含 `sessionId/localAddr/sharePort/maxClients/welcomeMessage`；默认 `0.0.0.0`、`maxClients=0`（无限制）、欢迎语不超过 512 字符。配置只存在运行期，不持久化、不自动恢复。
+- start 先用 `sessions.get` 确认 open，再创建 `net.Server`；成功后通过 `events.on(handler, { type: ['output','status'], sessionId })` 订阅。
+- output 事件编码为 UTF-8 并广播；Telnet 数据中的 FF 转义为 FF FF。新客户端只收到欢迎语和共享后的实时输出，不回放会话历史。
+- 客户端输入经流式 IAC 解析器消费 WILL/WONT/DO/DONT、SB...SE；普通数据用 `StringDecoder` 处理跨 chunk UTF-8，CRLF/CR-NUL 归一为 CR 后调用 `sessions.write`。
+- 服务器正确发送 IAC WILL ECHO（FF FB 01）和 IAC WILL SUPPRESS-GO-AHEAD（FF FB 03）；不采用 IPOP 文档中把 FE 误称为 DO ECHO 的写法。
+- 每客户端记录远端地址、连接时间和双向字节。`socket.writableLength > 1 MiB` 时只断开慢客户端，不暂停事件总线或其他客户端。
+- status 变为 closed/removed 时立即停止共享；stop/卸载关闭 listener、客户端和事件订阅，清理幂等。
+- 共享输入走人工输入语义，不经过 CommandGuard，也不受 AI busy 排队；多客户端/本地/AI 同时输入可能交错，UI 启动前必须以文字明确警告并要求勾选确认。
+
+##### E6 日志设计
+
+应用日志位于 `dataDir/ext/port-log/log/`，行格式为 ISO 时间 + 级别 + 事件名 + 清理后的 JSON 字段。默认最低级别 info，单行上限 16 KiB，写入串行化。当前文件写前达到 5 MiB 即轮转，总文件数含当前文件最多 5 个。敏感键 `password/privateKey/passphrase/authorization/token/secret/credential` 递归替换为 `[REDACTED]`；调用方仍不得传原始 RPC payload、环境变量、终端数据或认证错误堆栈。logger 自身失败只固定格式 `console.error`，不得递归记录。
+
+会话日志位于 `dataDir/ext/port-log/session_logs/`，默认关闭，文件名只用 sessionId 前 8 位和 UTC 时间，不用用户 label。它只订阅指定会话的 `output/status` 事件：
+
+~~~text
+TmEvent.output
+  → StringDecoder
+  → 可选跨 chunk ANSI 状态机
+  → 退格和 CR/LF 逻辑行
+  → 可选行首时间戳
+  → WriteStream
+~~~
+
+日志不订阅 input；若远端设备主动回显输入，回显属于 output，仍会出现。会话日志不轮转、不自动删除。stop、closed/removed 和卸载时先 flush 半行，再 `stream.end` 并等待 finish；不得用 destroy 丢缓冲。待写缓冲超过 1 MiB 或 stream error 时自动停写、保留安全错误并通知 UI。
+
+应用日志只记录扩展生命周期、映射启停/失败、共享启停及客户端连接/断开、会话日志启停/失败，以及 TmEvent 的 status/file 元数据；不记录 output/input 的 data。
+
+##### E7 控制面和实时状态
+
+host 扩展在 `src/ext/port-log/router.ts` 注册 prefix `/term-manager/ext/port-log`。DSH WebServer 使用最长前缀优先，因此该路由优先于主线 `/term-manager`，注册顺序不影响匹配，也无需修改 `remotes.ts`。
+
+JSON 操作：
+
+| 方法 | 用途 |
+|---|---|
+| mappings.list/create/update/remove/start/stop | 映射 CRUD 和启停 |
+| mappings.importCsv/exportCsv | CSV 批量导入和导出文本 |
+| network.localAddresses | 本机 IPv4/IPv6 候选 |
+| sessions.list | 从 SessionManagerApi.list 返回共享/日志可选会话 |
+| shares.list/start/stop | 会话共享 |
+| appLogs.status | 应用日志文件、级别和轮转状态 |
+| sessionLogs.list/start/update/stop | 会话日志控制 |
+
+请求沿用主线 ClientRequest/ClientResponse JSON 形状，但扩展自行实现 dispatcher 和类型校验。POST 请求体最多 2 MiB；所有错误为 `{code,message}`，message 不含凭据。OPTIONS、Content-Type、同源 Origin/Host 和 loopback 来源围栏由扩展路由自己处理，不复用主线私有函数。
+
+GET `/term-manager/ext/port-log/events` 提供 SSE。事件为 mapping-status/mapping-removed/share-status/share-removed/session-log-status/app-log-status。浏览器首次打开和 SSE 重连后先调 list/status 获取全量，再应用增量；SSE 只承载扩展私有状态，不向冻结 TmEventBus emit 新类型，也不修改 `/term-io`。
+
+##### E8 UI
+
+`registerPortLogClient` 只通过 Cordis slots 注册：
+
+1. `sidebar.footer.action`：新增“网络与日志”入口；
+2. `shell.overlay`：新增独立 `PortLogWorkspace` 浮层。
+
+浮层使用自身可见性 store，不 import 主线 client store。打开时覆盖工作区，关闭后回到原终端界面；主线终端会话始终保持。三个页签：
+
+- 端口映射：紧凑表单、排序选择、运行卡片、autoStart、启停、编辑/删除、CSV 导入/导出。
+- 会话共享：列出 open 会话，配置监听地址/端口/客户端上限/欢迎语，展示连接客户端。启动前必须勾选“任何可访问者均可查看并控制终端；可能干扰 AI 命令”。
+- 日志：应用日志状态；每个 open 会话的日志启停、时间戳、ANSI 清理、已写字节和路径复制；显示“不轮转，可能持续占用磁盘”。
+
+所有 CSS 在 `client/styles/port-log.ts`，类名使用 `.tm-ext-pl-*`，只用 `--dsw-*` token，无 CSS Modules/组件库。图标按钮有 title/aria-label，状态不只靠颜色，字段错误就地显示。
+
+##### E9 错误、生命周期与验证
+
+扩展错误码：`VALIDATION`、`PORT_IN_USE`、`ADDRESS_INVALID`、`TARGET_UNREACHABLE`、`MAPPING_NOT_FOUND`、`MAPPING_STATE`、`SHARE_ALREADY_ACTIVE`、`SHARE_NOT_FOUND`、`IO_ERROR`、`IO_BACKPRESSURE`、`IMPORT_INVALID`。只对外暴露安全消息。
+
+`registerPortLogExtension` 内部创建 logger、mapping store/manager、share manager、session log manager、SSE hub 和 router；用一个 `ctx.effect` disposer 执行幂等 shutdown：
+
+1. 拒绝新 start/写操作并关闭 SSE/router；
+2. stopAll shares；
+3. closeAll session logs 并刷盘；
+4. stopAll mappings；
+5. 写 extension.stopped 并 close AppLogger。
+
+不关闭 SessionManager，由主线 owner 负责。autoStart 在注册完成后异步执行，失败落到对应映射状态。
+
+构建期测试：
+
+- `tests/ext-port-log-store.spec.ts`：JSON、校验、原子写、CSV 3/5/6 字段、IPv6、批量回滚；
+- `tests/ext-port-log-tcp.spec.ts`：多连接、背压、半关闭、目标失败、端口冲突、停止释放、IPv6；
+- `tests/ext-port-log-udp.spec.ts`：两来源隔离、零长度报文、超时/上限、IPv4/IPv6、清理；
+- `tests/ext-port-log-share.spec.ts`：事件广播、write 输入、IAC、无历史、慢客户端、会话关闭；
+- `tests/ext-port-log-app-logger.spec.ts`：级别、顺序、5 MiB × 5、脱敏、I/O 降级；
+- `tests/ext-port-log-session-log.spec.ts`：仅 output、时间戳、跨块 ANSI、退格/CR、半行 flush、背压；
+- `tests/ext-port-log-router.spec.ts`：最长前缀路由、来源围栏、payload、错误、2 MiB 上限、SSE 清理；
+- `tests/ext-port-log-client.spec.ts`：slot 注册、三页签的纯状态模型、风险确认、SSE 重连后的全量刷新（当前 Vitest 只收集 `*.spec.ts`）；
+- `tests/ext-port-log-index.spec.ts`：挂载、autoStart、关闭顺序、幂等。
+
+最终证据：`pnpm build`、`pnpm test`、`pnpm vitest run --coverage`；3180 本地 DSH 截图；TCP/UDP echo、共享 telnet 双客户端、CSV 往返、日志轮转与敏感串搜索的本地端到端记录。合 main 前必须 rebase，确认 `src/types/` 无 diff、三处主线文件只有挂载行、全套测试全绿。
 
 ### 可扩展性设计（为后续功能留的口子）
 
@@ -414,16 +708,21 @@ dsh-terminal-manager/
 │   ├── wait-policy.ts         # B5 完成判定
 │   ├── command-guard.ts       # B8 命令守卫
 │   ├── transport/
-│   │   ├── types.ts           # 传输接口 + TransportError
+│   │   ├── types.ts           # 传输接口（含协议无关 SftpLike）+ TransportError
 │   │   ├── ssh.ts             # B2 SSH 传输
+│   │   ├── sftp.ts            # B2 SFTP 门面（SftpFacade implements SftpLike）【S5】
 │   │   └── telnet.ts          # B3 Telnet 传输（telnet/raw 双模式）
 │   ├── tools.ts               # B6 AI 工具 ×6
 │   ├── remotes.ts             # B7a 指令通道（/term-manager 前缀路由）
 │   ├── ws-io.ts               # B7b 数据流通道（/term-io WS）
 │   ├── event-bus.ts           # B9 事件总线实现
+│   ├── file-service.ts        # B10 文件服务（S1 本地四件套；S5 远端）
+│   ├── path-security.ts       # B10 路径安全（归一化 + realpath + 树根校验）
+│   ├── tc-parser.ts           # B11 TC 脚本解析（纯函数）
+│   ├── config.ts              # 插件 Config schema（workspaceRoot）
 │   ├── types/                 # 模块间契约（纯声明；改动单独 PR，两人 review）
 │   │   ├── events.ts          #   TmEvent / TmEventBus
-│   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型
+│   │   ├── session-api.ts     #   SessionManagerApi + 会话数据类型 + AuthConfig（凭据判别联合，唯一定义处）
 │   │   └── file-service.ts    #   FileService（本地 + 远端）
 │   └── ext/                   # 扩展模块（扩展模块负责人）：index.ts 是唯一挂载点，模块放 ext/<模块>/
 ├── client/                    # 浏览器半（F1–F6）
@@ -434,6 +733,9 @@ dsh-terminal-manager/
 │   ├── ws.ts                  # F5 /term-io WS 客户端（重连 + attach）
 │   ├── rpc.ts                 # /term-manager RPC 客户端
 │   ├── store.ts               # F6 状态同步（可见性/布局/未读）
+│   ├── files/                 # F7 本地文件面板（FilePanel.tsx + useLocalFs.ts）
+│   ├── editor/                # F8/F9 浮动编辑器窗 + Tab + CodeMirror（EditorWindow / CodeEditor / editorStore）
+│   ├── tc/                    # F10/F11 TC 执行（确认框 / 汇总条 / runScript）+ 发送选中弹窗
 │   ├── styles/                # 全局 .tm- 前缀 CSS（--dsw-* token），按功能分文件，index.ts 拼接
 │   ├── ext/                   # 扩展模块浏览器半（扩展模块负责人）：index.tsx 是唯一挂载点
 │   └── raw.d.ts               # 声明虚拟模块（tm:xterm-css）
@@ -441,7 +743,7 @@ dsh-terminal-manager/
 │   ├── mock-device.mjs        # 模拟 Telnet 设备（路由器 CLI，ANSI 色，退格钳制）
 │   ├── mock-ssh-device.mjs    # 模拟 SSH 设备（admin/test-pass，吃任意密钥）
 │   └── smoke-e2e.mjs          # 19 场景冒烟（对活服务）
-├── tests/                     # 185 项 vitest（17 个 spec 文件）+ helpers.ts（模拟设备工厂）
+├── tests/                     # 312 项 vitest（33 个 spec 文件）+ helpers.ts（模拟设备工厂）
 ├── evals/                     # scenarios.md（24 条 eval 种子）+ manual-acceptance.md（人工验收清单）
 ├── （docs/ 不入库）             # 设计方案 / 交互设计 / 归档文档放仓库外 ../开发过程文档/
 ├── prototypes/                # M1 交互原型 + SELECTION.zh.md 选型结论；九月原型 design-demo / file-panels / float-editor-*
@@ -485,15 +787,21 @@ dsh-terminal-manager/
 | 凭据加密（DSH `ctx.credentials`） | 后续迭代，替掉明文 JSON |
 | SSH 主机密钥 TOFU | MVP 后首个安全迭代 |
 | 面板入口快捷键 | 延后，MVP 不做 |
+| TC 脚本 6 项暂定决策（B11） | 按暂定值实现；与同事确认后若有变只改 `tc-parser.ts` / `runScript.ts` |
+| Excel（.xlsx）等非文本文件 | **已定（2026-09-02）：不自己编辑，交给用户本机的默认程序打开**——`files.open` 端点（B10）在树根围栏内用系统关联程序打开；面板双击非文本文件即走此路 |
+| better-sidebar 源码位置 | 已拿到：`../DSH-better-sidebar`（MIT，v0.18.0-alpha.0）。抄 path-security / fs-tree / FreeWindow / TabBar / TextEditor+cm-themes，逐文件裁剪，对照表见 plan.md |
+| 日志模块的本地落盘 / 下载入口 | `writeLocal` 限树根、`download` 是远端下载，日志模块可能需要不限树根的写和本地下载路由——待同事确认后按需追加契约方法 |
+| S5 前端交互细节（另存为要不要行内进度条、拖拽行为、脏修改提示、进度条样式） | 周五交互会定；后端能力已留好（transferId + `file-progress` 帧含终态）。`downloadToLocal` 行内进度条已拍板要做（2026-09-03），步骤 8 已落地：② 行内进度 + ③ 另存为也进传输条（进度只有终态帧）；OS 拖拽先做单文件直传；脏修改上传按已保存版本处理并提示——正式交互待周五 |
 
 ## 验证计划
 
-**构建期测试（`pnpm test` = vitest，185 项基线）**
+**构建期测试（`pnpm test` = vitest，312 项基线）**
+- 九月新增：`config`（schema 缺省 / 覆盖）、`path-security`（逃逸 / junction / win32 大小写）、`file-service`（本地四件套 / 原子写 / 截断）、`remotes-files`（files.* 与 sessions.send 端点）、`tc-parser`（真实样例整段）、`client-files` / `client-editor-store` / `client-lang` / `client-tc`（前端纯逻辑：面板状态、Tab 状态机、语言映射与几何、执行计划 / 串并行 / 超时 / 中止）。
 - 单元：`wait-policy` 三重判定的时序用例（优先级/无输出只有超时/截断）；`connection-store` 持久化/校验/落盘；`command-guard` 黑白名单；`session-manager` 状态机、独占发送、去重、广播逐台结果。
 - 传输：进程内 ssh2 Server + 本地 TCP echo 服务，跑真实 `connect → send → 完成判定 → read → disconnect` 全链路；断连、超时、忙碌并发路径（`tests/transport.spec.ts` 等）。
 - 工具层：经测试上下文调用六个 `tm_*`，断言 schema 与返回（含 `presentCall` 卡片）。
 - 集成胶水：`remotes`（HTTP handler / dispatch）、`ws-io`（帧分发/心跳/订阅清理）、`client/` 的 `ws`（重连/attach）、`rpc`（封包解包）、`store`（布局/可见性）——`tests/` 目录 14 个 spec 文件。
-- 覆盖率阈值（src-only，`vitest.config.ts`）：语句 72 / 分支 60 / 函数 72 / 行 74。
+- 覆盖率阈值（src-only，`vitest.config.ts`）：语句 90 / 分支 80 / 函数 90 / 行 90（2026-09-02 起）。
 
 **模拟设备**
 - `scripts/mock-device.mjs`：Telnet 路由器 CLI（ANSI 色：提示符绿/横幅青/错误红）；退格钳制（输入行空时不回退，防删掉 `router>` 提示符）；`--iac` 旗标可发 IAC 协商序列。
@@ -510,4 +818,4 @@ dsh-terminal-manager/
 - `evals/manual-acceptance.md` 人工验收清单（UI 交互：隐藏/显示、拖动、复制粘贴、退格等）。
 
 **运行验证（本地）**
-`pnpm build`（tsdown）→ `pnpm test`（185 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。
+`pnpm build`（tsdown）→ `pnpm test`（312 项全绿）→ 在 `../deepseek-harness` 下 `pnpm dsh --profile tm-dev --port 3180 --no-open`（**3180**；3080 被用户自己的 DSH 占用，别动）。健康判据：`/plugins/dsh-terminal-manager/client.js` 返回 200；首页 `__DSH_BOOT__` 含 `dsh-terminal-manager` 行。

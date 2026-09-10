@@ -10,6 +10,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ConnectionStore } from '../src/connection-store.ts'
+import { LocalFileService } from '../src/file-service.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
 import { registerTerminalTools } from '../src/tools.ts'
@@ -68,7 +69,7 @@ async function setup() {
   await ctx.plugin(AgentRegistry)
   const { emit, factory } = fakeFactory()
   const sessions = new SessionManager(store, factory)
-  registerTerminalTools(ctx, sessions)
+  registerTerminalTools(ctx, { sessions, files: new LocalFileService(), workspaceRoot: dir })
   const agent = fakeAgent(ctx, 'm3-tools')
   const signal = new AbortController().signal
   let callNumber = 0

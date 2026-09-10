@@ -5,10 +5,12 @@
  */
 
 import { Client } from 'ssh2'
-import type { ClientChannel } from 'ssh2'
+import type { ClientChannel, SFTPWrapper } from 'ssh2'
+import { SftpFacade } from './sftp.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   TransportError,
+  type SftpLike,
   type Transport,
   type TransportCallbacks,
   type TransportConnectOptions,
@@ -50,6 +52,9 @@ export function connectSsh(
     let connected = false // 连接是否成功建立
     let closed = false
     let stream: ClientChannel | undefined
+    // SFTP 子通道按连接复用（审查 H1：每操作新开一条且不关，真实 OpenSSH MaxSessions(默认 10) 几次就耗尽）
+    let sftpPromise: Promise<SftpLike> | undefined
+    let sftpRaw: SFTPWrapper | undefined
 
     const fail = (err: unknown): void => {
       if (settled) return
@@ -106,9 +111,34 @@ export function connectSsh(
             resize: (cols: number, rows: number) => {
               if (!closed) channel.setWindow(rows, cols, 0, 0)
             },
+            // 懒开 sftp 子通道并复用（并发操作共享同一条子通道，SFTP 协议支持多路请求）；
+            // 打开失败不缓存（设备未开子系统可重试），通道自行死亡时失效缓存下次重开
+            getSftp: () => {
+              if (closed) return Promise.reject(new TransportError('DISCONNECTED', 'SSH 连接已断开，无法打开 SFTP'))
+              if (sftpPromise !== undefined) return sftpPromise
+              sftpPromise = new Promise<SftpLike>((resolveSftp, rejectSftp) => {
+                conn.sftp((err, sftp) => {
+                  if (err) {
+                    sftpPromise = undefined
+                    // 等回调期间断线也按 DISCONNECTED 报；其余（如设备未开 sftp 子系统）归 PROTO_ERROR
+                    rejectSftp(
+                      closed
+                        ? new TransportError('DISCONNECTED', 'SSH 连接已断开，无法打开 SFTP')
+                        : new TransportError('PROTO_ERROR', `打开 SFTP 子通道失败: ${err.message}`, { cause: err }),
+                    )
+                    return
+                  }
+                  sftpRaw = sftp
+                  sftp.on('close', () => { sftpPromise = undefined; sftpRaw = undefined })
+                  resolveSftp(new SftpFacade(sftp))
+                })
+              })
+              return sftpPromise
+            },
             close: async () => {
               finishClose('本端主动断开')
               channel.close()
+              sftpRaw?.end()
               conn.end()
             },
           })
@@ -123,9 +153,8 @@ export function connectSsh(
       readyTimeout: timeoutMs,
       // MVP：接受任意主机密钥（风险已记录，后续做首次信任）
       hostVerifier: () => true,
-      ...(options.password !== undefined ? { password: options.password } : {}),
-      ...(options.privateKey !== undefined ? { privateKey: options.privateKey } : {}),
-      ...(options.passphrase !== undefined ? { passphrase: options.passphrase } : {}),
+      ...(options.auth?.kind === 'password' ? { password: options.auth.password } : {}),
+      ...(options.auth?.kind === 'key' ? { privateKey: options.auth.privateKey, ...(options.auth.passphrase !== undefined ? { passphrase: options.auth.passphrase } : {}) } : {}),
     })
   })
 }

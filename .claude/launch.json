@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dsh-tm-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "../deepseek-harness", "dsh", "--profile", "tm-dev", "--port", "3180", "--no-open"],
+      "port": 3180
+    }
+  ]
+}

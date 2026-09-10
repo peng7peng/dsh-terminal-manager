@@ -39,15 +39,18 @@ export interface BroadcastEntry {
 
 export type SessionErrorCode = 'SESSION_NOT_FOUND' | 'SESSION_BUSY' | 'DISCONNECTED' | 'COMMAND_BLOCKED' | 'SESSION_NOT_DISCONNECTED'
 
+/** 认证配置（密码或密钥；与 ConnectionConfig.auth 同构，消除扁平/嵌套两套结构） */
+export type AuthConfig =
+  | { kind: 'password'; password: string }
+  | { kind: 'key'; privateKey: string; passphrase?: string }
+
 /** 连接目标的传输层参数（由存储或临时连接提供）。 */
 export interface ConnectTarget {
   protocol: 'ssh' | 'telnet'
   host: string
   port: number
   username?: string
-  password?: string
-  privateKey?: string
-  passphrase?: string
+  auth?: AuthConfig
   label?: string
   /** Telnet 模式：'telnet'（协议协商）| 'raw'（裸 TCP，默认） */
   telnetMode?: 'telnet' | 'raw'

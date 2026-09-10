@@ -6,11 +6,18 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
+import { IconBroadcast16, IconPanelBottom16, IconPanelRight16, IconTerminal16 } from './icons.tsx'
 import { TermWs } from './ws.ts'
-import { setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
+import { getEffectiveChatWidth, setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
 import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
+import { FilePanel } from './files/FilePanel.tsx'
+import { RemoteFilePanel, remoteFsStore } from './files/RemoteFilePanel.tsx'
+import { EditorWindow, editorStore } from './editor/EditorWindow.tsx'
+import { ToastHost } from './ToastHost.tsx'
+import { buildTcOrder, tcIndexMap } from './tc/tcMap.ts'
+import { useTcActions } from './tc/useTcActions.tsx'
 
 export function TerminalWorkspace(): React.JSX.Element | null {
   const visible = useWorkspaceVisible()
@@ -22,7 +29,10 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     const startX = e.clientX
-    const startChat = chat
+    // 用实际生效宽度作为起点，而非 raw chat 值（初始 460 与自动计算值不同会导致首次拖动跳变）
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement as HTMLElement | null
+    const sidebar = (frame?.children[0] as HTMLElement | undefined)?.offsetWidth ?? 264
+    const startChat = getEffectiveChatWidth(window.innerWidth, sidebar)
     const handle = e.currentTarget
     handle.setPointerCapture(e.pointerId)
     const move = (ev: PointerEvent): void => setChatWidth(startChat + (ev.clientX - startX))
@@ -42,6 +52,15 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const [bcCmd, setBcCmd] = useState('')
   const [columns, setColumns] = useState<1 | 2 | 3>(2) // 默认 2 列
   const [maximized, setMaximized] = useState<string | null>(null) // 最大化的会话 ID
+  const [sidePanelHidden, setSidePanelHidden] = useState<boolean>(() => { try { return localStorage.getItem('tm.workspace.sideHidden') === '1' } catch { return false } })
+  const [bottomPanelHidden, setBottomPanelHidden] = useState<boolean>(() => { try { return localStorage.getItem('tm.workspace.bottomHidden') === '1' } catch { return false } })
+
+  function toggleSidePanel(): void {
+    setSidePanelHidden(prev => { const n = !prev; try { localStorage.setItem('tm.workspace.sideHidden', n ? '1' : '0') } catch { /* ignore */ } return n })
+  }
+  function toggleBottomPanel(): void {
+    setBottomPanelHidden(prev => { const n = !prev; try { localStorage.setItem('tm.workspace.bottomHidden', n ? '1' : '0') } catch { /* ignore */ } return n })
+  }
 
   function toggleHidden(sid: string): void {
     setHidden(prev => {
@@ -89,6 +108,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     })
     ws.open()
     wsRef.current = ws
+    // S5：文件传输进度帧 → 远端面板 store（广播帧，store 自己按 transferId 过滤）
+    ws.onFileProgress(frame => remoteFsStore().pushFrame(frame))
   }
 
   // 首次可见时拉一次会话全量快照
@@ -110,11 +131,12 @@ export function TerminalWorkspace(): React.JSX.Element | null {
 
   const ws = wsRef.current
 
-  async function connect(target: { connId?: string; protocol?: string; host?: string; port?: number; username?: string; password?: string; label?: string }): Promise<void> {
+  async function connect(target: { connId?: string; protocol?: string; host?: string; port?: number; username?: string; password?: string; label?: string }): Promise<SessionSnap | undefined> {
     try {
       const snap = await rpc<SessionSnap>('sessions.connect', target)
       setSessions(prev => prev.some(s => s.sessionId === snap.sessionId) ? prev.map(s => s.sessionId === snap.sessionId ? snap : s) : [...prev, snap])
-    } catch (err) { alert((err as RpcError).message) }
+      return snap
+    } catch (err) { alert((err as RpcError).message); return undefined }
   }
   async function disconnect(sessionId: string): Promise<void> {
     try { await rpc('sessions.disconnect', { sessionId }) } catch { /* ignore */ }
@@ -149,7 +171,15 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     [sessions, sessionOrder],
   )
 
-  // 广播目标默认全选可见的「在线」会话
+  // 发送选中的直接发送目标 = 广播栏**明确勾选**的会话；没勾选 = 弹框让用户选（不盲发全部）
+  const bcTargets = useMemo(() => [...broadcastChips], [broadcastChips])
+
+  // TC 编号（D1）：open 会话按列表顺序编号；隐藏占号、断线不占号
+  const tcMap = useMemo(() => tcIndexMap(buildTcOrder(allSessions)), [allSessions])
+  // F10/F11：编辑器底栏按钮 + 右键菜单 + 汇总条（TC 执行 / 发送选中，默认目标跟随广播栏）
+  const tc = useTcActions(allSessions, bcTargets)
+
+  // 广播栏自己的「全部」语义：可见的在线会话（广播没勾 = 发全部，与发送选中不同）
   const visibleSessions = allSessions.filter(s => s.status === 'open' && !hidden.has(s.sessionId))
   const allOn = visibleSessions.length > 0 && visibleSessions.every(s => broadcastChips.has(s.sessionId))
   function toggleChip(sid: string): void {
@@ -175,7 +205,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
       <div className="tm-draghandle" onPointerDown={onDragStart} title="拖动调整聊天/终端宽度" />
       <div className="tm-main">
         <div className="tm-head">
-          <span className="t">🖥️ 终端</span>
+          <span className="t"><IconTerminal16 className="tm-headIcon" /> 终端</span>
           <span className="onb">在线 <b>{onlineCount}</b> / {allCount}</span>
           <span className="sp" />
           <label className="tm-col-select">
@@ -188,6 +218,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           </label>
           <button className="tm-close" onClick={() => setHidden(h => { const n = new Set(h); visibleSessions.forEach(s => n.add(s.sessionId)); return n })}>全部隐藏</button>
           <button className="tm-close" onClick={() => setHidden(new Set())}>全部显示</button>
+          <button className="tm-panelBtn" onClick={toggleBottomPanel} title={bottomPanelHidden ? '显示下方文件面板' : '隐藏下方文件面板'}><IconPanelBottom16 visible={!bottomPanelHidden} /></button>
+          <button className="tm-panelBtn" onClick={toggleSidePanel} title={sidePanelHidden ? '显示右侧连接面板' : '隐藏右侧连接面板'}><IconPanelRight16 visible={!sidePanelHidden} /></button>
         </div>
         <div className="tm-grid" style={{ gridTemplateColumns: maximized ? '1fr' : `repeat(${columns}, 1fr)` }}>
           {allSessions.length === 0 ? (
@@ -199,15 +231,18 @@ export function TerminalWorkspace(): React.JSX.Element | null {
               <div key={s.sessionId} data-session-id={s.sessionId} className={`${hidden.has(s.sessionId) ? 'tm-term-hidden' : ''} ${s.status === 'closed' ? 'tm-term-closed' : ''} ${maximized === s.sessionId ? 'tm-term-maximized' : ''}`}>
                 <TermView
                   sessionId={s.sessionId}
+                  connId={s.connId}
                   label={s.label}
                   target={s.target}
                   ws={ws}
                   onDisconnect={disconnect}
                   isHidden={hidden.has(s.sessionId)}
+                  isOpen={s.status === 'open'}
                   isClosed={s.status === 'closed'}
                   isMaximized={maximized === s.sessionId}
                   onToggleMaximize={() => toggleMaximize(s.sessionId)}
                   onMinimize={() => minimize(s.sessionId)}
+                  tcIndex={tcMap.get(s.sessionId)}
                 />
               </div>
             )
@@ -215,7 +250,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
         </div>
         <div className="tm-bcast">
           <div className="tm-brow">
-            <span className="lb">📢 广播到</span>
+            <span className="lb"><IconBroadcast16 className="tm-bcastIcon" /> 广播到</span>
             <div className="tm-bchips">
               <span className={`tm-bchip ${allOn ? 'on' : ''}`} onClick={toggleAll}>全部</span>
               {visibleSessions.map(s => (
@@ -228,8 +263,18 @@ export function TerminalWorkspace(): React.JSX.Element | null {
             <button className="tm-bsend" onClick={broadcast}>{broadcastChips.size > 0 ? `发送（${broadcastChips.size}）` : '发送'}</button>
           </div>
         </div>
+        {/* S5 远端文件面板（本地面板上方一行）+ F7 本地文件面板 */}
+        {!bottomPanelHidden && (
+          <>
+            <RemoteFilePanel sessions={sessions} />
+            <FilePanel onOpenFile={(entry) => void editorStore().openFile(entry.path)} />
+          </>
+        )}
       </div>
-      <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />
+      {/* F8 浮动编辑器（fixed 于视口，可拖到聊天区上方）；S5 上传入口注入 actions 槽 */}
+      <EditorWindow actions={tc.actions} below={tc.below} onContextMenu={tc.onContextMenu} />
+      <ToastHost />
+      {!sidePanelHidden && <ConnectionsPanel sessions={sessions} unreadSet={unreadSet} hiddenSet={hidden} sessionOrder={sessionOrder} tcMap={tcMap} onConnect={connect} onDisconnect={disconnect} onReconnect={reconnect} onFocus={focusSession} onMarkRead={markRead} onToggleHidden={toggleHidden} onReorder={reorder} />}
     </div>
   )
 }

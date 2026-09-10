@@ -1,0 +1,178 @@
+[hdd启动]
+##>0
+ubdfx resvdmem 0x803f0000000 0x200000000
+provision 10.0.0.9 -u user1 -p pass1 -f ./1650/Image_newdriver -a 0x20000000
+provision 10.0.0.9 -u user1 -p pass1 -f ./1650/minifs_ub_asic.cpio.gz -a 0x800E0000000
+acpistartos "earlycon=pl011,mmio32,0x405D60000 console=ttyAMA0,115200 acpi=force root=/dev/ram0 rw initrd=0x800e0000000,400M net.ifnames=0 biosdevname=0 efi=debug loglevel=8 nokaslr numa_remote=nofallback,preonline pmd_mapping=100% ubfabric_addr=0x30200FF000"
+##>1
+ifconfig -s eth0 static 10.0.1.79 255.255.254.0 10.0.1.1
+##>2
+ifconfig -s eth0 static 10.0.1.84 255.255.254.0 10.0.1.1
+##>12
+provision 10.0.0.9 -u user2 -p pass2 -f v121_dt_1t.img -a 0x28B00000
+provision 10.0.0.9 -u user2 -p pass2 -f Image -a 0x21300000
+provision 10.0.0.9 -u user2 -p pass2 -f fullfs.cpio.gz -a 0x29302100
+dtbstartos 0x21300000 0x28b00000
+
+[调试网口驱动]
+##>0
+insmod /linquicCV/drv_rgmii.ko
+ifconfig eth0 10.0.1.77 netmask 255.255.254.0
+route add default gw 10.0.1.1
+ifconfig eth0 hw ether 20:25:16:50:27:59
+##>12
+insmod /iopkit/driver/drv_rgmii.ko
+##>1
+ifconfig eth0 hw ether 302606042230
+ifconfig eth0 10.0.1.79 netmask 255.255.254.0
+##>2
+ifconfig eth0 hw ether 302606042232
+ifconfig eth0 10.0.1.84 netmask 255.255.254.0
+##>12
+route add default gw 10.0.1.1
+
+[hdd驱动]
+##>0
+cd /linquicCV/
+ftpget -u user2 -p pass2 10.0.0.9 1650_ub_ko.tar.gz
+tar -zxvf 1650_ub_ko.tar.gz
+echo 4 4 1 7 > /proc/sys/kernel/printk
+insmod unibsp.ko
+insmod ub_mod.ko Bver=800 node_info_id=0x0
+insmod ub_feature.ko ummu_en=1 node_id=0 port_init_temp_id=4
+##>12
+cp /linquicCV/tools/users/unibsp.out /bin
+chmod +x /bin/unibsp.out
+echo 4 4 1 7 > /proc/sys/kernel/printk
+cd /linquicCV/drivers
+insmod unibsp.ko
+insmod ub_mod.ko Bver=800 node_info_id=0x1
+##>1
+insmod ub_feature.ko ummu_en=1 node_id=1 port_init_temp_id=19
+##>2
+insmod ub_feature.ko ummu_en=1 node_id=2 port_init_temp_id=19
+##>012
+insmod ub_ktc.ko
+
+[ddie驱动]
+##>12
+cd /modules
+insmod svm.ko
+insmod drv_mp.ko
+insmod drv_ml_stars.ko bypass_tsfw=1
+insmod drv_ml_stars_intf.ko
+echo 1 > /proc/mp/log_level
+cd /
+cp -r /testcase/aibin /
+
+##>012
+echo "call \"bp_monitor_exit\"" | unibsp.out shell
+[路由配置]
+echo "call \"set_route_stream\",14" | unibsp.out shell
+[xmsg初始化]
+echo "call \"xmsg_init\"" | unibsp.out shell
+[建链]
+echo "call \"link_monitor_start\"" | unibsp.out shell
+
+##>012
+echo "call \"xdma_cfg_set_cq_timeout\",1000" | unibsp.out shell
+echo "call \"xdma_cfg_set_xmsg_timeout\",1000" | unibsp.out shell
+
+##>012
+[call函数声明]
+call() {
+  local s="$1"
+  if [[ "$s" == *,* ]]; then
+    printf 'call "%s",%s\n' "${s%%,*}" "${s#*,}" | unibsp.out shell
+  else
+    printf 'call "%s"\n' "$s" | unibsp.out shell
+  fi
+}
+
+
+[hdd0020]
+[cdma 用例]
+##>0
+##配PPP_TP_TRUST_HOST_ENABLE
+devmem 0x3302082a84 32 1
+##>12
+devmem 0x20202082a84 32 1
+
+[管控面下发与D2H任务并发]
+##server侧准备buffer
+##>0
+echo "call \"lcv_xdma_send\",3,18079,0,0,1,0x1,0,0x301" | unibsp.out shell
+##>1
+echo "call \"lcv_xdma_send\",3,18079,0,0,1,0x1,0,0x101" | unibsp.out shell
+##>2
+echo "call \"lcv_xdma_send\",3,18079,0,0,1,0x1,0,0x105" | unibsp.out shell
+
+[打印控制]
+##>012
+echo 4 4 1 7 > /proc/sys/kernel/printk
+echo 1 > /proc/mp/log_level
+echo "call \"set_feature_print_level\",2" | unibsp.out shell
+echo "call \"set_mod_src_print_level\",2" | unibsp.out shell
+echo "call \"set_ktc_print_level\",2" | unibsp.out shell
+
+[cdma流量启动]
+##1650-->d1
+##>0
+echo "call \"lcv_xdma_send\",3,18079,0,1,0,0x100000,0,0x201" | unibsp.out shell
+call manual_set_host_info,1,0xfffff3c1e000,1,1515870810
+##间隔1s再发
+echo "call \"lcv_xdma_send\",3,18079,0,1,0,0x100000,0,0x203" | unibsp.out shell
+call manual_set_host_info,1,0xfffff3c1e000,1,1515870810
+
+##d1-->1650
+##>1
+echo "call \"lcv_xdma_send\",3,18079,0,1,0,0x100000,0,0x101" | unibsp.out shell
+call manual_set_host_info,1,0xfffff2b5d000,0,1515870810
+##间隔1s再发
+echo "call \"lcv_xdma_send\",3,18079,0,1,0,0x100000,0,0x103" | unibsp.out shell
+call manual_set_host_info,1,0xfffff2b5d000,0,1515870810
+
+[xdma用例配置 HDD 0020]
+##>0
+echo "call \"lcv_xdma_send\",1,18023,0,2,0,0x1000000,0,0x201" | unibsp.out shell
+##>1
+echo "call \"lcv_xdma_send\",1,18023,0,2,1,0x1000000,0,0x101" | unibsp.out shell
+##>01
+
+##间隔5s再发
+
+##>0
+echo "call \"lcv_xdma_send\",1,18023,0,3,0,0x1000000,0,0x203" | unibsp.out shell
+##>1
+echo "call \"lcv_xdma_send\",1,18023,0,3,1,0x1000000,0,0x103" | unibsp.out shell
+##>01
+
+[CCU用例配置 HDD 0020]
+##>12
+cd /linquicCV/ccu_ktest/
+tar -zxvf ccu_testcase.tar.gz
+
+##>12
+cp /linquicCV/ccu_ktest/testcase/net/2P_die1_10port_x4_hdd_ctp.json /linquicCV/ccu_ktest/testcase/net/2P_die1.json
+echo "call \"set_ccu_param\",2,2,64,0,1,1,1,8,0,0,0,0,0" | unibsp.out shell
+##>1
+echo "call \"ccu_net_param_init\",1,2,0" | unibsp.out shell
+##>2
+echo "call \"ccu_net_param_init\",1,2,1" | unibsp.out shell
+##>12
+cd /
+
+[用例启动]
+stc /linquicCV/ccu_ktest/testcase/ESL_smoke/smoke_basic0.xml&
+##间隔5s再发
+echo "call \"ccu_cke_cfg\",1,0,3" | unibsp.out shell
+
+[stars调xdma write]
+##>12
+ftpget -u user2 -p pass2 10.0.0.9 hdd0020_write_die01_p0.xml
+ftpget -u user2 -p pass2 10.0.0.9 hdd0020_write_die01_p1.xml
+##>1
+stc hdd0020_write_die01_p0.xml&
+##>2
+stc hdd0020_write_die01_p1.xml&
+##>12

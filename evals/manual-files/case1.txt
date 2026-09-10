@@ -1,0 +1,13 @@
+[基础信息]
+##>0
+show version
+show ip interface brief
+##>01
+##间隔1s再发
+show clock
+[接口检查]
+##>0
+show interfaces
+###echo 可发送注释
+##>5
+show run

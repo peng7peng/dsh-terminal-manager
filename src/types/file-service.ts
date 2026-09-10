@@ -78,6 +78,8 @@ export interface FileService {
 
   // ── 远端（按会话协议分派：SSH → SFTP；Telnet → 命令模拟；M5 实现）──
   listRemote(req: { sessionId: string; path: string }): Promise<FileEntry[]>
+  /** 获取远端终端当前工作目录（SFTP realpath('.')） */
+  remoteCwd(req: { sessionId: string }): Promise<string>
   upload(req: { sessionId: string; remotePath: string; source: UploadSource; onProgress?: (p: TransferProgress) => void }): Promise<TransferResult>
   /** 下载成流（HTTP 路由直接管到响应，触发浏览器保存） */
   download(req: { sessionId: string; remotePath: string; onProgress?: (p: TransferProgress) => void }): Promise<{ stream: Readable; size?: number }>

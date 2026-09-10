@@ -39,7 +39,7 @@ describe('B2 SSH 传输（进程内设备）', () => {
     const { port } = await lab.startSshDevice()
     const out = collector()
     const transport = await connectSsh(
-      { host: '127.0.0.1', port, username: 'admin', password: 'test-pass' },
+      { host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'test-pass' } },
       { onData: out.onData, onClose: () => {} },
     )
     await out.waitFor('Welcome to test device')
@@ -58,7 +58,7 @@ describe('B2 SSH 传输（进程内设备）', () => {
     }).privateKey
     const out = collector()
     const transport = await connectSsh(
-      { host: '127.0.0.1', port, username: 'admin', privateKey: clientKey },
+      { host: '127.0.0.1', port, username: 'admin', auth: { kind: 'key' as const, privateKey: clientKey } },
       { onData: out.onData, onClose: () => {} },
     )
     await out.waitFor('Welcome to test device')
@@ -69,7 +69,7 @@ describe('B2 SSH 传输（进程内设备）', () => {
     const { port } = await lab.startSshDevice()
     try {
       await connectSsh(
-        { host: '127.0.0.1', port, username: 'admin', password: 'wrong-pass-xyz' },
+        { host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'wrong-pass-xyz' } },
         { onData: () => {}, onClose: () => {} },
       )
       expect.unreachable('应认证失败')
@@ -84,7 +84,7 @@ describe('B2 SSH 传输（进程内设备）', () => {
     const { port } = await lab.startSshDevice()
     await lab.cleanup()
     await expect(connectSsh(
-      { host: '127.0.0.1', port, username: 'admin', password: 'p', connectTimeoutMs: 2000 },
+      { host: '127.0.0.1', port, username: 'admin', auth: { kind: 'password' as const, password: 'p' }, connectTimeoutMs: 2000 },
       { onData: () => {}, onClose: () => {} },
     )).rejects.toMatchObject({ code: 'HOST_UNREACHABLE' })
   })

@@ -12,9 +12,28 @@ export type OutFrame =
   | { kind: 'input'; sessionId: string; data: string }
   | { kind: 'resize'; sessionId: string; cols: number; rows: number }
 
+/**
+ * 文件传输进度帧（S5）：host 广播给所有连接，前端按 transferId 过滤（自己的传输才认）。
+ * 形状镜像 host 端 OutFrame 的 file-progress 分支（src/ws-io.ts）；done=true 是终态帧。
+ */
+export type FileProgressFrame = {
+  kind: 'file-progress'
+  transferId: string
+  op?: 'upload' | 'download'
+  sessionId?: string
+  remotePath?: string
+  transferred?: number
+  total?: number
+  percent?: number
+  done?: boolean
+  ok?: boolean
+  error?: string
+}
+
 export type InFrame =
   | { kind: 'output'; sessionId: string; data: string }
   | { kind: 'status' } & Record<string, unknown>
+  | FileProgressFrame
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 
@@ -33,6 +52,7 @@ export class TermWs {
   private status: ConnectionStatus = 'closed'
   private readonly attached = new Set<string>()
   private readonly outputHandlers = new Map<string, (data: string) => void>()
+  private readonly progressHandlers = new Set<(frame: FileProgressFrame) => void>()
   private statusHandler: ((frame: InFrame) => void) | undefined
   private reconnectHandler: (() => void) | undefined
   private reconnectAttempt = 0
@@ -67,6 +87,12 @@ export class TermWs {
   onStatus(handler: (frame: InFrame) => void): () => void {
     this.statusHandler = handler
     return () => { this.statusHandler = undefined }
+  }
+
+  /** 订阅文件传输进度帧（广播帧，含终态；消费方自行按 transferId 过滤）。 */
+  onFileProgress(handler: (frame: FileProgressFrame) => void): () => void {
+    this.progressHandlers.add(handler)
+    return () => { this.progressHandlers.delete(handler) }
   }
 
   /** 订阅 WebSocket 重连事件（断开后重新连接成功时触发）。 */
@@ -135,6 +161,8 @@ export class TermWs {
       handler?.(frame.data)
     } else if (frame.kind === 'status') {
       this.statusHandler?.(frame)
+    } else if (frame.kind === 'file-progress') {
+      for (const handler of this.progressHandlers) handler(frame)
     }
   }
 

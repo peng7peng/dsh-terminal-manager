@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
-import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
-import { createDeviceLab } from './helpers.ts'
+import type { SftpLike, Transport, TransportCallbacks } from '../src/transport/types.ts'
+import { createDeviceLab, fakeSftpLike } from './helpers.ts'
 
 /** ── 假传输工厂：每次 connect 一个独立槽位，完全可控 ── */
 
@@ -117,6 +117,47 @@ describe('SessionManager 会话生命周期', () => {
     expect(page.text).toBe('line2\nline3')
     expect(page.totalLines).toBe(3)
     expect(page.truncated).toBe(true)
+  })
+
+  // U-SM-CA-01：closeAll 关闭多会话
+  // 场景：创建 2+ 个会话（不同端口避免去重），调用 closeAll()，验证每台 transport.close 都被调用。
+  it('closeAll 关闭多会话：每个会话的 transport.close 都被调用', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const a = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 21, label: 'dev-a' })
+    const b = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 22, label: 'dev-b' })
+    const c = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 23, label: 'dev-c' })
+    expect(sm.list()).toHaveLength(3)
+    expect(rec.closeCount).toBe(0)
+    await sm.closeAll()
+    // 三个会话各自的 transport.close 均被调用一次
+    expect(rec.closeCount).toBe(3)
+    expect(a.status).toBe('open') // closeAll 只调 transport.close，不改 SessionRecord.status（status 由 onClose 回调改）
+    void a
+    void b
+    void c
+  })
+
+  // U-SM-BUF-01：handleData 超 BUFFER_CAP_BYTES 截断
+  // 场景：向会话注入超过 BUFFER_CAP_BYTES（1MB）的 chunk，验证 buffer 被截断为尾部 1MB，不无限增长。
+  it('handleData 超 BUFFER_CAP_BYTES 截断：buffer 仅保留尾部 1MB', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(connId)
+    const cap = 1024 * 1024 // BUFFER_CAP_BYTES
+    const overflow = 100
+    // 头部用 'A'，尾部用 'B'，注入 cap + overflow 字节；截断后保留尾部 cap 字节
+    const huge = 'A'.repeat(cap) + 'B'.repeat(overflow)
+    rec.sessions[0].callbacks.onData(huge)
+    // read 取全部行（无换行 → 单行），验证截断后长度与内容
+    const page = sm.read(snap.sessionId, cap + overflow)
+    expect(page.text.length).toBe(cap) // 截断为尾部 1MB，不无限增长
+    expect(page.totalLines).toBe(1)
+    // 尾部 cap 字节 = 'A'.repeat(cap-overflow) + 'B'.repeat(overflow)（头部 overflow 个 'A' 已丢弃）
+    expect(page.text.endsWith('B'.repeat(overflow))).toBe(true) // 尾部 overflow 个 'B' 保留
+    expect(page.text.slice(0, cap - overflow)).toBe('A'.repeat(cap - overflow)) // 其余为 'A'
+    // 验证头部前 overflow 个 'A' 确实被丢弃：原 huge 前 overflow 字节是 'A'，截断后不包含它们
+    // （buffer 长度等于 cap 而非 cap+overflow 即证明截断生效）
   })
 })
 
@@ -272,6 +313,32 @@ describe('SessionManager 广播', () => {
     expect(results).toHaveLength(2)
     expect(results.every(r => r.outcome === 'ok')).toBe(true)
   })
+
+  // U-SM-BC-01：sendAndWait 抛非 SessionError 的普通 Error → broadcast 归为 PROTO_ERROR
+  // 场景：传输层 write 同步抛普通 Error（非 SessionError），broadcast 的 catch 走 398-399 行
+  // 非法错误码分支，返回 outcome='error', code='PROTO_ERROR'。
+  it('sendAndWait 抛普通 Error → 单台归为 PROTO_ERROR（非 SessionError 分支）', async () => {
+    // 自定义工厂：transport.write 同步抛普通 Error（不是 SessionError）
+    const throwingFactory: TransportFactory = async (_target, callbacks) => {
+      const slot: FakeSession = { callbacks }
+      const transport: Transport = {
+        // 关键：抛普通 Error 而非 SessionError，触发 broadcast 的 PROTO_ERROR 分支
+        write: () => { throw new Error('传输层写入失败（非协议错误）') },
+        close: async () => { callbacks.onClose('本端主动断开') },
+      }
+      return transport
+    }
+    const sm = new SessionManager(store, throwingFactory)
+    const snap = await sm.connectByConnId(connId)
+    const results = await sm.broadcast('show clock', [snap.sessionId], { wait: { quietMs: 100 } })
+    expect(results).toHaveLength(1)
+    expect(results[0].sessionId).toBe(snap.sessionId)
+    expect(results[0].outcome).toBe('error')
+    expect(results[0].code).toBe('PROTO_ERROR')
+    // 清理：disconnect 触发 status='removed'，让 sendAndWait 内部泄漏的 setInterval 在下一 tick 自清理
+    await sm.disconnect(snap.sessionId)
+    await new Promise(resolve => setTimeout(resolve, 60))
+  })
 })
 
 describe('SessionManager × 真实模拟设备（端到端）', () => {
@@ -287,5 +354,68 @@ describe('SessionManager × 真实模拟设备（端到端）', () => {
     expect(sm.read(snap.sessionId).text).toContain('ping')
     await sm.disconnect(snap.sessionId)
     expect(sm.list()).toHaveLength(0)
+  })
+})
+
+describe('SessionManager SFTP 门面（S5 步骤3）', () => {
+  /** ssh 目标带 getSftp、telnet 目标不带的假传输工厂 */
+  function sftpFakeFactory(): { rec: FakeRec; factory: TransportFactory } {
+    const rec: FakeRec = { written: [], resized: [], sessions: [], closeCount: 0 }
+    const factory: TransportFactory = async (target, callbacks) => {
+      rec.sessions.push({ callbacks })
+      const transport: Transport = {
+        write: (data) => { rec.written.push(data) },
+        close: async () => { rec.closeCount += 1; callbacks.onClose('本端主动断开') },
+        ...(target.protocol === 'ssh' ? { getSftp: async () => fakeSftpLike() } : {}),
+      }
+      return transport
+    }
+    return { rec, factory }
+  }
+
+  it('ssh 会话：返回传输层的 SFTP 门面', async () => {
+    const { rec, factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'ssh', host: '127.0.0.1', port: 22, label: 'sftp-dev' })
+    const sftp = await sm.getSftp(snap.sessionId)
+    expect(typeof sftp.list).toBe('function')
+    // 懒开：每次调用走 transport.getSftp，会话内可重复取
+    expect(typeof (await sm.getSftp(snap.sessionId)).stat).toBe('function')
+    expect(rec.sessions).toHaveLength(1)
+    await sm.disconnect(snap.sessionId)
+  })
+
+  it('closed 会话 → DISCONNECTED（被动断开后记录保留，状态不是 open）', async () => {
+    const { rec, factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'ssh', host: '127.0.0.1', port: 22, label: 'sftp-dev' })
+    rec.sessions[0].callbacks.onClose('设备掉线')
+    expect(sm.get(snap.sessionId)?.status).toBe('closed')
+    await expect(sm.getSftp(snap.sessionId)).rejects.toMatchObject({ code: 'DISCONNECTED' })
+  })
+
+  it('telnet 会话：防御分支报「不支持 SFTP」（UNSUPPORTED 协议分派在 FileService）', async () => {
+    const { factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    const snap = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 23, label: 'tty-dev' })
+    await expect(sm.getSftp(snap.sessionId)).rejects.toMatchObject({
+      code: 'DISCONNECTED',
+      message: expect.stringContaining('不支持 SFTP'),
+    })
+    await sm.disconnect(snap.sessionId)
+  })
+
+  it('会话不存在 → SESSION_NOT_FOUND', async () => {
+    const { factory } = sftpFakeFactory()
+    const sm = new SessionManager(undefined, factory)
+    await expect(sm.getSftp('no-such')).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' })
+  })
+
+  // SftpLike 类型引用（避免仅类型导入被裁掉的告警；真实形状测试在 file-service.spec.ts）
+  it('门面形状：SftpLike 六个方法齐全', async () => {
+    const sftp: SftpLike = fakeSftpLike()
+    for (const name of ['list', 'stat', 'mkdirs', 'put', 'get', 'downloadStream'] as const) {
+      expect(typeof sftp[name]).toBe('function')
+    }
   })
 })

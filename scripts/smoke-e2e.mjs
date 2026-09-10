@@ -2,8 +2,9 @@
 /**
  * 端到端冒烟测试：对着活的 DSH（/term-manager RPC）+ 模拟设备，跑 eval 场景。
  *
- * 前置：DSH 在 DSH_PORT（默认 4480）跑、模拟设备在 2323/2324 跑。
+ * 前置：DSH 在 DSH_PORT（默认 4480）跑、模拟设备在 2323/2324（Telnet）+ 2222（SSH，需带 SFTP 子系统的 mock-ssh-device）跑。
  *   node scripts/mock-device.mjs 2323 &  node scripts/mock-device.mjs 2324 &
+ *   node scripts/mock-ssh-device.mjs 2222 &
  *   cd ../deepseek-harness && pnpm dsh --profile tm-dev --port 4480 --no-open &
  * 跑：node scripts/smoke-e2e.mjs
  * 退出码：0=全过，1=有失败。
@@ -142,6 +143,39 @@ await test('E-SSH 密码错误 → AUTH_FAILED', async () => {
 await test('E-SSH 地址不通 → HOST_UNREACHABLE', async () => {
   const r = await rpc('sessions.connect', { protocol: 'ssh', host: '127.0.0.1', port: 9998, username: 'a', password: 'b' })
   assert(!r.ok && (r.error.message.includes('HOST_UNREACHABLE') || r.error.message.includes('CONN_TIMEOUT')), '返回 HOST_UNREACHABLE/CONN_TIMEOUT')
+})
+
+// ─── S5 文件传输（mock-ssh-device 2222 需带 SFTP 子系统）───
+const { rm } = await import('node:fs/promises')
+
+await test('E-S5 远端列表 files.remoteTree', async () => {
+  const s = await connect(SSH_DEV)
+  const r = await rpc('files.remoteTree', { sessionId: s.sessionId, path: '/' })
+  assert(r.ok, 'remoteTree 成功')
+  if (r.ok) assert(Array.isArray(r.value), '返回数组（SFTP 根内容）')
+  cleanups.push(() => disconnect(s.sessionId))
+})
+
+await test('E-S5 上传到设备 + 下载回工作区（uploadLocal / downloadToLocal 往返）', async () => {
+  const s = await connect(SSH_DEV)
+  cleanups.push(() => disconnect(s.sessionId))
+  const rootR = await rpc('files.root')
+  if (!rootR.ok) { assert(false, 'files.root 失败'); return }
+  const root = rootR.value.root
+  const content = `smoke ${new Date().toISOString()}`
+  const w = await rpc('files.write', { root, path: `${root}/smoke-up.txt`, content })
+  assert(w.ok, '工作区建源文件（files.write）')
+  const up = await rpc('files.uploadLocal', { sessionId: s.sessionId, remotePath: '/smoke-up.txt', root, path: `${root}/smoke-up.txt`, transferId: 'smoke-up-1' })
+  assert(up.ok && up.value.bytes === Buffer.byteLength(content), `上传到设备成功（${up.ok ? up.value.bytes : up.error.message}）`)
+  const tree = await rpc('files.remoteTree', { sessionId: s.sessionId, path: '/' })
+  assert(tree.ok && tree.value.some((e) => e.name === 'smoke-up.txt'), '设备上出现 smoke-up.txt')
+  const dl = await rpc('files.downloadToLocal', { sessionId: s.sessionId, remotePath: '/smoke-up.txt', root, path: `${root}/smoke-dl.txt`, transferId: 'smoke-dl-1' })
+  assert(dl.ok && dl.value.bytes === Buffer.byteLength(content), '下载回工作区成功')
+  const back = await rpc('files.read', { root, path: `${root}/smoke-dl.txt` })
+  assert(back.ok && back.value.content === content, '往返内容一致')
+  // 清理工作区痕迹（设备侧在系统临时目录，不清理）
+  await rm(`${root}/smoke-up.txt`, { force: true })
+  await rm(`${root}/smoke-dl.txt`, { force: true })
 })
 
 // 清理 SSH 会话

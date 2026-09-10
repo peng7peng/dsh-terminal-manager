@@ -3,7 +3,8 @@
  *
  * 浏览器经通道②与此处双向通信：上行 attach/input/resize/detach，下行 output/status。
  * 订阅随连接生灭：WS 关闭时清掉该连接挂的所有订阅；30s 心跳探活。
- * MVP 信任栅栏：仅 loopback（127.0.0.1 / localhost / ::1），非 loopback 部署是后续项。
+ * MVP 信任栅栏：仅 loopback + Origin 校验（与 /term-manager 同一 isTrustedOrigin 标准；
+ * 浏览器发 WS 必带 Origin，恶意网页的跨站连接被拒），非 loopback 部署是后续项。
  * @module dsh-terminal-manager/ws-io
  */
 
@@ -12,6 +13,8 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
+import type { TransferProgress } from './types/file-service.ts'
+import { isTrustedOrigin } from './remotes.ts'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -26,6 +29,21 @@ type InFrame =
 export type OutFrame =
   | { kind: 'output'; sessionId: string; data: string }
   | { kind: 'status' } & SessionSnapshot
+  /**
+   * 文件传输进度（S5）：由 B7a 路由组装（transferId 是前端生成的不透明串，服务端只回显），
+   * 广播给所有连接、前端按 transferId 过滤。done=true 是终态帧（另存为导航式下载
+   * 看不到 HTTP 响应，它是唯一完成/失败信号）；done 缺省 = 中途进度。
+   */
+  | { kind: 'file-progress'; transferId: string } & TransferProgress & { done?: boolean; ok?: boolean; error?: string }
+
+/** 文件传输进度帧（广播用）。 */
+export type FileProgressFrame = Extract<OutFrame, { kind: 'file-progress' }>
+
+/** registerWsIo 的返回：卸载函数 + 进度帧广播（B7a→B7b 依赖边，index.ts 接线进 RemoteDeps）。 */
+export interface WsIoHandle {
+  disposer: () => void
+  broadcastFileProgress: (frame: FileProgressFrame) => void
+}
 
 /** 仅 loopback 信任栅栏（MVP）。 */
 function isLoopback(req: IncomingMessage): boolean {
@@ -97,18 +115,23 @@ export class TermIoConnection {
 }
 
 /**
- * 注册 /term-io WebSocket 升级路由。返回卸载函数。
+ * 注册 /term-io WebSocket 升级路由。返回卸载函数 + 进度帧广播。
  * 需 ctx.webServer（host-webserver 提供，web profile 内必就绪）。
  */
-export function registerWsIo(ctx: Context, sessions: SessionManager): () => void {
+export function registerWsIo(ctx: Context, sessions: SessionManager): WsIoHandle {
   const webServer = ctx.get('webServer')
-  if (webServer === undefined) return () => {}
+  if (webServer === undefined) {
+    return { disposer: () => {}, broadcastFileProgress: () => {} }
+  }
   const wss = new WebSocketServer({ noServer: true })
   const connections = new Set<TermIoConnection>()
   const heartbeats = new Map<WebSocket, NodeJS.Timeout>()
 
   const handler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    if (!isLoopback(req)) {
+    // 浏览器发 WS 必带 Origin（审查 2026-09-03：isLoopback 只看可伪造的 Host 头，挡不住
+    // 跨站 WS 劫持——恶意网页可连上来偷终端输出 / 以人工键入路径注入命令）。与 /term-manager
+    // 的 HTTP 栅栏同一标准：无 Origin（非浏览器客户端）放行，loopback / 同 Host 放行，其余销毁。
+    if (!isTrustedOrigin(req.headers.origin, req.headers.host) || !isLoopback(req)) {
       socket.destroy()
       return
     }
@@ -132,11 +155,17 @@ export function registerWsIo(ctx: Context, sessions: SessionManager): () => void
     () => webServer.registerUpgrade({ path: '/term-io', handler }),
     'terminal-manager: /term-io WebSocket',
   )
-  return () => {
-    disposer?.()
-    for (const timer of heartbeats.values()) clearInterval(timer)
-    heartbeats.clear()
-    for (const ws of wss.clients) ws.close()
-    connections.clear()
+  return {
+    disposer: () => {
+      disposer?.()
+      for (const timer of heartbeats.values()) clearInterval(timer)
+      heartbeats.clear()
+      for (const ws of wss.clients) ws.close()
+      connections.clear()
+    },
+    /** 广播给所有 /term-io 连接（连接断开由 TermIoConnection.send 自行吞错） */
+    broadcastFileProgress: (frame) => {
+      for (const conn of connections) conn.send(frame)
+    },
   }
 }

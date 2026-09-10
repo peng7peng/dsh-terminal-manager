@@ -1,0 +1,206 @@
+%% dsh-terminal-manager 架构图（模块间调用关系 + 外部依赖）
+%% 主线 host 半 B1–B14 + 传输层（含 SFTP 门面）+ 扩展模块 port-log + 浏览器半 + 契约 + 外部依赖
+%% 更新日期：2026-09-05（port-log 扩展模块接入后）
+graph TB
+
+  %% ===== 外部参与者 =====
+  User([用户])
+  AI([DSH Agent / AI])
+  Device[("远端设备<br/>SSH / Telnet")]
+  ShareClient([共享客户端<br/>Telnet])
+  MapClient([映射客户端<br/>TCP/UDP])
+
+  %% ===== DSH 宿主进程 =====
+  subgraph DSH["DSH host 进程（Cordis）"]
+    direction TB
+
+    subgraph Host["主线 host 半 (src/，不含 ext/)"]
+      direction TB
+      Entry["index.ts<br/>装配 + 接线"]
+      B1["B1 ConnectionStore<br/>连接配置 CRUD + 落盘"]
+      B4(("B4 SessionManager<br/>会话池 · 状态机 · 环形缓冲<br/>独占 · 广播 · getSftp 【心脏】"))
+      B2["B2 SshTransport<br/>ssh2 · shell PTY · getSftp"]
+      B3["B3 TelnetTransport<br/>net.Socket · IAC / raw"]
+      Sftp["SftpFacade<br/>包 ssh2 SFTPWrapper"]
+      B5["B5 WaitPolicy"]
+      B8["B8 CommandGuard"]
+      B6["B6 AI Tools ×8<br/>tm_connect/list/send/send_all<br/>read/disconnect/upload/download"]
+      B7a["B7a Remotes<br/>/term-manager HTTP · RPC + 传输路由"]
+      B7b["B7b WsIo<br/>/term-io WS · Origin 栅栏<br/>output/status/file-progress"]
+      B9["B9 EventBus"]
+      B10["B10 FileService<br/>本地 + 远端 SFTP"]
+      B11["B11 TcParser"]
+      B12["Config · workspaceRoot"]
+      B13["Ambiguity"]
+      B14["OpenExternal"]
+    end
+
+    subgraph ExtMod["扩展模块 (src/ext/) — 同事开发"]
+      direction TB
+      ExtEntry["ext/index.ts<br/>registerExtensions"]
+      PLRouter["port-log Router<br/>/term-manager/ext/port-log HTTP<br/>+ /events SSE"]
+      PLMap["MappingManager<br/>端口映射 TCP/UDP 转发"]
+      PLShare["ShareManager<br/>会话共享 Telnet 服务端"]
+      PLLog["SessionLogManager<br/>会话日志（订阅 output 写文件）"]
+      PLApp["AppLogger<br/>应用日志"]
+      PLSse["RuntimeEventHub<br/>SSE 推送给前端"]
+    end
+
+    subgraph Contracts["模块间契约 src/types/（纯声明 · 两人 review）"]
+      direction LR
+      C1["events.ts<br/>TmEvent · TmEventBus"]
+      C2["session-api.ts<br/>SessionManagerApi · SessionSnapshot"]
+      C3["file-service.ts<br/>FileService · FileErrorCode"]
+    end
+  end
+
+  %% ===== 浏览器半 =====
+  subgraph Browser["浏览器半 (client/)"]
+    direction TB
+    F1["F1 index.tsx"]
+    F2["F2 ConnectionsPanel"]
+    F3["F3 TerminalWorkspace"]
+    F4["F4 TermView · xterm"]
+    F5["F5 ws.ts · onFileProgress"]
+    F6["F6 store.ts"]
+    FRpc["rpc.ts"]
+    F7["F7 FilePanel · 本地"]
+    F7b["F7b RemoteFilePanel · 远端"]
+    F8["F8 EditorWindow"]
+    F9["F9 CodeEditor · CodeMirror"]
+    F10["F10 TC 执行"]
+    F11["F11 SendSelection"]
+    FPL["PortLogWorkspace<br/>网络与日志工作区<br/>Mappings/Shares/Logs Tab"]
+    FPLRpc["port-log rpc + SSE<br/>EventSource"]
+  end
+
+  %% ===== 外部依赖 =====
+  subgraph ExtDeps["外部依赖"]
+    direction LR
+    ssh2[("ssh2")]
+    netnet[("node:net")]
+    wslib[("ws")]
+    nodefs[("node:fs")]
+    xterm[("xterm.js")]
+    cm[("CodeMirror 6")]
+  end
+
+  %% ===== 主线内部调用 =====
+  Entry --> B1
+  Entry --> B4
+  Entry --> B10
+  Entry --> B6
+  Entry --> B7b
+  Entry --> B7a
+  Entry --> B13
+  Entry --> B12
+  Entry --> ExtEntry
+
+  B6 --> B4
+  B6 --> B10
+  B7a --> B4
+  B7a --> B1
+  B7a --> B10
+  B7a --> B14
+  B7a --> B7b
+  B7b --> B4
+
+  B4 --> B2
+  B4 --> B3
+  B4 --> B5
+  B4 --> B8
+  B4 --> B9
+  B4 --> B1
+  B2 --> Sftp
+  B10 --> Sftp
+  B10 --> B9
+  B1 --> B5
+  B10 --> nodefs
+  B1 --> nodefs
+  B2 --> ssh2
+  Sftp --> ssh2
+  B3 --> netnet
+  B7b --> wslib
+
+  %% ===== 扩展模块内部 + 对主线契约的依赖 =====
+  ExtEntry --> PLRouter
+  PLRouter --> PLMap
+  PLRouter --> PLShare
+  PLRouter --> PLLog
+  PLRouter --> PLApp
+  PLRouter --> PLSse
+  PLMap --> PLApp
+  PLShare --> PLApp
+  PLLog --> PLApp
+  PLShare --> PLSse
+  PLLog --> PLSse
+  PLMap --> PLSse
+
+  %% 扩展只依赖契约面（虚线），不碰主线实现
+  PLRouter -.->|"sessions.list/get"| C2
+  PLShare -.->|"subscribe/write"| C2
+  PLShare -.->|"on output/status"| C1
+  PLLog -.->|"get"| C2
+  PLLog -.->|"on output/status"| C1
+  ExtEntry -.->|"on status/file"| C1
+
+  %% 主线契约消费
+  B4 -.-> C2
+  B9 -.-> C1
+  B10 -.-> C3
+
+  %% ===== 浏览器半内部 =====
+  F1 --> F3
+  F1 --> F2
+  F1 --> F6
+  F1 --> FPL
+  F3 --> F4
+  F3 --> F5
+  F3 --> FRpc
+  F4 --> F5
+  F4 --> FRpc
+  F2 --> FRpc
+  F7 --> FRpc
+  F7b --> FRpc
+  F7b --> F5
+  F8 --> F9
+  F9 --> FRpc
+  F10 --> B11
+  F10 --> FRpc
+  F11 --> FRpc
+  FPL --> FPLRpc
+  F4 --> xterm
+  F9 --> cm
+
+  %% ===== 跨进程边界 =====
+  User --> F4
+  User --> F2
+  User --> F7
+  User --> F7b
+  User --> F8
+  User --> F10
+  User --> FPL
+  AI --> B6
+  FRpc -.->|"HTTP /term-manager/*"| B7a
+  F5 -.->|"WS /term-io"| B7b
+  FPLRpc -.->|"HTTP + SSE<br/>/term-manager/ext/port-log"| PLRouter
+  B2 --> Device
+  B3 --> Device
+  Sftp -->|"SFTP"| Device
+  ShareClient -->|"Telnet 连入"| PLShare
+  MapClient -->|"TCP/UDP"| PLMap
+  PLMap -->|"转发到目标"| Device
+
+  %% ===== 样式 =====
+  classDef heart fill:#fde68a,stroke:#b45309,stroke-width:2px,color:#1c1917
+  classDef contract fill:#e0e7ff,stroke:#4338ca,stroke-dasharray: 5 5,color:#1e1b4b
+  classDef extdep fill:#f1f5f9,stroke:#64748b,color:#334155
+  classDef actor fill:#fef3c7,stroke:#d97706,color:#1c1917
+  classDef newmod fill:#dcfce7,stroke:#15803d,color:#14532d
+  classDef extmod fill:#ede9fe,stroke:#6d28d9,color:#2e1065
+  class B4 heart
+  class C1,C2,C3 contract
+  class ssh2,netnet,wslib,nodefs,xterm,cm extdep
+  class User,AI,Device,ShareClient,MapClient actor
+  class Sftp,F7b newmod
+  class PLRouter,PLMap,PLShare,PLLog,PLApp,PLSse,ExtEntry,FPL,FPLRpc extmod

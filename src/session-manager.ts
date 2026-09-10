@@ -13,7 +13,7 @@ import type { ConnectionStore } from './connection-store.ts'
 import { createEventBus } from './event-bus.ts'
 import { connectSsh } from './transport/ssh.ts'
 import { connectTelnet } from './transport/telnet.ts'
-import type { Transport, TransportCallbacks } from './transport/types.ts'
+import type { SftpLike, Transport, TransportCallbacks } from './transport/types.ts'
 import type { TmEventBus, TmInputSource } from './types/events.ts'
 import type {
   BroadcastEntry,
@@ -135,17 +135,15 @@ export class SessionManager implements SessionManagerApi {
     for (const record of this.sessions.values()) {
       if (record.connId === connId && record.status !== 'closed') return this.snapshot(record)
     }
-    const auth = conn.auth
     return this.connect({
       protocol: conn.protocol,
       host: conn.host,
       port: conn.port,
       username: conn.username,
       label: conn.label,
-      ...(auth?.kind === 'password' ? { password: auth.password } : {}),
-      ...(auth?.kind === 'key' ? { privateKey: auth.privateKey, passphrase: auth.passphrase } : {}),
+      ...(conn.auth !== undefined ? { auth: conn.auth } : {}),
       ...(conn.telnetMode !== undefined ? { telnetMode: conn.telnetMode } : {}),
-      ...(conn.handshakeTimeoutSec !== undefined ? { connectTimeoutMs: conn.handshakeTimeoutSec * 1000 } : {}),
+      ...(conn.connectTimeoutMs !== undefined ? { connectTimeoutMs: conn.connectTimeoutMs } : {}),
       ...(conn.newline !== undefined ? { newline: conn.newline } : {}),
       ...(conn.localEcho !== undefined ? { localEcho: conn.localEcho } : {}),
     }, connId)
@@ -165,12 +163,6 @@ export class SessionManager implements SessionManagerApi {
     let effectiveConnId = connId
     if (effectiveConnId === undefined && this.store !== undefined) {
       await this.store.ensureLoaded()
-      // 将 ConnectTarget 的扁平凭据字段转换为 ConnectionConfig 的 auth 嵌套格式
-      const auth = target.password !== undefined
-        ? { kind: 'password' as const, password: target.password }
-        : target.privateKey !== undefined
-          ? { kind: 'key' as const, privateKey: target.privateKey, ...(target.passphrase !== undefined ? { passphrase: target.passphrase } : {}) }
-          : undefined
       const autoConn = await this.store.create({
         protocol: target.protocol,
         host: target.host,
@@ -178,7 +170,7 @@ export class SessionManager implements SessionManagerApi {
         label: target.label ?? target.host,
         favorited: false, // 临时连接（含 AI 工具创建的）入「最近连接」而非「收藏」
         ...(target.username !== undefined ? { username: target.username } : {}),
-        ...(auth !== undefined ? { auth } : {}),
+        ...(target.auth !== undefined ? { auth: target.auth } : {}),
       })
       effectiveConnId = autoConn.id
     }
@@ -250,16 +242,14 @@ export class SessionManager implements SessionManagerApi {
       if (conn === undefined) {
         throw new SessionError('SESSION_NOT_FOUND', '无法获取连接配置')
       }
-      const auth = conn.auth
       const transport = await this.transportFactory({
         protocol: conn.protocol,
         host: conn.host,
         port: conn.port,
         username: conn.username,
-        ...(auth?.kind === 'password' ? { password: auth.password } : {}),
-        ...(auth?.kind === 'key' ? { privateKey: auth.privateKey, passphrase: auth.passphrase } : {}),
+        ...(conn.auth !== undefined ? { auth: conn.auth } : {}),
         ...(conn.telnetMode !== undefined ? { telnetMode: conn.telnetMode } : {}),
-        ...(conn.handshakeTimeoutSec !== undefined ? { connectTimeoutMs: conn.handshakeTimeoutSec * 1000 } : {}),
+        ...(conn.connectTimeoutMs !== undefined ? { connectTimeoutMs: conn.connectTimeoutMs } : {}),
       }, {
         onData: (chunk) => this.handleData(record, chunk),
         onClose: (reason) => this.handleClose(record, reason),
@@ -302,6 +292,23 @@ export class SessionManager implements SessionManagerApi {
   resize(sessionId: string, cols: number, rows: number): void {
     const record = this.requireOpen(sessionId)
     record.transport?.resize?.(cols, rows)
+  }
+
+  /**
+   * 取会话的 SFTP 门面（S5）。SFTP 走 SSH 独立子通道，不占 PTY 字节流，
+   * 与 sendAndWait / 人工键入互不干扰，因此无 SESSION_BUSY 独占锁。
+   * 协议分派在 FileService（Telnet → UNSUPPORTED）；本方法只面向「会话 → 门面」。
+   */
+  async getSftp(sessionId: string): Promise<SftpLike> {
+    const record = this.requireOpen(sessionId)
+    const transport = record.transport
+    const getSftp = transport?.getSftp
+    // SessionErrorCode 契约无 UNSUPPORTED（零契约改动）；Telnet 会话正常走不到这里
+    // （FileService 先按 protocol 分派），此防御分支给直调者一个可读错误。
+    if (transport === undefined || getSftp === undefined) {
+      throw new SessionError('DISCONNECTED', '该会话不支持 SFTP（仅 SSH 会话提供文件传输）')
+    }
+    return getSftp.call(transport)
   }
 
   /** 读当前缓冲（回看）。 */

@@ -119,6 +119,20 @@ describe('ConnectionStore', () => {
     expect(fresh.get(cfg.id)?.favorited).toBe(false)
   })
 
+  it('日志配置随连接保存并能在新实例中读回', async () => {
+    const path = join(dir, 'log-config.json')
+    const store = new ConnectionStore(path)
+    await store.load()
+    const cfg = await store.create({
+      label: 'logged-device', protocol: 'telnet', host: 'h',
+      log: { enabled: true, timestamp: false, stripAnsi: true, directory: 'D:\\terminal-logs' },
+    })
+
+    const fresh = new ConnectionStore(path)
+    await fresh.load()
+    expect(fresh.get(cfg.id)?.log).toEqual({ enabled: true, timestamp: false, stripAnsi: true, directory: 'D:\\terminal-logs' })
+  })
+
   it('旧数据缺 favorited 字段时，读取不报错（向后兼容）', async () => {
     const p = join(dir, 'legacy.json')
     await import('node:fs/promises').then(fs => fs.writeFile(p, JSON.stringify({
@@ -127,8 +141,8 @@ describe('ConnectionStore', () => {
     })))
     const store = new ConnectionStore(p)
     await store.load()
-    // 旧数据缺字段不报错，前端按"未显式 false = 在收藏"处理
-    expect(store.get('legacy-1')?.favorited).toBeUndefined()
+    // 旧数据缺 favorited 字段时归一化为 true（与 create 默认值一致）
+    expect(store.get('legacy-1')?.favorited).toBe(true)
     expect(store.list()).toHaveLength(1)
   })
 })

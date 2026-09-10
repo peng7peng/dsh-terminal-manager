@@ -1,4 +1,4 @@
-﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
+# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
 # 用法: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
 
 param(
@@ -14,7 +14,6 @@ $ErrorActionPreference = "SilentlyContinue"
 function Write-Info($m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
 function Write-Ok($m)   { Write-Host "[OK] $m" -ForegroundColor Green }
 function Write-Err($m)  { Write-Host "[ERROR] $m" -ForegroundColor Red }
-function Write-Warn($m) { Write-Host "[WARN] $m" -ForegroundColor Yellow }
 
 if ($Help) {
     Write-Host @"
@@ -62,7 +61,18 @@ if (-not $pnpmVer) {
 }
 Write-Ok "pnpm $(pnpm --version 2>$null)"
 
-# 3. Clone 仓库
+# 3. 检查 dsh
+Write-Info "检查 dsh..."
+if (-not (Get-Command dsh -ErrorAction SilentlyContinue)) {
+    Write-Err "未找到 dsh 命令"
+    Write-Host "请先安装 DeepSeek Harness："
+    Write-Host "  npm install -g @deepseek-ai/dsh"
+    Write-Host "或从源码安装：https://github.com/deepseek-ai/deepseek-harness"
+    exit 1
+}
+Write-Ok "dsh $(dsh --version 2>$null)"
+
+# 4. Clone 仓库
 $PluginDir = Join-Path $InstallDir "dsh-terminal-manager"
 if (Test-Path $PluginDir) {
     Write-Info "插件目录已存在，更新中..."
@@ -74,7 +84,7 @@ if (Test-Path $PluginDir) {
 }
 Write-Ok "仓库就绪"
 
-# 4. 构建
+# 5. 构建
 Write-Info "安装依赖并构建..."
 Push-Location $PluginDir
 pnpm install | Out-Null
@@ -84,125 +94,10 @@ if ($LASTEXITCODE -ne 0) { Write-Err "pnpm build 失败"; Pop-Location; exit 1 }
 Pop-Location
 Write-Ok "构建完成"
 
-# 5. 打包 tgz
-Write-Info "打包插件..."
-Push-Location $PluginDir
-pnpm pack | Out-Null
-$tgzFile = Get-ChildItem -Path $PluginDir -Filter "dsh-terminal-manager-*.tgz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$tgzPath = $tgzFile.FullName
-Pop-Location
-if (-not $tgzPath) { Write-Err "打包失败，未找到 tgz"; exit 1 }
-
-# 从 tgz 中剥离 devDependencies（link: 路径在 profile 环境不可用，且会触发 symlink 失败）
-$extractDir = Join-Path $env:TEMP "dsh-tm-pack-$(Get-Random)"
-New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
-Push-Location $extractDir
-tar -xzf $tgzPath 2>$null
-$pkgJsonPath = Join-Path $extractDir "package\package.json"
-if (Test-Path $pkgJsonPath) {
-    $pkgJson = Get-Content $pkgJsonPath -Raw | ConvertFrom-Json
-    $pkgJson.PSObject.Properties.Remove('devDependencies')
-    $pkgJson | ConvertTo-Json -Depth 10 | Set-Content $pkgJsonPath -Encoding UTF8
-    # 重新打包
-    Remove-Item $tgzPath -Force
-    tar -czf $tgzPath -C $extractDir package
-    Write-Info "已剥离 devDependencies"
-}
-Pop-Location
-Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-
-Write-Ok "打包完成: $tgzPath"
-
-# 6. 安装到 DSH profile
-Write-Info "安装到 DSH profile: $Profile"
-
-# 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
-# 关键：allowBuilds 的 key 必须是 `包名@file:相对路径` 完整形式
-# （参考 deepseek-harness 的 pnpm-workspace.yaml）
-$profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
-if (Test-Path $profileDir) {
-    $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
-    # tgz 相对 profile 目录的路径（固定结构：.dsh/profiles/<name> vs .dsh/plugins/<name>）
-    $tgzRelPath = "..\..\plugins\dsh-terminal-manager\dsh-terminal-manager-0.1.0.tgz"
-    $allowBuildsContent = @"
-allowBuilds:
-  ssh2: true
-  cpu-features: true
-  'dsh-terminal-manager@file:$tgzRelPath': true
-"@
-    if (Test-Path $wsFile) {
-        # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置
-        $existing = Get-Content $wsFile -Raw
-        if (-not ($existing -match "allowBuilds:")) {
-            Add-Content -Path $wsFile -Value "" -Encoding UTF8
-            Add-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
-        }
-    } else {
-        # 文件不存在，新建
-        Set-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
-    }
-    Write-Info "已配置 allowBuilds: $wsFile"
-}
-
-# 设置 ignore-scripts=true，避免安装 tgz 时触发脚本（tgz 已包含构建产物）
-$npmrcFile = Join-Path $profileDir ".npmrc"
-if (Test-Path $npmrcFile) {
-    $npmrcContent = Get-Content $npmrcFile -Raw
-    if (-not ($npmrcContent -match "ignore-scripts")) {
-        Add-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
-    }
-} else {
-    Set-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
-}
-Write-Info "已配置 ignore-scripts: $npmrcFile"
-
-$installed = $false
-
-# 方式 A：全局安装了 dsh
-if (Get-Command dsh -ErrorAction SilentlyContinue) {
-    Write-Info "使用全局 dsh 命令"
-    dsh plugin --profile $Profile add $tgzPath
-    $installed = ($LASTEXITCODE -eq 0)
-}
-
-# 方式 B：查找 deepseek-harness 源码（多处搜索）
-if (-not $installed) {
-    $searchPaths = @(
-        # 脚本所在目录的相邻目录（从源码 clone 运行时）
-        (Join-Path (Split-Path $PSScriptRoot -Parent) "deepseek-harness"),
-        # 当前工作目录的相邻目录
-        (Join-Path (Split-Path (Get-Location) -Parent) "deepseek-harness"),
-        # 插件安装目录的相邻目录
-        (Join-Path (Split-Path (Split-Path $PluginDir -Parent) -Parent) "deepseek-harness"),
-        # 常见位置
-        "D:\dsh\deepseek-harness",
-        "D:\myproject\dsh\deepseek-harness",
-        "$env:USERPROFILE\deepseek-harness"
-    ) | Select-Object -Unique
-
-    foreach ($path in $searchPaths) {
-        if (Test-Path (Join-Path $path "package.json")) {
-            Write-Info "检测到 DSH 源码: $path"
-            Push-Location $path
-            pnpm dsh plugin --profile $Profile add $tgzPath
-            $installed = ($LASTEXITCODE -eq 0)
-            Pop-Location
-            break
-        }
-    }
-}
-
-# 方式 C：用 npx（兜底）
-if (-not $installed -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-    Write-Info "使用 npx @deepseek-ai/dsh（首次需下载）"
-    npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath
-    $installed = ($LASTEXITCODE -eq 0)
-}
-
-if (-not $installed) {
-    Write-Err "安装失败。请确保已安装 DSH：npm install -g @deepseek-ai/dsh"
-    exit 1
-}
+# 6. 注册到 DSH profile
+Write-Info "注册到 DSH profile: $Profile"
+dsh plugin --profile $Profile add "dsh-terminal-manager@link:$PluginDir"
+if ($LASTEXITCODE -ne 0) { Write-Err "注册失败"; exit 1 }
 Write-Ok "安装完成"
 
 Write-Host ""
@@ -211,13 +106,8 @@ Write-Host "  安装完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "启动 DSH：" -ForegroundColor Cyan
-Write-Host ""
 Write-Host "  dsh $Profile"
-Write-Host ""
-Write-Host "浏览器自动打开 http://127.0.0.1:3080"
-Write-Host "左侧边栏底部出现「终端」按钮"
 Write-Host ""
 Write-Host "更新插件：" -ForegroundColor Cyan
 Write-Host "  cd $PluginDir; git pull; pnpm install; pnpm build"
-Write-Host "  然后重新运行此脚本"
 Write-Host ""

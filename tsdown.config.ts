@@ -46,7 +46,8 @@ export default defineConfig([
     target: 'es2024',
     fixedExtension: false,
     clean: true,
-    external: [/^node:/, /^@deepseek-ai\//, 'ssh2'],
+    external: [/^node:/, 'ssh2'],
+    noExternal: [/^@deepseek-ai\/(schemastery|dsh-tools)$/],
   },
   // 浏览器半：惰性 CJS 工厂格式（window.__ModuleLoader__.load 包裹），
   // 复刻 deepseek-harness packages/client/tsdown.client.ts 的输出契约

@@ -65,6 +65,7 @@ dsh plugin --profile verify-publish remove dsh-terminal-manager
 
 > 以后每次发版：先把 `package.json` 的 `version` 改高（例如 `0.1.1`），再走 3～8 步。
 > 预发布版（`0.2.0-rc.1`）第 6 步换成 `npm publish --registry=https://registry.npmjs.org --tag next`，**不要占 `latest`**。
+> **账号开了 2FA 的话，第 6 步必须带一次性验证码**：`npm publish --registry=https://registry.npmjs.org --otp=<6 位动态码>`，否则报 `E403 ... Two-factor authentication or granular access token with bypass 2fa enabled is required`（详见 §一 步骤 4）。
 
 ---
 
@@ -73,7 +74,7 @@ dsh plugin --profile verify-publish remove dsh-terminal-manager
 | 事项 | 状态 / 做法 |
 |------|-------------|
 | npm 包名 `dsh-terminal-manager` | ✅ 已确认**未被占用**（registry 返回 404），直接用无 scope 的包名 |
-| npmjs.com 账号 | 需要账号并已登录；建议开启 2FA |
+| npmjs.com 账号 | 需要账号并已登录。**开了 2FA 就必须按 §一 步骤 4 处理发布鉴权**（`--otp` 或带 bypass-2FA 的 granular token），否则发布会 403 |
 | 发布源 | ⚠️ **必须发到官方源 `https://registry.npmjs.org`**。本机 `.npmrc` 配的是 `registry.npmmirror.com`（只读镜像），直接 `npm publish` 会失败 |
 | 发版机器 | Node ≥ 22、pnpm ≥ 11、仓库干净（`git status` 无未提交改动） |
 
@@ -98,9 +99,58 @@ registry=https://registry.npmjs.org
 在 GitCode 仓库的 **设置 → 密钥 / 环境变量** 里加一条：
 
 - 名称：`NPM_TOKEN`
-- 值：npmjs.com 生成的 **Granular Access Token**（权限 Read and write，作用域只限 `dsh-terminal-manager` 这一个包）
+- 值：npmjs.com 生成的 **Granular Access Token**，且**必须勾上「绕过 2FA / Bypass 2FA」**（否则 CI 里发布会同样 403），权限 Read and write，作用域只限 `dsh-terminal-manager` 这一个包
 
 > 配置入口与 CI 配置文件格式取决于仓库启用的 CI 形式（GitCode Actions / CNB `.cnb.yml`），**待确认后再补自动发版章节**——在那之前用手动流程发版，效果完全一样。
+
+### 4. 2FA：发布时怎么过（实测踩过）
+
+npmjs.com 账号一旦开了 2FA，**发布会被要求二次验证**。不带的话 `npm publish` 会在最后一步失败：
+
+```
+npm notice Publishing to https://registry.npmjs.org/ with tag next and public access
+npm error code E403
+npm error 403 Forbidden - PUT https://registry.npmjs.org/dsh-terminal-manager -
+  Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.
+```
+
+注意报错发生在**打包全部成功之后**（你会先看到 `total files: 6`、`shasum` 之类的正常输出），所以看到 6 个文件和 `Publishing to ...` 就说明包本身没问题，纯粹是鉴权。
+
+两条路，任选：
+
+**A. 每次发版带一次性动态码（最省事，适合手动发版）**
+
+```bash
+npm publish --registry=https://registry.npmjs.org --tag next --otp=123456
+#                                                     ↑ 换成验证器 App 里的 6 位码
+```
+
+动态码是 30 秒一换的，**先跑命令再取码**最容易踩空；建议先在 App 里看好码、再立刻回车。
+
+**B. 建一个「可绕过 2FA」的 granular token（推荐；CI 也用同一个）**
+
+1. 打开 https://www.npmjs.com/settings/~/tokens → **Generate New Token** → **Granular Access Token**；
+2. Name 随便；Expiration 按需（30/90 天）；
+3. **Packages and scopes** 选 `dsh-terminal-manager` 这一个包（最小授权）；
+4. **Permissions** 选 `Read and write`；
+5. **勾上 Bypass 2FA（允许发布时绕过双因素）**——**这个选项默认是不勾的**，没勾就是最常见的 403 原因（令牌能 `whoami` 但发不了包）。勾选项在创建页面上，名叫 Bypass 2FA 之类；
+6. 生成后**只显示一次**，立刻存好。写进用户级配置（**不要写进仓库的 `.npmrc`，会被提交**）：
+
+```bash
+npm config set //registry.npmjs.org/:_authToken=<粘贴令牌>
+npm whoami --registry=https://registry.npmjs.org     # 能打印用户名 = 令牌生效
+```
+
+之后 `npm publish --registry=https://registry.npmjs.org` 就不需要 `--otp` 了。这条命令写的是**用户级** `~/.npmrc`，只对官方源生效，不影响你默认走 npmmirror 装包。
+
+> **令牌能认证 ≠ 能发布**：`npm whoami` 成功只证明读权限可用；发布要写权限 + 2FA，所以「whoami 正常但 publish 403」几乎总是**令牌没勾 Bypass 2FA**。
+>
+> **两个官方安全变更（已核实，2026-09 现状）**：
+> - 经典令牌（含 Automation token）**创建入口已关闭**，存量令牌 2025-11-19 起全部吊销 —— 只能用 granular token。
+> - 带 Bypass 2FA 的 granular token **目前仍可直接发布**，但官方已公告：**目标 2027 年 1 月取消其直接发布能力**，届时须改用 [trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) 或 staged publishing。也就是说：**CI 自动发版这条路，将来要迁到支持 OIDC 的 CI（如 GitHub Actions）**，GitCode CI 不在支持商名单里。手动发版（`--otp`）不受影响。
+> - 另外：Bypass 2FA 令牌已不能做账号/包管理类敏感操作（建删令牌、改包权限与维护者、trusted publishing 配置），这些必须交互式 2FA。
+
+> 想彻底免掉这一步，只能在账号设置里把 2FA 调成「仅授权时验证」——但 npm 现在默认并推荐「授权和写入都验证」，不建议为了发版降低账号安全等级。
 
 ---
 
@@ -193,7 +243,8 @@ GitCode 仓库 → **发布 → 新建发布**：选 `v0.1.1` 标签，写变更
 |---|---|
 | 发出去了但发现严重 bug | 发更高的补丁版（npm 不允许覆盖已发布版本）。必须阻止别人安装时用 `npm deprecate dsh-terminal-manager@0.1.1 "原因"` |
 | 发错了 dist-tag | `npm dist-tag add dsh-terminal-manager@0.1.0 latest --registry=https://registry.npmjs.org` 把 `latest` 指回稳定版 |
-| 发布报 402 / 403 | 包名被占或令牌无权限；先确认 `npm whoami` 与令牌作用域 |
+| 发布报 `E403 ... Two-factor authentication or granular access token with bypass 2fa enabled is required` | 两种可能：① **令牌建的时候没勾 Bypass 2FA**（默认未勾，`npm whoami` 仍会成功，所以最容易误判）→ 重建令牌并勾上；② 干脆用交互式验证码：`npm publish --registry=https://registry.npmjs.org --tag next --otp=<6 位动态码>`。**打包本身是成功的**（看到 `total files: 6` 就说明包没问题） |
+| 发布报 402 / 403（不是上面那条） | 包名被占或令牌无权限；先确认 `npm whoami` 与令牌作用域 |
 | 发布报 404 | 多半是发到了只读镜像源 —— 加上 `--registry=https://registry.npmjs.org` |
 | 用户装不上刚发的版本 | 版本发布不足 24h，被 pnpm 的 `minimumReleaseAge` 拦了；等 24h 或让用户重跑一次 |
 | 用户报 `Ignored build scripts: ssh2` | 让用户在 profile 目录跑 `pnpm approve-builds --all` 后重装 |
@@ -215,6 +266,6 @@ GitCode 仓库 → **发布 → 新建发布**：选 `v0.1.1` 标签，写变更
 - [ ] `node scripts/run-e2e.mjs` 24/24 全绿
 - [ ] `node scripts/mount-check.mjs` npm 通道真机挂载全绿
 - [ ] `npm pack --dry-run` 清单只有 6 个文件
-- [ ] 版本号已 bump，`latest` 只给稳定版
+- [ ] 版本号已 bump，**且 `git show --stat HEAD` 里确实有 `package.json`**（实测踩过：提交信息写着「预发布 0.1.0-rc.1」，但那次提交只改了脚本、没改 `version`，结果发出去的仍是稳定版 `0.1.0`）
 - [ ] 发布后用**全新 profile** 装过一次并真机验证
 - [ ] GitCode 上补了对应 Release

@@ -5,6 +5,13 @@
 > 本版本基于 **DeepSeek Harness 0.1.2-rc.1** 开发。
 
 **仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
+**npm 包**：https://www.npmjs.com/package/dsh-terminal-manager
+
+一行安装（详见下方「安装」）：
+
+```sh
+dsh plugin --profile web add dsh-terminal-manager@latest
+```
 
 ## 能力
 
@@ -69,39 +76,63 @@
 
 - **DeepSeek Harness 0.1.2-rc.1**（`dsh web` 能正常跑起来）
 - **Node.js** 22+（[下载](https://nodejs.org/)）
-- **pnpm** 11+（`npm install -g pnpm`）——DSH 用它装插件；源码安装时也用它装依赖
+- **pnpm** 11+（`npm install -g pnpm`）——DSH 用它装插件
+
+## 支持的 DSH 版本
+
+本插件适配 **DSH 0.1.2-rc.1**：开发、测试、npm 产物都按这条线构建与验证。
+
+> 🧪 **版本线说明**：`package.json` 里的 `@deepseek-ai/*` 依赖钉在 `0.1.2-rc.1`。DSH 换线（例如升到 `0.1.5-*`）之后，插件需要跟着升级依赖并重新验证，否则可能加载失败——上游确实会增删包（`0.1.2-rc.1` 就删掉了 `dsh-host-apiproxy` 与 `dsh-client-runtime`）。升级与验证流程见 [RELEASE.zh.md](RELEASE.zh.md) 的「版本兼容性声明」。
 
 ## 安装
 
-### 方式一：npm 安装（推荐，普通用户）
+### 方式一：命令行安装（推荐）
 
-```bash
-dsh plugin --profile web add dsh-terminal-manager@latest
+```sh
+dsh plugin --profile web add dsh-terminal-manager@latest   # 首次会因 pnpm 拦截 ssh2 构建脚本而失败（依赖已写入，属正常）
+dsh plugin --profile web approve-builds                    # 放行构建脚本（交互勾选 ssh2、cpu-features 并确认）
+dsh plugin --profile web add dsh-terminal-manager@latest   # 重跑即成功
 ```
 
-装完**硬刷新浏览器**（Ctrl/Cmd + Shift + R）即可看到侧边栏底部的「🖥️ 终端」按钮。DSH 对 client 改动是热加载的，通常不需要重启。
+装完**硬刷新浏览器**（Ctrl/Cmd + Shift + R）即可看到侧边栏底部的「🖥️ 终端」按钮。DSH 对 client 改动热加载，通常无需重启；仅 host 半更新时需要重启。
+
+> **首次为什么必然失败**：`ssh2` 带一个可选的原生加速模块，pnpm 默认拦截依赖的构建脚本，报 `ERR_PNPM_IGNORED_BUILDS: cpu-features, ssh2`。这不是装错了，按第 2、3 步继续即可。
+> 第 2 步也可在 profile 目录一次放行全部：`cd ~/.dsh/profiles/web && pnpm approve-builds --all`。
+> 放行时若看到 `cpu-features: Running install script, failed (skipped as optional)`，同样属正常——它只是可选加速模块，纯 JS 回退完全够用。
+
+### 方式二：让 DSH 自己装
+
+把下面这段提示词粘给任意一个 DSH 会话：
+
+```text
+帮我安装 dsh-terminal-manager 插件（DSH 终端管理），步骤：
+1. 执行 dsh plugin --profile web add dsh-terminal-manager@latest
+   （首次会被 pnpm 拦截 ssh2 构建脚本而失败，属正常现象）
+2. 在 ~/.dsh/profiles/web 下执行 pnpm approve-builds --all 放行构建脚本
+   （会自动重跑安装；cpu-features 编译失败也无所谓，它只是可选加速模块）
+3. 再次执行 dsh plugin --profile web add dsh-terminal-manager@latest
+4. 完成后提醒我硬刷新浏览器（Ctrl/Cmd + Shift + R）
+遇到报错先查 https://gitcode.com/pengpengR/dsh-terminal-manager 的 README「常见问题」表。
+```
 
 <details>
-<summary><b>dsh 命令不可用 / 想装到别的 profile</b></summary>
+<summary><b>装到其他 profile · dsh 命令不可用 · 更新 · 卸载</b></summary>
 
-```bash
-# dsh 命令不在 PATH 里时用 npx 兜底
+```sh
+# 装到其他 profile（该 profile 需已存在：先 dsh web --profile <名字> 跑一次）
+dsh plugin --profile <你的profile> add dsh-terminal-manager@latest
+
+# dsh 不在 PATH 里时用 npx 兜底
 npx -y --package @deepseek-ai/dsh dsh plugin --profile web add dsh-terminal-manager@latest
 
-# 装到其他 profile
-dsh plugin --profile <你的profile> add dsh-terminal-manager@latest
-```
-
-</details>
-
-<details>
-<summary><b>更新</b></summary>
-
-```bash
+# 更新（也可把 ~/.dsh/profiles/web/package.json 里的版本号改高后 pnpm install）
 dsh plugin --profile web add dsh-terminal-manager@latest
+
+# 卸载
+dsh plugin --profile web remove dsh-terminal-manager
 ```
 
-也可以把 `~/.dsh/profiles/web/package.json` 里的版本号改高再 `pnpm install`。改完硬刷新浏览器即可。
+更新完**硬刷新浏览器**（Ctrl/Cmd + Shift + R）即可。
 
 </details>
 
@@ -110,32 +141,36 @@ dsh plugin --profile web add dsh-terminal-manager@latest
 
 | 现象 | 原因与解决 |
 |---|---|
-| 报 `ERR_PNPM_IGNORED_BUILDS: ssh2@1.17.0` | pnpm 11 拦了 ssh2 的构建脚本。① 省事做法：在 `~/.dsh/profiles/web/pnpm-workspace.yaml` 里写 `allowBuilds: {ssh2: false, cpu-features: false}`（ssh2 的原生绑定只是可选加速，纯 JS 回退完全够用），再装一次就过；② 或在 profile 目录跑 `pnpm approve-builds --all`，然后重跑安装命令（若提示 gyp 编译失败，属正常，ssh2 会回退纯 JS） |
-| 启动报 `plugin tree failed to load`，并显示 `dsh-terminal-manager: pending (waiting for service: webServer)` | 装插件之前没跑过 `dsh web`，新建 profile 的 `dsh.profile.bundles` 里只有 `@deepseek-ai/dsh-base` + 本插件，缺 `@deepseek-ai/dsh-web-app`（`webServer` 由它提供）。解决：在 `~/.dsh/profiles/<profile>/package.json` 的 `dsh.profile.bundles` 里补上 `"@deepseek-ai/dsh-web-app"`；或删掉该 profile 目录、先跑一次 `dsh web` 再装 |
-| 报 `minimum release age` / 版本不足 24h | 装的版本发布不到 24 小时。等 24h，或直接重跑一次（pnpm 会自动补 `minimumReleaseAgeExclude`） |
-| 报「找不到 profile 目录」 | 先跑一次 `dsh web`，让它初始化 `~/.dsh/profiles/web` |
-| 装完看不到终端按钮 | 先硬刷新（Ctrl/Cmd + Shift + R）；仍没有就 F12 看控制台报错，并确认 `~/.dsh/profiles/web/node_modules/` 下有 `dsh-terminal-manager` |
-| 提示 `dsh: command not found` | 用上面的 npx 兜底命令，或先安装 DSH |
-| 连不上设备 | 插件只做终端；确认目标主机可达、端口开放（`ping` / `nc -zv <host> <port>`），SSH 服务在跑 |
+| 报 `ERR_PNPM_IGNORED_BUILDS` / `Ignored build scripts: cpu-features, ssh2` | pnpm 拦截依赖构建脚本，**首次安装的正常现象**（依赖已写入 profile）。跑 `dsh plugin --profile web approve-builds`（或 `cd ~/.dsh/profiles/web && pnpm approve-builds --all`）放行，然后重跑安装命令 |
+| 放行时 `cpu-features` 编译失败 | 正常。它是 ssh2 的**可选**原生加速模块，失败会标成 `skipped as optional`，纯 JS 回退照常工作 |
+| 启动报 `plugin tree failed to load`，并显示 `dsh-terminal-manager: pending (waiting for service: webServer)` | 装插件之前没跑过 `dsh web`，新建 profile 的 `dsh.profile.bundles` 里只有 `@deepseek-ai/dsh-base` + 本插件，缺 `@deepseek-ai/dsh-web-app`（`webServer` 由它提供）。解决：在该 profile 的 `package.json` 的 `dsh.profile.bundles` 里补上 `"@deepseek-ai/dsh-web-app"`；或删掉 profile 目录、先跑一次 `dsh web` 再装 |
+| 报 `minimum release age` / 版本发布不足 24h | 装的版本发布不到 24 小时。等 24h，或直接重跑一次（pnpm 会自动补 `minimumReleaseAgeExclude`，日志里能看到 `Added 1 entry to minimumReleaseAgeExclude`） |
+| 报「找不到 profile 目录」/ `profile "xxx" does not exist` | 先跑一次 `dsh web`（可加 `--profile`）让它初始化 profile |
+| 装完看不到「🖥️ 终端」按钮 | 先硬刷新（Ctrl/Cmd + Shift + R）；仍没有就 F12 看控制台报错，并确认 `~/.dsh/profiles/web/node_modules/` 下有 `dsh-terminal-manager` |
+| 页面出现两个终端入口 | 同一 profile 装了两份（例如既有 npm 版、又手动挂了 `@link:` 版）：`dsh plugin --profile web remove dsh-terminal-manager` 后只保留一种装法 |
+| 提示 `dsh: command not found` | 先安装 DSH；或用上面的 npx 兜底命令 |
+| 连接失败提示 `Session not found` | 网络问题：先 `ping <host>`、确认端口开放（`nc -zv <host> <port>`）、再查防火墙 |
+| 上传 / 下载失败 | Telnet 会话不支持文件传输（面板会提示）；远端路径要写绝对路径 |
 
 </details>
 
-### 方式二：源码安装（开发者）
+<details>
+<summary><b>从源码安装 / 开发（可选，替代 npm 方式）</b></summary>
 
-要改代码、调试本地改动时用。DSH 那侧的依赖（`@deepseek-ai/*`）**照样从 npm 取**，不需要本地准备 DSH 源码树。
+调试本地改动、或跟着开发分支走时用。DSH 那侧的依赖（`@deepseek-ai/*`）**照样从 npm 取**，不需要本地准备 DSH 源码树。
 
 ```bash
 git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
 cd dsh-terminal-manager
 pnpm install
 pnpm build
-dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
-# Windows PowerShell:
-# dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
+
+# 挂到 DSH profile（link = 指向本地克隆目录，改完 pnpm build 即生效）
+dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"    # Linux / macOS
+dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"      # Windows PowerShell
 ```
 
-<details>
-<summary><b>源码安装的更新与验证</b></summary>
+**更新**：
 
 ```bash
 cd <插件安装目录>
@@ -145,11 +180,16 @@ pnpm build        # 必须重新构建：profile 用的是 lib/ 里的产物
 # 然后硬刷新浏览器（client 改动热加载；host 半改动需重启 DSH）
 ```
 
-仓库自带验证手段：
+**仓库自带三道验证**（发版前都会跑）：
 
 ```bash
-pnpm test                     # vitest，当前 54 个文件 / 621 项
-node scripts/run-e2e.mjs      # 24 个 E2E 场景，自动拉起 mock 设备 + DSH 服务
+pnpm test                      # vitest：54 个文件 / 621 项
+node scripts/run-e2e.mjs       # 24 个 E2E 场景（自动拉起 mock 设备 + DSH 服务）
+node scripts/mount-check.mjs   # npm 通道真机挂载：隔离 DSH_HOME 装包 + 起真实 dsh web + 断言产物 200
+
+# 想验证「从 npm 装」而不是本地 tarball：
+#   MOUNT_FROM_NPM=latest node scripts/mount-check.mjs      # bash
+#   $env:MOUNT_FROM_NPM="latest"; node scripts/mount-check.mjs   # Windows PowerShell
 ```
 
 </details>

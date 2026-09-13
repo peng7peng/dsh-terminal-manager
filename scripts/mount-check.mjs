@@ -13,6 +13,8 @@
  *
  * 用法：
  *   node scripts/mount-check.mjs                 # 打包 + 隔离挂载 + 断言
+ *   MOUNT_FROM_NPM=0.1.0-rc.1 node scripts/mount-check.mjs    # 从 npm registry 装
+ *   MOUNT_FROM_NPM=next node scripts/mount-check.mjs          # 用 dist-tag 装
  *   KEEP_HOME=1 node scripts/mount-check.mjs     # 保留 scratch 目录
  *   DSH_CMD="pnpm dsh" node scripts/mount-check.mjs   # 指定 dsh 入口
  *   DSH_PORT=0 node scripts/mount-check.mjs      # 指定端口（0=系统分配）
@@ -91,17 +93,32 @@ function resolveDsh() {
   return null
 }
 
-// ---------- 1. 打包 ----------
-say('打包 tarball（prepack 会自动构建）...')
-const packed = spawnSync('pnpm', ['pack'], { cwd: ROOT, encoding: 'utf8', shell: true })
-if (packed.status !== 0) fail(`pnpm pack 失败：\n${packed.stdout ?? ''}${packed.stderr ?? ''}`)
-const tgzName = (packed.stdout ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l.endsWith('.tgz')).pop()
-if (!tgzName) fail(`没解析到 tarball 文件名：\n${packed.stdout ?? ''}`)
-const tgz = join(ROOT, tgzName)
-ok(`tarball：${tgzName}`)
-
+// ---------- 1. 决定安装来源（本地 tarball / npm registry） ----------
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const pluginName = pkg.name
+
+/**
+ * 安装来源：
+ *   - 缺省：本地 `pnpm pack` 出的 tarball（改代码后验证，离线可用）
+ *   - `MOUNT_FROM_NPM=<版本或 tag>`：从 npm registry 装（发版后验证真实用户路径，
+ *     顺带验证 registry 解析 / dist-tag / 发布产物是否完整）
+ */
+const FROM_NPM = process.env.MOUNT_FROM_NPM ?? ''
+let installTarget = ''
+
+if (FROM_NPM) {
+  say(`安装来源：npm registry —— ${pluginName}@${FROM_NPM}（跳过本地打包）`)
+  installTarget = `${pluginName}@${FROM_NPM}`
+} else {
+  say('打包 tarball（prepack 会自动构建）...')
+  const packed = spawnSync('pnpm', ['pack'], { cwd: ROOT, encoding: 'utf8', shell: true })
+  if (packed.status !== 0) fail(`pnpm pack 失败：\n${packed.stdout ?? ''}${packed.stderr ?? ''}`)
+  const tgzName = (packed.stdout ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l.endsWith('.tgz')).pop()
+  if (!tgzName) fail(`没解析到 tarball 文件名：\n${packed.stdout ?? ''}`)
+  const tgz = join(ROOT, tgzName)
+  ok(`tarball：${tgzName}`)
+  installTarget = `file:${tgz.replace(/\\/g, '/')}`
+}
 
 // ---------- 2. 隔离 scratch（绝不写真实 ~/.dsh） ----------
 scratch = mkdtempSync(join(tmpdir(), 'dsh-mount-check-'))
@@ -135,13 +152,20 @@ minimumReleaseAgeExclude:
 `)
 say(`隔离 DSH_HOME：${dshHome}`)
 
+if (FROM_NPM) {
+  // 固定走官方源：本机全局 npmrc 常指向 npmmirror，而刚发布的版本在镜像上
+  // 可能还没同步，会造成「包不存在」的假失败。
+  writeFileSync(join(profileDir, '.npmrc'), 'registry=https://registry.npmjs.org\n')
+  say('npm 模式：scratch profile 固定走 registry.npmjs.org（避免镜像同步延迟造成假失败）')
+}
+
 // ---------- 3. 官方 CLI 装 tarball ----------
 const dsh = resolveDsh()
 if (!dsh) fail('找不到 dsh 入口：设置 DSH_CMD，或确保 PATH 上有 dsh，或把 DSH 源码放在仓库同级目录')
 say(`dsh 入口：${dsh.cmd} ${dsh.prefix.join(' ')}`.trim())
 
 const env = { ...process.env, DSH_HOME: dshHome, DSH_TELEMETRY_DISABLED: '1' }
-const addArgs = [...dsh.prefix, 'plugin', '--profile', 'web', 'add', `file:${tgz.replace(/\\/g, '/')}`]
+const addArgs = [...dsh.prefix, 'plugin', '--profile', 'web', 'add', installTarget]
 say(`执行：${dsh.cmd} ${addArgs.join(' ')}`)
 const added = spawnSync(dsh.cmd, addArgs, { cwd: dsh.cwd ?? ROOT, env, encoding: 'utf8', shell: true })
 if (added.status !== 0) fail(`挂载失败：\n${added.stdout ?? ''}${added.stderr ?? ''}`)

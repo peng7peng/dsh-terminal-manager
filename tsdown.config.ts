@@ -32,7 +32,6 @@ const CLIENT_BASELINE_EXTERNALS = [
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-runtime/client',
 ]
 
 export default defineConfig([
@@ -46,8 +45,12 @@ export default defineConfig([
     target: 'es2024',
     fixedExtension: false,
     clean: true,
-    external: [/^node:/, 'ssh2'],
-    noExternal: [/^@deepseek-ai\/(schemastery|dsh-tools)$/],
+    deps: {
+      // node: 内置与 ssh2 保持 external（运行时由 DSH 安装解析）
+      neverBundle: [/^node:/, 'ssh2'],
+      // schemastery / dsh-tools 内联进产物，运行时不再需要宿主提供
+      alwaysBundle: [/^@deepseek-ai\/(schemastery|dsh-tools)$/],
+    },
   },
   // 浏览器半：惰性 CJS 工厂格式（window.__ModuleLoader__.load 包裹），
   // 复刻 deepseek-harness packages/client/tsdown.client.ts 的输出契约

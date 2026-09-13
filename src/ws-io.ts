@@ -9,6 +9,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -152,7 +153,7 @@ export function registerWsIo(ctx: Context, sessions: SessionManager): WsIoHandle
   }
 
   const disposer = ctx.effect(
-    () => webServer.registerUpgrade({ path: '/term-io', handler }),
+    () => webServer.registerUpgrade({ path: '/term-io', handler } satisfies WebUpgradeRoute),
     'terminal-manager: /term-io WebSocket',
   )
   return {

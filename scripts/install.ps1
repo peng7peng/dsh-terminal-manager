@@ -1,223 +1,122 @@
-﻿# DSH Terminal Manager 一键安装脚本 (Windows PowerShell)
-# 用法: .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
+# DSH Terminal Manager 安装脚本 (Windows PowerShell)
+#
+# 用法:
+#   .\install.ps1                              # npm 安装（推荐，普通用户）
+#   .\install.ps1 -Profile tm-dev              # 装到指定 profile
+#   .\install.ps1 -FromSource                  # 源码安装：clone + 构建 + link（开发者）
+#   .\install.ps1 -FromSource -SourceDir D:\code\dsh-terminal-manager
+#
+# 说明：npm 安装走 `dsh plugin --profile <p> add dsh-terminal-manager@latest`，
+# 脚本只负责找一个可用的 dsh 入口（全局 dsh / DSH 源码 checkout / npx 兜底）。
 
 param(
-    [string]$Profile = "web",
-    [string]$InstallDir = "",
-    [switch]$Help
+    [string]$Profile = 'web',
+    [switch]$FromSource,
+    [string]$SourceDir = (Join-Path $env:USERPROFILE 'dsh-terminal-manager')
 )
 
-# 全局静默：pnpm/node 往 stderr 写进度信息，会被 PowerShell 当成错误显示
-# 真正的错误通过 $LASTEXITCODE 检查
-$ErrorActionPreference = "SilentlyContinue"
+$RepoUrl = 'https://gitcode.com/pengpengR/dsh-terminal-manager.git'
 
 function Write-Info($m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
 function Write-Ok($m)   { Write-Host "[OK] $m" -ForegroundColor Green }
 function Write-Err($m)  { Write-Host "[ERROR] $m" -ForegroundColor Red }
 function Write-Warn($m) { Write-Host "[WARN] $m" -ForegroundColor Yellow }
 
-if ($Help) {
-    Write-Host @"
-DSH Terminal Manager 一键安装 (Windows)
+function Test-Command($name) { return [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 
-用法:
-    .\install.ps1 [-Profile <名称>] [-InstallDir <目录>]
+# 找一个能用的 dsh 入口执行 `plugin` 子命令；找不到返回 $false。
+function Invoke-DshPlugin {
+    param([string[]]$DshArgs)
 
-选项:
-    -Profile       DSH Profile 名称（默认：web）
-    -InstallDir    插件克隆目录（默认：~\.dsh\plugins）
-
-"@
-    exit 0
-}
-
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  DSH Terminal Manager 一键安装" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
-if (-not $InstallDir) { $InstallDir = Join-Path $env:USERPROFILE ".dsh\plugins" }
-
-# 1. 检查 Node.js
-Write-Info "检查 Node.js..."
-try {
-    $nv = node --version 2>$null
-    $major = [int]($nv -replace 'v(\d+).*','$1')
-    if ($major -lt 22) { Write-Err "Node.js $nv 版本过低，需要 22+"; exit 1 }
-    Write-Ok "Node.js $nv"
-} catch {
-    Write-Err "未找到 Node.js"
-    Write-Host "请先安装 Node.js 22+：https://nodejs.org/"
-    Write-Host "或 winget install OpenJS.NodeJS.LTS"
-    exit 1
-}
-
-# 2. 检查 pnpm
-Write-Info "检查 pnpm..."
-$pnpmVer = pnpm --version 2>$null
-if (-not $pnpmVer) {
-    Write-Info "安装 pnpm..."
-    npm install -g pnpm 2>$null
-}
-Write-Ok "pnpm $(pnpm --version 2>$null)"
-
-# 3. Clone 仓库
-$PluginDir = Join-Path $InstallDir "dsh-terminal-manager"
-if (Test-Path $PluginDir) {
-    Write-Info "插件目录已存在，更新中..."
-    Push-Location $PluginDir; git pull 2>&1 | Out-Null; Pop-Location
-} else {
-    Write-Info "克隆仓库到 $PluginDir ..."
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-    git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git $PluginDir 2>&1 | Out-Null
-}
-Write-Ok "仓库就绪"
-
-# 4. 构建
-Write-Info "安装依赖并构建..."
-Push-Location $PluginDir
-pnpm install | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Err "pnpm install 失败"; Pop-Location; exit 1 }
-pnpm build | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Err "pnpm build 失败"; Pop-Location; exit 1 }
-Pop-Location
-Write-Ok "构建完成"
-
-# 5. 打包 tgz
-Write-Info "打包插件..."
-Push-Location $PluginDir
-pnpm pack | Out-Null
-$tgzFile = Get-ChildItem -Path $PluginDir -Filter "dsh-terminal-manager-*.tgz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$tgzPath = $tgzFile.FullName
-Pop-Location
-if (-not $tgzPath) { Write-Err "打包失败，未找到 tgz"; exit 1 }
-
-# 从 tgz 中剥离 devDependencies（link: 路径在 profile 环境不可用，且会触发 symlink 失败）
-$extractDir = Join-Path $env:TEMP "dsh-tm-pack-$(Get-Random)"
-New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
-Push-Location $extractDir
-tar -xzf $tgzPath 2>$null
-$pkgJsonPath = Join-Path $extractDir "package\package.json"
-if (Test-Path $pkgJsonPath) {
-    $pkgJson = Get-Content $pkgJsonPath -Raw | ConvertFrom-Json
-    $pkgJson.PSObject.Properties.Remove('devDependencies')
-    $pkgJson | ConvertTo-Json -Depth 10 | Set-Content $pkgJsonPath -Encoding UTF8
-    # 重新打包
-    Remove-Item $tgzPath -Force
-    tar -czf $tgzPath -C $extractDir package
-    Write-Info "已剥离 devDependencies"
-}
-Pop-Location
-Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-
-Write-Ok "打包完成: $tgzPath"
-
-# 6. 安装到 DSH profile
-Write-Info "安装到 DSH profile: $Profile"
-
-# 预写 allowBuilds 配置（pnpm ≥10 需要批准原生模块构建）
-# 关键：allowBuilds 的 key 必须是 `包名@file:相对路径` 完整形式
-# （参考 deepseek-harness 的 pnpm-workspace.yaml）
-$profileDir = Join-Path $env:USERPROFILE ".dsh\profiles\$Profile"
-if (Test-Path $profileDir) {
-    $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
-    # tgz 相对 profile 目录的路径（固定结构：.dsh/profiles/<name> vs .dsh/plugins/<name>）
-    $tgzRelPath = "..\..\plugins\dsh-terminal-manager\dsh-terminal-manager-0.1.0.tgz"
-    $allowBuildsContent = @"
-allowBuilds:
-  ssh2: true
-  cpu-features: true
-  'dsh-terminal-manager@file:$tgzRelPath': true
-"@
-    if (Test-Path $wsFile) {
-        # 文件已存在：只在缺少 allowBuilds 时追加，避免覆盖 packages 等配置
-        $existing = Get-Content $wsFile -Raw
-        if (-not ($existing -match "allowBuilds:")) {
-            Add-Content -Path $wsFile -Value "" -Encoding UTF8
-            Add-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
-        }
-    } else {
-        # 文件不存在，新建
-        Set-Content -Path $wsFile -Value $allowBuildsContent -Encoding UTF8
+    if (Test-Command 'dsh') {
+        Write-Info '使用全局 dsh 命令'
+        & dsh @DshArgs
+        return ($LASTEXITCODE -eq 0)
     }
-    Write-Info "已配置 allowBuilds: $wsFile"
-}
 
-# 设置 ignore-scripts=true，避免安装 tgz 时触发脚本（tgz 已包含构建产物）
-$npmrcFile = Join-Path $profileDir ".npmrc"
-if (Test-Path $npmrcFile) {
-    $npmrcContent = Get-Content $npmrcFile -Raw
-    if (-not ($npmrcContent -match "ignore-scripts")) {
-        Add-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
-    }
-} else {
-    Set-Content -Path $npmrcFile -Value "ignore-scripts=true" -Encoding UTF8
-}
-Write-Info "已配置 ignore-scripts: $npmrcFile"
+    # DSH 源码 checkout：在它目录下用 `pnpm dsh` 启动
+    $candidates = @(
+        (Join-Path (Split-Path $PSScriptRoot -Parent) '..\deepseek-harness'),
+        (Join-Path (Get-Location) '..\deepseek-harness'),
+        'D:\myProject\dsh\deepseek-harness',
+        (Join-Path $env:USERPROFILE 'deepseek-harness')
+    ) | ForEach-Object { [IO.Path]::GetFullPath($_) } | Select-Object -Unique
 
-$installed = $false
-
-# 方式 A：全局安装了 dsh
-if (Get-Command dsh -ErrorAction SilentlyContinue) {
-    Write-Info "使用全局 dsh 命令"
-    dsh plugin --profile $Profile add $tgzPath
-    $installed = ($LASTEXITCODE -eq 0)
-}
-
-# 方式 B：查找 deepseek-harness 源码（多处搜索）
-if (-not $installed) {
-    $searchPaths = @(
-        # 脚本所在目录的相邻目录（从源码 clone 运行时）
-        (Join-Path (Split-Path $PSScriptRoot -Parent) "deepseek-harness"),
-        # 当前工作目录的相邻目录
-        (Join-Path (Split-Path (Get-Location) -Parent) "deepseek-harness"),
-        # 插件安装目录的相邻目录
-        (Join-Path (Split-Path (Split-Path $PluginDir -Parent) -Parent) "deepseek-harness"),
-        # 常见位置
-        "D:\dsh\deepseek-harness",
-        "D:\myproject\dsh\deepseek-harness",
-        "$env:USERPROFILE\deepseek-harness"
-    ) | Select-Object -Unique
-
-    foreach ($path in $searchPaths) {
-        if (Test-Path (Join-Path $path "package.json")) {
-            Write-Info "检测到 DSH 源码: $path"
-            Push-Location $path
-            pnpm dsh plugin --profile $Profile add $tgzPath
-            $installed = ($LASTEXITCODE -eq 0)
+    foreach ($root in $candidates) {
+        if ((Test-Path (Join-Path $root 'package.json')) -and (Test-Command 'pnpm')) {
+            Write-Info "检测到 DSH 源码：$root"
+            Push-Location $root
+            pnpm dsh @DshArgs
+            $ok = ($LASTEXITCODE -eq 0)
             Pop-Location
-            break
+            return $ok
         }
     }
+
+    if (Test-Command 'npx') {
+        Write-Info '退回 npx（首次需下载）'
+        npx -y --package '@deepseek-ai/dsh' dsh @DshArgs
+        return ($LASTEXITCODE -eq 0)
+    }
+    return $false
 }
 
-# 方式 C：用 npx（兜底）
-if (-not $installed -and (Get-Command npx -ErrorAction SilentlyContinue)) {
-    Write-Info "使用 npx @deepseek-ai/dsh（首次需下载）"
-    npx @deepseek-ai/dsh plugin --profile $Profile add $tgzPath
-    $installed = ($LASTEXITCODE -eq 0)
+# ---------- 0. 环境检查 ----------
+Write-Info '检查 Node.js...'
+if (-not (Test-Command 'node')) { Write-Err '未找到 node，请先安装 Node.js 22+：https://nodejs.org/'; exit 1 }
+$nodeMajor = [int]((node --version).TrimStart('v').Split('.')[0])
+if ($nodeMajor -lt 22) { Write-Warn "Node.js 版本偏低（$(node --version)），建议 22+" }
+Write-Ok "Node.js $(node --version)"
+
+if (-not (Test-Command 'pnpm')) {
+    Write-Info '安装 pnpm...'
+    npm install -g pnpm
+    if (-not (Test-Command 'pnpm')) { Write-Err 'pnpm 安装失败，请手动执行 npm install -g pnpm'; exit 1 }
+}
+Write-Ok "pnpm $(pnpm --version)"
+
+# ---------- 1. 决定安装目标 ----------
+if ($FromSource) {
+    Write-Info "源码安装模式，目标目录：$SourceDir"
+    if (Test-Path (Join-Path $SourceDir '.git')) {
+        Write-Info '仓库已存在，拉取更新...'
+        git -C $SourceDir pull --ff-only
+    } else {
+        git clone $RepoUrl $SourceDir
+        if ($LASTEXITCODE -ne 0) { Write-Err "git clone 失败：$RepoUrl"; exit 1 }
+    }
+
+    Push-Location $SourceDir
+    Write-Info '安装依赖...'; pnpm install
+    if ($LASTEXITCODE -ne 0) { Write-Err 'pnpm install 失败'; Pop-Location; exit 1 }
+    Write-Info '构建...'; pnpm build
+    if ($LASTEXITCODE -ne 0) { Write-Err 'pnpm build 失败'; Pop-Location; exit 1 }
+    Pop-Location
+
+    $target = "dsh-terminal-manager@link:$SourceDir"
+} else {
+    $target = 'dsh-terminal-manager@latest'
 }
 
-if (-not $installed) {
-    Write-Err "安装失败。请确保已安装 DSH：npm install -g @deepseek-ai/dsh"
+# ---------- 2. 装进 profile ----------
+Write-Info "安装 $target 到 profile「$Profile」..."
+$ok = Invoke-DshPlugin @('plugin', '--profile', $Profile, 'add', $target)
+
+if (-not $ok) {
+    Write-Err '安装失败。排查建议：'
+    Write-Host '  1) 确认 DSH 已安装：npm install -g @deepseek-ai/dsh'
+    Write-Host "  2) 确认 profile 存在：先跑一次 dsh web --profile $Profile"
+    Write-Host "  3) ssh2 构建脚本被拦：在 ~/.dsh/profiles/$Profile 下跑 pnpm approve-builds --all 后重试"
     exit 1
 }
-Write-Ok "安装完成"
 
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "  安装完成！" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "启动 DSH：" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  dsh $Profile"
-Write-Host ""
-Write-Host "浏览器自动打开 http://127.0.0.1:3080"
-Write-Host "左侧边栏底部出现「终端」按钮"
-Write-Host ""
-Write-Host "更新插件：" -ForegroundColor Cyan
-Write-Host "  cd $PluginDir; git pull; pnpm install; pnpm build"
-Write-Host "  然后重新运行此脚本"
-Write-Host ""
+Write-Ok '安装完成'
+Write-Host ''
+Write-Host '下一步：' -ForegroundColor Cyan
+Write-Host '  1) 启动 DSH：dsh web'
+Write-Host '  2) 浏览器硬刷新（Ctrl+Shift+R），左侧边栏底部出现「🖥️ 终端」按钮'
+Write-Host ''
+if ($FromSource) {
+    Write-Host '源码模式：改完代码后重建即可生效：' -ForegroundColor Cyan
+    Write-Host "  cd $SourceDir; pnpm build"
+}

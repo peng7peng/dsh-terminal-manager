@@ -7,8 +7,14 @@
  * @module dsh-terminal-manager/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// 以下三行都是 type-only（构建期擦除，运行时不解析这些包）：
+//   ui-renderer —— ctx.slots 的类型来源（Context 合并，不引就取不到 slots）
+//   ui-sidebar  —— 'sidebar.footer.action' 槽位的声明方
+//   ui-layout   —— 'shell.overlay' 槽位的声明方（显式引入，不依赖 ui-sidebar 的传递 import）
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import xtermCss from 'tm:xterm-css'
 import { registerClientExtensions } from './ext/index.tsx'
 import { PLUGIN_CSS } from './styles/index.ts'

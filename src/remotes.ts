@@ -3,13 +3,16 @@
  *
  * 前端经通道①（HTTP）调用这些方法：连接配置增删改查、会话连接/断开/重连/列表/读缓冲。
  * 调度逻辑是纯函数（dispatch），便于直接测试；registerRemotes 负责挂到 ctx.webServer。
- * 挂载方式：ctx.webServer.register({ kind: 'prefix', prefix: '/term-manager' })
+ * 挂载方式：ctx.webServer.register({ kind: 'prefix', path: '/term-manager', handler })
  * @module dsh-terminal-manager/remotes
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+// 指令通道的信封类型。包名里的 client- 是上游历史命名（该包自述为「Host HTTP bridge
+// for browser-client RPC」，host 侧同样可以取用；上游 host 包 packages/api/gateway 就是这么引的）。
+import type { ConnectionRpcFailure, ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { randomUUID } from 'node:crypto'
 import { basename as posixBasename } from 'node:path/posix'
 import { pipeline } from 'node:stream/promises'
@@ -25,6 +28,13 @@ import { stat } from 'node:fs/promises'
 import { FileServiceError, mapFsError } from './file-errors.ts'
 import { resolveInsideRoot } from './path-security.ts'
 import { SessionError } from './session-manager.ts'
+
+/**
+ * 上游历史短名的本地别名：`@deepseek-ai/dsh-client-connection` 的包根只导出长名
+ * `ConnectionRpcResult`（短名 `RpcResult` 只在它的 `/client` face 里）。下面 toError/ok
+ * 的使用点保持短名。
+ */
+type RpcResult<T> = ConnectionRpcResult<T>
 
 /** 指令通道的依赖（注入便于测试）。 */
 export interface RemoteDeps {
@@ -50,8 +60,10 @@ function requireFiles(deps: RemoteDeps): FileService {
 /** 连接页查询/表单的载荷类型。 */
 type Payload = Record<string, unknown>
 
-/** 把领域异常折叠成 RpcResult 的错误分支（code 编进 message，M4 可细化）。 */
-function toError(error: unknown): RpcResult<never>['error'] {
+/** 把领域异常折叠成错误分支（code 编进 message，M4 可细化）。 */
+// 注意：不能写 RpcResult<never>['error'] —— ConnectionRpcResult 是严格互斥联合，
+// 成功分支没有 error 字段，索引访问取不到该属性（上游旧类型带可选 error 才能那么写）。
+function toError(error: unknown): ConnectionRpcFailure {
   const message = error instanceof Error ? error.message : String(error)
   const code = error instanceof Error && 'code' in error ? String((error as { code: unknown }).code) : 'INTERNAL'
   return { code: 'internal', message: `${code}: ${message}`, details: {} }
@@ -473,7 +485,7 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
     kind: 'prefix' as const,
     path: '/term-manager',
     handler: (req: IncomingMessage, res: ServerResponse) => createHttpHandler(deps)(req, res),
-  }
+  } satisfies WebRoute
   // ctx.effect(fn)：fn 立即执行、其返回值是清理函数。把 register 放进 fn，
   // 返回的 disposer 才会被存为清理（而不是被立即执行删掉路由）。
   ctx.effect(() => webServer.register(route), 'terminal-manager: /term-manager 路由')

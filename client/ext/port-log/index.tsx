@@ -1,4 +1,6 @@
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// 类型侧：ctx.slots 由 ui-renderer 的 Context 合并提供。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { PortLogWorkspace } from './PortLogWorkspace.tsx'
 import { togglePortLogVisible, usePortLogState } from './store.ts'
 import { setWorkspaceVisible } from '../../store.ts'

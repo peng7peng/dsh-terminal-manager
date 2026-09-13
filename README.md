@@ -67,11 +67,62 @@
 
 ## 前提条件
 
+- **DeepSeek Harness 0.1.2-rc.1**（`dsh web` 能正常跑起来）
 - **Node.js** 22+（[下载](https://nodejs.org/)）
-- **pnpm** 11+（`npm install -g pnpm`）
-- **DeepSeek Harness** 0.1.2-rc.1
+- **pnpm** 11+（`npm install -g pnpm`）——DSH 用它装插件；源码安装时也用它装依赖
 
 ## 安装
+
+### 方式一：npm 安装（推荐，普通用户）
+
+```bash
+dsh plugin --profile web add dsh-terminal-manager@latest
+```
+
+装完**硬刷新浏览器**（Ctrl/Cmd + Shift + R）即可看到侧边栏底部的「🖥️ 终端」按钮。DSH 对 client 改动是热加载的，通常不需要重启。
+
+<details>
+<summary><b>dsh 命令不可用 / 想装到别的 profile</b></summary>
+
+```bash
+# dsh 命令不在 PATH 里时用 npx 兜底
+npx -y --package @deepseek-ai/dsh dsh plugin --profile web add dsh-terminal-manager@latest
+
+# 装到其他 profile
+dsh plugin --profile <你的profile> add dsh-terminal-manager@latest
+```
+
+</details>
+
+<details>
+<summary><b>更新</b></summary>
+
+```bash
+dsh plugin --profile web add dsh-terminal-manager@latest
+```
+
+也可以把 `~/.dsh/profiles/web/package.json` 里的版本号改高再 `pnpm install`。改完硬刷新浏览器即可。
+
+</details>
+
+<details>
+<summary><b>常见问题</b></summary>
+
+| 现象 | 原因与解决 |
+|---|---|
+| 报 `ERR_PNPM_IGNORED_BUILDS: ssh2@1.17.0` | pnpm 11 拦了 ssh2 的构建脚本。① 省事做法：在 `~/.dsh/profiles/web/pnpm-workspace.yaml` 里写 `allowBuilds: {ssh2: false, cpu-features: false}`（ssh2 的原生绑定只是可选加速，纯 JS 回退完全够用），再装一次就过；② 或在 profile 目录跑 `pnpm approve-builds --all`，然后重跑安装命令（若提示 gyp 编译失败，属正常，ssh2 会回退纯 JS） |
+| 启动报 `plugin tree failed to load`，并显示 `dsh-terminal-manager: pending (waiting for service: webServer)` | 装插件之前没跑过 `dsh web`，新建 profile 的 `dsh.profile.bundles` 里只有 `@deepseek-ai/dsh-base` + 本插件，缺 `@deepseek-ai/dsh-web-app`（`webServer` 由它提供）。解决：在 `~/.dsh/profiles/<profile>/package.json` 的 `dsh.profile.bundles` 里补上 `"@deepseek-ai/dsh-web-app"`；或删掉该 profile 目录、先跑一次 `dsh web` 再装 |
+| 报 `minimum release age` / 版本不足 24h | 装的版本发布不到 24 小时。等 24h，或直接重跑一次（pnpm 会自动补 `minimumReleaseAgeExclude`） |
+| 报「找不到 profile 目录」 | 先跑一次 `dsh web`，让它初始化 `~/.dsh/profiles/web` |
+| 装完看不到终端按钮 | 先硬刷新（Ctrl/Cmd + Shift + R）；仍没有就 F12 看控制台报错，并确认 `~/.dsh/profiles/web/node_modules/` 下有 `dsh-terminal-manager` |
+| 提示 `dsh: command not found` | 用上面的 npx 兜底命令，或先安装 DSH |
+| 连不上设备 | 插件只做终端；确认目标主机可达、端口开放（`ping` / `nc -zv <host> <port>`），SSH 服务在跑 |
+
+</details>
+
+### 方式二：源码安装（开发者）
+
+要改代码、调试本地改动时用。DSH 那侧的依赖（`@deepseek-ai/*`）**照样从 npm 取**，不需要本地准备 DSH 源码树。
 
 ```bash
 git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
@@ -83,17 +134,25 @@ dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
 # dsh plugin --profile web add "dsh-terminal-manager@link:$PWD"
 ```
 
-安装完成后运行 `dsh web`，浏览器打开 http://127.0.0.1:XXXX，左侧边栏底部出现「🖥️ 终端」按钮。
-
-## 更新插件
+<details>
+<summary><b>源码安装的更新与验证</b></summary>
 
 ```bash
 cd <插件安装目录>
 git pull
-pnpm install
-pnpm build
-# 然后重启 DSH
+pnpm install      # 依赖有变动时才需要
+pnpm build        # 必须重新构建：profile 用的是 lib/ 里的产物
+# 然后硬刷新浏览器（client 改动热加载；host 半改动需重启 DSH）
 ```
+
+仓库自带验证手段：
+
+```bash
+pnpm test                     # vitest，当前 54 个文件 / 621 项
+node scripts/run-e2e.mjs      # 24 个 E2E 场景，自动拉起 mock 设备 + DSH 服务
+```
+
+</details>
 
 ## 许可证
 

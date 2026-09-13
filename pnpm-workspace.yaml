@@ -1,3 +1,11 @@
+packages:
+  - .
+
 allowBuilds:
   cpu-features: false
   ssh2: false
+
+# DSH 的 prerelease 常常在发布后 24 小时内就要被装上（pnpm 11 的 minimumReleaseAge
+# 默认隔离 24h，会直接拒装新包）。
+minimumReleaseAgeExclude:
+  - '@deepseek-ai/*'

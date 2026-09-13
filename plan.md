@@ -513,6 +513,12 @@ DSH_PORT=3180 node scripts/ext-port-log-smoke.mjs
 
 ## 证据
 
-- `tests/` 462 项全绿（2026-09-09）；`pnpm build` 产出 host + client 双半包；覆盖率 86.82/76.26/89.7/90.69（阈值 90/80/90/90）。
-- 真实启动冒烟：DSH profile tm-dev，`/plugins/dsh-terminal-manager/client.js` 200 + 首页含 `dsh-terminal-manager` 行。
-- `scripts/smoke-e2e.mjs` 21 场景对活服务。
+- `tests/` 54 文件 / 621 项全绿（2026-09-13）；`pnpm build` 产出 host + client 双半包。
+- E2E：`node scripts/run-e2e.mjs` 24/24 全绿（2026-09-13）。
+- npm 通道真机挂载：`node scripts/mount-check.mjs` 全绿——隔离 DSH_HOME 里 `dsh plugin add file:<tarball>` + 起真实 `dsh web`，首页 `__DSH_BOOT__` 出现插件行、该行给的产物 URL 返回 200（约 2.0 MB）。
+  - **健康判据已更新**：DSH 0.1.2+ 用的是合并 URL `/plugins/??dsh-terminal-manager/client.js&rev=...`，旧的 `/plugins/dsh-terminal-manager/client.js` 现在 **404**；首页裸 URL 401，需用就绪行的一次性 token URL 换 cookie（先回 303）。
+- 安装双轨：npm（`dsh plugin --profile web add dsh-terminal-manager@latest`）+ 源码 link。干净克隆下 `pnpm install` **不带任何参数**即可通过（2026-09-13 修复：删掉上游已删除的 `dsh-host-apiproxy` / `dsh-client-runtime`——钉着它们会把传递 peer 链拖成 `ERR_PNPM_NO_MATCHING_VERSION`）。
+- 契约迁移（DSH 0.1.2-rc.1 删了上面两个包）：`RpcResult` → `@deepseek-ai/dsh-client-connection`；`ClientContext` → `@deepseek-ai/cordis` 加 `ui-renderer` / `ui-layout` 的 type-only 声明。映射表见 `docs/DHS-0.1.2-rc.1-契约迁移映射.zh.md`。
+- 打包：`prepack` 自动构建（杜绝陈旧 `lib/` 被发出去）；tarball 只含 6 个文件、约 604 KB。
+- 安装期两个已知坑（都在 README/INSTALL 的常见问题与 `scripts/mount-check.mjs` 里有解法）：全新 profile 缺 `@deepseek-ai/dsh-web-app` bundle（插件等 `webServer` 会 boot 失败）、pnpm 11 拦 `ssh2` 构建脚本（`ERR_PNPM_IGNORED_BUILDS`）。
+- 沿用（旧记录）：覆盖率 86.82/76.26/89.7/90.69（阈值 90/80/90/90）。

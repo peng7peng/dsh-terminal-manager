@@ -6,7 +6,7 @@
  * @module dsh-terminal-manager/client/ext
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { registerPortLogClient } from './port-log/index.tsx'
 
 /** 挂载全部扩展模块的浏览器半。当前为空壳。 */

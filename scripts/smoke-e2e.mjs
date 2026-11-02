@@ -17,9 +17,9 @@ let pass = 0, fail = 0
 const cleanups = []
 
 async function rpc(method, payload = {}) {
-  const res = await fetch(`${DSH}/term-manager/${method}`, {
+  const res = await fetch(`${DSH}/api/term-manager/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(process.env.DSH_COOKIE ? { cookie: process.env.DSH_COOKIE } : {}) },
     body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

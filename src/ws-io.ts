@@ -14,7 +14,6 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { SessionManager, SessionSnapshot } from './session-manager.ts'
 import type { TransferProgress } from './types/file-service.ts'
-import { isTrustedOrigin } from './remotes.ts'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -43,12 +42,6 @@ export type FileProgressFrame = Extract<OutFrame, { kind: 'file-progress' }>
 export interface WsIoHandle {
   disposer: () => void
   broadcastFileProgress: (frame: FileProgressFrame) => void
-}
-
-/** 仅 loopback 信任栅栏（MVP）。 */
-function isLoopback(req: IncomingMessage): boolean {
-  const host = (req.headers.host ?? '').toLowerCase()
-  return host.startsWith('127.0.0.1') || host.startsWith('localhost') || host.startsWith('[::1]')
 }
 
 /** 一条 WS 连接的会话订阅与帧分发（可直测：注入 ws-like 对象）。 */
@@ -128,10 +121,13 @@ export function registerWsIo(ctx: Context, sessions: SessionManager): WsIoHandle
   const heartbeats = new Map<WebSocket, NodeJS.Timeout>()
 
   const handler = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    // 浏览器发 WS 必带 Origin（审查 2026-09-03：isLoopback 只看可伪造的 Host 头，挡不住
-    // 跨站 WS 劫持——恶意网页可连上来偷终端输出 / 以人工键入路径注入命令）。与 /term-manager
-    // 的 HTTP 栅栏同一标准：无 Origin（非浏览器客户端）放行，loopback / 同 Host 放行，其余销毁。
-    if (!isTrustedOrigin(req.headers.origin, req.headers.host) || !isLoopback(req)) {
+    // 升级前走 DSH 统一信任栅栏 + 浏览器认证（Host/Origin 校验 + 签名 cookie）。
+    // 0.2.1 起不再由插件自建 loopback 判断：那只看可伪造的 Host 头，挡不住跨站 WS 劫持。
+    const connection = ctx.get('connection')
+    const admission = connection?.admit(req)
+    if (admission === undefined || 'rejection' in admission) {
+      const status = admission !== undefined && 'rejection' in admission ? admission.rejection : 401
+      socket.write(`HTTP/1.1 ${status} ${status === 403 ? 'Forbidden' : 'Unauthorized'}\r\nConnection: close\r\n\r\n`)
       socket.destroy()
       return
     }

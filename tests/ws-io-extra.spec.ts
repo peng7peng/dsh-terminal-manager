@@ -52,14 +52,16 @@ describe('registerWsIo', () => {
     let registered: { path: string; handler: (req: unknown, socket: unknown, head: Buffer) => void } | undefined
     let disposed = 0
     const ctx = {
-      get: (name: string) => (name === 'webServer' ? { registerUpgrade: (r: typeof registered) => { registered = r; return () => { disposed++ } } } : undefined),
+      get: (name: string) => name === 'webServer'
+        ? { registerUpgrade: (r: typeof registered) => { registered = r; return () => { disposed++ } } }
+        : name === 'connection' ? { admit: () => ({ rejection: 403 as const }) } : undefined,
       effect: (fn: () => () => void) => fn(),
     } as unknown as Context
     const handle = registerWsIo(ctx, new SessionManager(undefined, factory))
     expect(registered?.path).toBe('/term-io')
     expect(typeof handle.broadcastFileProgress).toBe('function')
     let destroyed = 0
-    registered!.handler({ headers: { host: 'evil.example:80' } }, { destroy: () => { destroyed++ } }, Buffer.alloc(0))
+    registered!.handler({ headers: { host: 'evil.example:80' } }, { write: () => {}, destroy: () => { destroyed++ } }, Buffer.alloc(0))
     expect(destroyed).toBe(1)
     handle.disposer()
     expect(disposed).toBe(1)

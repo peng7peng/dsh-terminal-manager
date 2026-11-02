@@ -35,7 +35,21 @@ const SESSION_SNAPSHOT_SCHEMA = {
   },
 } as const
 
-/** tm_send 的输出：已执行完（默认）或发完即回。 */
+/** tm_send 批处理单条结果。 */
+const BATCH_ENTRY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    index: { type: 'number', required: true },
+    command: { type: 'string', required: true },
+    outcome: { type: 'string', required: true, enum: ['ok', 'timeout', 'skipped', 'disconnected', 'aborted'] },
+    output: { type: 'string' },
+    waitReason: { type: 'string', enum: ['quiet', 'prompt', 'timeout'] },
+    truncated: { type: 'boolean' },
+  },
+} as const
+
+/** tm_send 的输出：已执行完（默认）、发完即回，或批处理。 */
 const SEND_RESULT_SCHEMA = {
   oneOf: [
     {
@@ -53,6 +67,14 @@ const SEND_RESULT_SCHEMA = {
       additionalProperties: false,
       properties: {
         kind: { type: 'string', required: true, const: 'submitted' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: { type: 'string', required: true, const: 'batch' },
+        results: { type: 'array', required: true, items: BATCH_ENTRY_SCHEMA },
       },
     },
   ],
@@ -101,7 +123,8 @@ interface TransferArgs {
 
 interface SendArgs {
   sessionId: string
-  command: string
+  command?: string
+  commands?: string[]
   wait?: 'complete' | 'immediate'
   quietMs?: number
   timeoutMs?: number
@@ -160,7 +183,7 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
   ctx.systemPrompt.section({
     name: 'tool:term-manager',
     order: 107,
-    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。文件用 tm_upload / tm_download 传输（仅 SSH 会话）：上传时 localPath 可传文件名（自动在工作目录和面板根目录查找）或绝对路径（必须在两者之一内）；找不到文件时询问用户提供路径；下载时先问用户保存到哪个目录，用户不指定则下载到面板当前目录。工作目录和面板根目录之外的文件无法通过工具上传，需用文件面板手动拖拽。',
+    text: '终端管理插件维护一批与人和 AI 共用的远程设备会话（SSH/Telnet）。先用 tm_list 查看会话；用 tm_connect 连接设备；tm_send 对单个会话发命令并等执行完拿回整段输出（commands 可一次串行执行一批，整批先过守卫预检）；tm_send_all 广播到多台；tm_read 读某会话当前屏幕；不用了 tm_disconnect 断开。同一会话一次只跑一条命令，忙碌会报 SESSION_BUSY。waitReason 为 timeout 不代表命令失败，可用 tm_read 复查。危险命令会被拦截并返回 COMMAND_BLOCKED。文件用 tm_upload / tm_download 传输（仅 SSH 会话）：上传时 localPath 可传文件名（自动在工作目录和面板根目录查找）或绝对路径（必须在两者之一内）；找不到文件时询问用户提供路径；下载时先问用户保存到哪个目录，用户不指定则下载到面板当前目录。工作目录和面板根目录之外的文件无法通过工具上传，需用文件面板手动拖拽。',
   })
 
   ctx.tools.register(defineTool({
@@ -238,10 +261,11 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
 
   ctx.tools.register(defineTool({
     name: 'tm_send',
-    description: '向一个会话发送命令。默认等待执行完成（静默/提示符/超时判定）后整段返回；wait=immediate 则发完即回（用 tm_read 观察长命令）。危险命令会被拦截。',
+    description: '向一个会话发送一条命令（或按 commands 串行执行一批）。默认等待执行完成（静默/提示符/超时判定）后整段返回；wait=immediate 则发完即回（用 tm_read 观察长命令）。危险命令会被拦截；批处理整批预检，命中任一条则整批不执行。',
     parameters: {
       sessionId: { type: 'string', required: true, description: '会话编号（tm_connect 或 tm_list 返回）' },
-      command: { type: 'string', required: true, description: '要发送的命令文本' },
+      command: { type: 'string', description: '要发送的单条命令文本（与 commands 二选一）' },
+      commands: { type: 'array', items: { type: 'string' }, description: '同会话串行执行的一批命令（与 command 二选一）' },
       wait: { type: 'string', description: 'complete（默认，等执行完）或 immediate（发完即回）' },
       quietMs: { type: 'number', description: '静默判定毫秒数（覆盖连接配置）' },
       timeoutMs: { type: 'number', description: '超时兜底毫秒数（覆盖连接配置）' },
@@ -250,12 +274,24 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
       schema: SEND_RESULT_SCHEMA,
       render: (_args, value) => {
         if (value.kind === 'submitted') return [{ type: 'text', text: '已发送（未等待执行完成，可用 tm_read 观察）' }]
+        if (value.kind === 'batch') {
+          return [{ type: 'text', text: value.results.map((r, i) =>
+            `────── [命令 ${i + 1}/${value.results.length}] ${r.command} (${r.outcome}) ──────\n${r.output ?? ''}${r.truncated === true ? '\n[输出截断]' : ''}`,
+          ).join('\n') }]
+        }
         const v = value as { output: string; waitReason: string; truncated: boolean }
         return [{ type: 'text', text: v.output + (v.truncated ? '\n[输出截断]' : '') }]
       },
     },
     async execute(args: SendArgs, exec) {
-      if (args.command.length === 0) throw new Error('command 不能为空')
+      if (args.commands !== undefined) {
+        if (args.commands.length === 0) throw new Error('commands 不能为空')
+        if (args.commands.some(c => c.length === 0)) throw new Error('commands 不能包含空命令')
+        if (args.wait === 'immediate') throw new Error('批处理不支持 wait=immediate')
+        const results = await sessions.sendBatch(args.sessionId, args.commands, { guard: {}, signal: exec.signal, ...waitOptions(args) })
+        return { kind: 'batch' as const, results }
+      }
+      if (args.command === undefined || args.command.length === 0) throw new Error('command 不能为空（或传 commands）')
       if (args.wait === 'immediate') {
         await sessions.sendImmediate(args.sessionId, args.command, { guard: {}, signal: exec.signal })
         return { kind: 'submitted' as const }
@@ -269,7 +305,10 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
     },
     presentCall(args) {
       const parsed = args as Partial<SendArgs>
-      return { card: 'terminal', title: parsed.command || '(发送命令)', description: `会话 ${parsed.sessionId ?? ''}` }
+      const title = parsed.commands !== undefined
+        ? `批处理 ${parsed.commands.length} 条命令`
+        : parsed.command || '(发送命令)'
+      return { card: 'terminal', title, description: `会话 ${parsed.sessionId ?? ''}` }
     },
     presentResult(args, result) {
       if ((args as Partial<SendArgs>).wait === 'immediate' || result.isError) return undefined

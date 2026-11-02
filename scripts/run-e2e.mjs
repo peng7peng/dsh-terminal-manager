@@ -121,12 +121,29 @@ async function udpRoundTrip(port, data) {
   return buf.toString()
 }
 
+// ─── 认证（DSH 0.2.1：/api 与 WS 都要浏览器 cookie）─────────
+
+let authCookie = ''
+
+function authHeaders(extra = {}) {
+  return authCookie === '' ? extra : { ...extra, cookie: authCookie }
+}
+
+/** 从启动输出里的 ?token= URL 换浏览器 cookie。 */
+async function authenticate(appUrl) {
+  const res = await fetch(appUrl, { redirect: 'manual' })
+  const raw = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [res.headers.get('set-cookie') ?? '']
+  const cookie = raw.map(value => value.split(';', 1)[0]).find(value => value !== '')
+  if (cookie === undefined) throw new Error(`登录失败：HTTP ${res.status}`)
+  authCookie = cookie
+}
+
 // ─── RPC ───────────────────────────────────────────────────
 
 async function rpc(method, payload = {}) {
-  const res = await fetch(`${DSH_ORIGIN}/term-manager/${method}`, {
+  const res = await fetch(`${DSH_ORIGIN}/api/term-manager/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: authHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -135,9 +152,9 @@ async function rpc(method, payload = {}) {
 }
 
 async function portLogRpc(method, payload = {}) {
-  const res = await fetch(`${DSH_ORIGIN}/term-manager/ext/port-log`, {
+  const res = await fetch(`${DSH_ORIGIN}/api/port-log/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: authHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -220,6 +237,11 @@ async function main() {
   // 3. 启动 DSH tm-dev
   console.log('\n▶ 启动 DSH tm-dev 服务')
   const dsh = startProcess('pnpm', ['dsh', '--profile', DSH_PROFILE, '--port', String(DSH_PORT), '--no-open'], { cwd: DSH_HARNESS })
+  let appUrl
+  dsh.stdout?.on('data', (d) => {
+    const match = /dsh web: (http:\/\/\S+)/.exec(d.toString())
+    if (match !== null && appUrl === undefined) appUrl = match[1]
+  })
 
   // 4. 健康检查
   console.log(`\n▶ 等待 DSH 就绪 (端口 ${DSH_PORT})...`)
@@ -227,12 +249,15 @@ async function main() {
   let dshReady = false
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${DSH_ORIGIN}/term-manager/sessions.list`, {
+      if (appUrl === undefined) throw new Error('等待启动 URL')
+      if (authCookie === '') await authenticate(appUrl)
+      const res = await fetch(`${DSH_ORIGIN}/api/term-manager/sessions.list`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify({ type: 'client-request', rpcId: 'health', method: 'sessions.list', payload: {} }),
       })
       if (res.ok) { dshReady = true; break }
+      authCookie = '' // token 可能随重启变化，下一轮重新换
     } catch {}
     await sleep(500)
   }
@@ -492,7 +517,7 @@ async function main() {
   await test('E-SSE-01', 'SSE 事件订阅 → 收到 mapping-status', async () => {
     // 发起 SSE 订阅
     const sseRes = await fetch(`${DSH_ORIGIN}/term-manager/ext/port-log/events`, {
-      headers: { accept: 'text/event-stream' },
+      headers: authHeaders({ accept: 'text/event-stream' }),
     })
     assert(sseRes.ok, 'SSE 连接成功')
     const reader = sseRes.body.getReader()

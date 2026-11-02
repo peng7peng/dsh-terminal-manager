@@ -67,9 +67,9 @@ describe('插件元数据', () => {
     expect(mod.name).toBe('terminal-manager')
   })
 
-  it('inject 包含 tools、systemPrompt、webServer', async () => {
+  it('inject 包含 tools、systemPrompt、webServer、connection', async () => {
     const mod = await import('../src/index.ts')
-    expect(mod.inject).toEqual(['tools', 'systemPrompt', 'webServer'])
+    expect(mod.inject).toEqual(['tools', 'systemPrompt', 'webServer', 'connection'])
   })
 })
 

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ConnectionRpcHandlerResult } from '@deepseek-ai/dsh-client-connection'
 import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
@@ -16,7 +17,22 @@ import type { SessionLogManager } from './session-log-manager.ts'
 import type { PortMappingInput } from './types.ts'
 
 const PREFIX = '/term-manager/ext/port-log'
-const MAX_BODY_BYTES = 2 * 1024 * 1024
+
+/** /api 下 port-log RPC 的端点前缀（不含 `/api/`）。 */
+export const PORT_LOG_ENDPOINT_PREFIX = 'port-log/'
+
+/** port-log 控制面方法全集（每个方法注册一条 /api 下的精确 Fetch 路由）。 */
+export const PORT_LOG_METHODS = [
+  'appLogs.status', 'network.localAddresses', 'sessions.list',
+  'mappings.list', 'mappings.create', 'mappings.update', 'mappings.remove',
+  'mappings.importCsv', 'mappings.exportCsv', 'mappings.start', 'mappings.stop',
+  'shares.list', 'shares.start', 'shares.stop',
+  'sessionLogs.list', 'sessionLogs.defaultDirectory', 'sessionLogs.start', 'sessionLogs.update',
+  'sessionLogs.stop', 'sessionLogs.pickDirectory', 'sessionLogs.listDir', 'sessionLogs.knownFolders',
+] as const
+
+/** SSE 流路由（保留非 /api 前缀，DSH Connection 仍会做认证）。 */
+export const PORT_LOG_EVENTS_PATH = `${PREFIX}/events`
 
 interface RouterDeps {
   store: MappingStore
@@ -35,29 +51,6 @@ type RpcResult = { ok: true; value: unknown } | { ok: false; error: { code: stri
 
 function ok(value: unknown): RpcResult {
   return { ok: true, value }
-}
-
-function isLoopback(address: string | undefined): boolean {
-  if (address === undefined) return false
-  const normalized = address.toLowerCase().split('%')[0]
-  return normalized === '::1' || normalized === '127.0.0.1' || normalized.startsWith('127.') || normalized.startsWith('::ffff:127.')
-}
-
-export function isAllowedRequest(request: IncomingMessage): boolean {
-  if (!isLoopback(request.socket.remoteAddress)) return false
-  const origin = request.headers.origin
-  if (origin === undefined) return true
-  const host = request.headers.host
-  try {
-    return host !== undefined && new URL(origin).host.toLowerCase() === host.toLowerCase()
-  } catch {
-    return false
-  }
-}
-
-function writeJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  response.end(JSON.stringify(body))
 }
 
 function requireString(payload: Payload, key: string): string {
@@ -199,69 +192,20 @@ export async function dispatchPortLog(endpoint: string, payload: Payload, deps: 
   }
 }
 
-async function readBody(request: IncomingMessage): Promise<string> {
-  let total = 0
-  const chunks: Buffer[] = []
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    total += buffer.length
-    if (total > MAX_BODY_BYTES) throw new PortLogError('VALIDATION', '请求体不能超过 2 MiB')
-    chunks.push(buffer)
+/** /api 通道的 port-log RPC handler：endpoint 形如 `port-log/mappings.list`。 */
+export function createPortLogRpcHandler(deps: RouterDeps): (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcHandlerResult> {
+  return async (endpoint, payload, signal) => {
+    const method = endpoint.startsWith(PORT_LOG_ENDPOINT_PREFIX)
+      ? endpoint.slice(PORT_LOG_ENDPOINT_PREFIX.length)
+      : endpoint
+    return dispatchPortLog(method, (payload ?? {}) as Payload, deps, signal)
   }
-  return Buffer.concat(chunks).toString('utf8')
 }
 
-export function createPortLogHttpHandler(deps: RouterDeps): (request: IncomingMessage, response: ServerResponse) => void {
-  return async (request, response) => {
-    if (!isAllowedRequest(request)) {
-      writeJson(response, 403, { error: { code: 'VALIDATION', message: '请求来源不允许' } })
-      return
-    }
-    const pathname = (request.url ?? '').split('?')[0]
-    if (request.method === 'GET' && pathname === `${PREFIX}/events`) {
-      deps.events.subscribe(response)
-      return
-    }
-    if (request.method === 'OPTIONS') {
-      response.writeHead(204, {
-        'access-control-allow-methods': 'POST, OPTIONS',
-        'access-control-allow-headers': 'content-type',
-      })
-      response.end()
-      return
-    }
-    if (request.method !== 'POST') {
-      writeJson(response, 405, { error: { code: 'VALIDATION', message: '仅支持 POST' } })
-      return
-    }
-    if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) {
-      writeJson(response, 415, { error: { code: 'VALIDATION', message: 'Content-Type 必须是 application/json' } })
-      return
-    }
-    let rpcId = 'invalid'
-    try {
-      const body = JSON.parse(await readBody(request)) as { rpcId?: unknown; method?: unknown; payload?: unknown }
-      if (typeof body.rpcId === 'string') rpcId = body.rpcId
-      if (typeof body.method !== 'string') throw new PortLogError('VALIDATION', 'method 无效')
-      if (body.payload === null || typeof (body.payload ?? {}) !== 'object' || Array.isArray(body.payload)) {
-        throw new PortLogError('VALIDATION', 'payload 无效')
-      }
-      const controller = new AbortController()
-      const abort = (): void => controller.abort()
-      response.once('close', abort)
-      try {
-        const result = await dispatchPortLog(body.method, (body.payload ?? {}) as Payload, deps, controller.signal)
-        if (!response.destroyed) writeJson(response, 200, { type: 'server-response', rpcId, result })
-      } finally {
-        response.off('close', abort)
-      }
-    } catch (error) {
-      const safe = safeError(error)
-      writeJson(response, error instanceof SyntaxError ? 400 : 200, {
-        type: 'server-response', rpcId,
-        result: { ok: false, error: { ...safe, details: {} } },
-      })
-    }
+/** SSE 事件流（认证由调用方在挂载时经 Connection 完成）。 */
+export function createPortLogEventsHandler(deps: RouterDeps): (request: IncomingMessage, response: ServerResponse) => void {
+  return (_request, response) => {
+    deps.events.subscribe(response)
   }
 }
 

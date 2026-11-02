@@ -100,7 +100,7 @@ describe('client/rpc.ts', () => {
     const [url, options] = fetchMock.mock.calls[0]
 
     // URL 正确
-    expect(url).toBe('/term-manager/sessions.list')
+    expect(url).toBe('/api/term-manager/sessions.list')
 
     // method 正确
     expect(options.method).toBe('POST')

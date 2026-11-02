@@ -341,6 +341,55 @@ describe('SessionManager 广播', () => {
   })
 })
 
+describe('SessionManager 批处理', () => {
+  it('串行执行：超时归 timeout 并继续下一条，输出逐条返回', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(connId)
+    let fed = 0
+    const pump = setInterval(() => {
+      if (rec.written.length <= fed) return
+      fed = rec.written.length
+      if (fed === 1) rec.sessions[0]?.callbacks.onData('first ok\n')
+    }, 10)
+    try {
+      const results = await sm.sendBatch(snap.sessionId, ['one', 'two'], { wait: { quietMs: 100, timeoutMs: 1000 } })
+      expect(results.map(r => r.outcome)).toEqual(['ok', 'timeout'])
+      expect(results[0]?.output).toContain('first ok')
+      expect(results[1]?.command).toBe('two')
+      expect(rec.written).toEqual(['one\r\n', 'two\r\n'])
+    } finally {
+      clearInterval(pump)
+    }
+  })
+
+  it('整批守卫预检：任一命中即整批不执行', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(connId)
+    await expect(sm.sendBatch(snap.sessionId, ['mkdir -p /tmp/x', 'shutdown -h now'], { guard: {} }))
+      .rejects.toMatchObject({ code: 'COMMAND_BLOCKED' })
+    expect(rec.written).toEqual([])
+  })
+
+  it('执行中会话断开：当前条 disconnected，剩余 skipped', async () => {
+    const { rec, factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(connId)
+    const pending = sm.sendBatch(snap.sessionId, ['one', 'two', 'three'], { wait: { quietMs: 5000, timeoutMs: 10000 } })
+    setTimeout(() => rec.sessions[0]?.callbacks.onClose('设备掉线'), 30)
+    const results = await pending
+    expect(results.map(r => r.outcome)).toEqual(['disconnected', 'skipped', 'skipped'])
+  })
+
+  it('空命令列表直接返回空结果', async () => {
+    const { factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(connId)
+    expect(await sm.sendBatch(snap.sessionId, [])).toEqual([])
+  })
+})
+
 describe('SessionManager × 真实模拟设备（端到端）', () => {
   const lab = createDeviceLab()
   afterAll(async () => { await lab.cleanup() })

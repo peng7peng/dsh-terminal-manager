@@ -13,8 +13,8 @@ function assert(condition, message) {
 }
 
 async function rpc(method, payload = {}) {
-  const response = await fetch(`${origin}/term-manager/ext/port-log`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+  const response = await fetch(`${origin}/api/port-log/${method}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(process.env.DSH_COOKIE ? { cookie: process.env.DSH_COOKIE } : {}) },
     body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),
   })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)

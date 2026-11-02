@@ -76,14 +76,14 @@ describe('port-log UDP 映射', () => {
     cleanups.push(() => closeUdp(target.socket))
     const localPort = await freeUdpPort()
     let latest: ForwarderStats | undefined
-    const forwarder = new UdpForwarder(config(localPort, target.port), (stats) => { latest = stats }, 10, 5)
+    const forwarder = new UdpForwarder(config(localPort, target.port), (stats) => { latest = stats }, 2000, 50)
     await forwarder.start()
     cleanups.push(() => forwarder.stop())
     const client = createSocket('udp4')
     cleanups.push(() => closeUdp(client))
     await udpRoundTrip(client, Buffer.from('idle'), localPort)
     expect(latest?.activeCount).toBe(1)
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await new Promise((resolve) => setTimeout(resolve, 2500))
     expect(latest?.activeCount).toBe(0)
   })
 

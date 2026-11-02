@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -31,7 +31,11 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const session = Session.create(id)
   const agent: Agent = {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    id, options: {}, session, inbox: {
+      nextTurn: [], nextStep: [],
+      clear: () => {}, append: () => {}, prepend: () => {},
+      replace: () => false, remove: () => false, splice: () => [],
+    } as unknown as Agent['inbox'],
     status: 'idle', ctx: scope.ctx,
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: job => job(new AbortController().signal),
@@ -145,6 +149,35 @@ describe('B6 工具层', () => {
     expect((await call('tm_send', { sessionId: 'x', command: '' })).isError).toBe(true)
     expect((await call('tm_send', { sessionId: '', command: 'x' })).isError).toBe(true)
     expect((await call('tm_disconnect', { sessionId: '不存在' })).isError).toBe(true)
+  })
+
+  it('tm_send 批处理：commands 串行执行并逐条返回', async () => {
+    const { ctx, emit, call } = await setup()
+    const opened = await call('tm_connect', { connId })
+    const sid = (opened.value as { sessionId: string }).sessionId
+    const pending = call('tm_send', { sessionId: sid, commands: ['show clock', 'show version'], quietMs: 100 })
+    setTimeout(() => emit(0, 'clock\n'), 20)
+    setTimeout(() => emit(0, 'version\n'), 260)
+    const sent = await pending
+    expect(sent.isError).toBe(false)
+    expect(sent.value).toMatchObject({
+      kind: 'batch',
+      results: [
+        { index: 0, command: 'show clock', outcome: 'ok' },
+        { index: 1, command: 'show version', outcome: 'ok' },
+      ],
+    })
+    void ctx
+  })
+
+  it('tm_send 批处理：守卫预检命中则整批不执行', async () => {
+    const { call } = await setup()
+    const opened = await call('tm_connect', { connId })
+    const sid = (opened.value as { sessionId: string }).sessionId
+    const sent = await call('tm_send', { sessionId: sid, commands: ['ls', 'shutdown -h now'] })
+    expect(sent.isError).toBe(true)
+    expect(text(sent as never)).toMatch(/第 2 条/)
+    expect(text(sent as never)).toMatch(/拦截/)
   })
 
   it('广播：成功 / 忙碌 / 已断开逐台出结果', async () => {

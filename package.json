@@ -1,6 +1,6 @@
 {
   "name": "dsh-terminal-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH 终端管理插件：SSH/Telnet 多会话终端、Agent 工具面、可嵌入工作区 UI",
   "type": "module",
   "main": "lib/index.js",
@@ -25,25 +25,23 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-sidebar"
       ],
       "platform": "web"
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.0",
-    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.0",
-    "@deepseek-ai/dsh-client-runtime": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-host-apiproxy": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-llm": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-session": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-system-prompt": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.0",
-    "@deepseek-ai/schemastery": ">=3.0.0",
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-agent": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-session": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.3 <0.3.0",
+    "@deepseek-ai/schemastery": ">=3.18.5",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
@@ -54,7 +52,7 @@
     "@deepseek-ai/dsh-agent": {
       "optional": true
     },
-    "@deepseek-ai/dsh-client-runtime": {
+    "@deepseek-ai/dsh-client-connection": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-primitives": {
@@ -64,9 +62,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-slots": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-host-apiproxy": {
       "optional": true
     },
     "@deepseek-ai/dsh-llm": {
@@ -94,11 +89,10 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-agent": "link:../deepseek-harness/packages/core/agent",
-    "@deepseek-ai/dsh-client-runtime": "link:../deepseek-harness/packages/client/runtime",
+    "@deepseek-ai/dsh-client-connection": "link:../deepseek-harness/packages/client/connection",
     "@deepseek-ai/dsh-client-ui-primitives": "link:../deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-sidebar": "link:../deepseek-harness/packages/client/ui-sidebar",
     "@deepseek-ai/dsh-client-ui-slots": "link:../deepseek-harness/packages/client/ui-slots",
-    "@deepseek-ai/dsh-host-apiproxy": "link:../deepseek-harness/packages/host/apiproxy",
     "@deepseek-ai/dsh-llm": "link:../deepseek-harness/packages/llm/llm",
     "@deepseek-ai/dsh-session": "link:../deepseek-harness/packages/core/session",
     "@deepseek-ai/dsh-system-prompt": "link:../deepseek-harness/packages/core/system-prompt",

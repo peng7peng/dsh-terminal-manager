@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -38,7 +38,11 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const session = Session.create(id)
   const agent: Agent = {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    id, options: {}, session, inbox: {
+      nextTurn: [], nextStep: [],
+      clear: () => {}, append: () => {}, prepend: () => {},
+      replace: () => false, remove: () => false, splice: () => [],
+    } as unknown as Agent['inbox'],
     status: 'idle', ctx: scope.ctx,
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
     runMaintenance: job => job(new AbortController().signal),

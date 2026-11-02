@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { extOfPath, languageKeyForExt } from '../client/editor/lang.ts'
 import { applyResize, clampMove, clampResize, defaultGeometry, FLOAT_MIN_H, FLOAT_MIN_W } from '../client/editor/useFloatWindow.ts'
-import { clampPanelHeight, PANEL_MIN_H } from '../client/files/FilePanel.tsx'
+import { clampPanelHeight, PANEL_MIN_H } from '../client/files/panel-layout.ts'
 
 describe('F9 语言映射（纯函数）', () => {
   it('四种支持类型；.txt（TC 脚本）与其余不着色', () => {

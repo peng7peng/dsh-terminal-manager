@@ -40,10 +40,11 @@ describe('resolveKnownFolders', () => {
     expect(known.quick.find(q => q.label === '下载')).toBeUndefined()
   })
 
-  it('Windows：此电脑返回所有可用盘符', async () => {
+  it('Windows：只返回真实存在的盘符（非 Windows 主机上没有 A: 等盘符）', async () => {
     const known = await resolveKnownFolders({ platform: 'win32', home: await makeHome() })
-    expect(known.drives.length).toBeGreaterThan(0)
     expect(known.drives.every(d => /^[A-Z]:$/.test(d.label))).toBe(true)
+    if (process.platform === 'win32') expect(known.drives.length).toBeGreaterThan(0)
+    else expect(known.drives).toEqual([])
   })
 
   it('POSIX：此电脑只给根目录 /', async () => {

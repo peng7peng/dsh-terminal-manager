@@ -6,7 +6,6 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconFolderOpenOutline16, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { ContextMenu } from '../tc/ContextMenu.tsx'
@@ -15,6 +14,7 @@ import { openTargetFor } from './openRule.ts'
 import { clampPanelHeight } from './panel-layout.ts'
 import { remoteFsStore } from './RemoteFilePanel.tsx'
 import { useRemoteFsState } from './remoteFs.ts'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconFolderOpenOutline16, IconGoalOutline16, IconRefreshOutline14 } from '../icons.tsx'
 
 let singleton: LocalFsStore | undefined
 /** 模块级单例：面板收起 / 重开不丢状态。 */

@@ -50,6 +50,10 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
   const hiddenRef = useRef(isHidden)
   hiddenRef.current = isHidden
   const [showShare, setShowShare] = useState(false)
+  const [keyboard, setKeyboard] = useState<{ backspace: number; delete: number }>({ backspace: 127, delete: 127 })
+  const keyboardRef = useRef(keyboard)
+  keyboardRef.current = keyboard
+  const [kbMenu, setKbMenu] = useState<{ x: number; y: number } | null>(null)
   const [logPending, setLogPending] = useState(false)
   const [autoStartingLog, setAutoStartingLog] = useState(isOpen)
   const [logging, setLogging] = useState(isOpen)
@@ -65,6 +69,15 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
       await rpc('files.open', { root: parentDir(currentLog.path), path: currentLog.path })
     } catch (error) {
       toast(`打开日志失败：${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    }
+  }
+
+  async function updateKeyboard(patch: { backspace?: number; delete?: number }): Promise<void> {
+    try {
+      const mode = await rpc<{ backspace: number; delete: number }>('tm_keyboard_mode', { action: 'set', sessionId, ...patch })
+      setKeyboard(mode)
+    } catch (error) {
+      toast(`键盘模式切换失败：${error instanceof Error ? error.message : '未知错误'}`, 'error')
     }
   }
 
@@ -215,11 +228,11 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
       const shift = event.shiftKey
       // 拦截退格/删除：手动发送给服务器，不让 xterm 本地移动光标（设备会做退格钳制）
       if (key === 'backspace') {
-        ws.input(sessionId, '\x7f') // DEL 字符
-        return false // 阻止 xterm 默认行为
+        ws.input(sessionId, String.fromCharCode(keyboardRef.current.backspace))
+        return false // 阻止 xterm 默认行为（字节由连接级键盘模式决定）
       }
       if (key === 'delete') {
-        ws.input(sessionId, '\x1b[3~') // xterm 删除序列
+        ws.input(sessionId, String.fromCharCode(keyboardRef.current.delete))
         return false
       }
       if ((meta && key === 'c') || (ctrl && shift && key === 'c')) {
@@ -301,6 +314,18 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
         <span className="tgt">{target}</span>
         {!isClosed && <button type="button" className={`tm-saveBtn ${logging ? 'is-on' : 'is-off'}`} disabled={!isOpen || logPending || autoStartingLog} aria-pressed={logging} aria-label={logging ? '停止存盘' : '开始存盘'} title={logError ? `存盘失败：${logError}；点击重试` : !isOpen ? '等待连接后自动存盘' : logging ? '停止存盘' : '开始存盘'} onClick={() => { void toggleLog() }}><IconSave16 size={13} /></button>}
         {!isClosed && <button onClick={() => setShowShare(true)} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
+        {!isClosed && <button onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          if (kbMenu === null) {
+            // 首次打开齿轮时再取实际模式（不打扰不关心键盘的用户）
+            void rpc<{ backspace: number; delete: number }>('tm_keyboard_mode', { action: 'get', sessionId })
+              .then(mode => setKeyboard(mode))
+              .catch(() => { /* 连接尚未就绪：保留默认值 */ })
+            setKbMenu({ x: Math.max(8, rect.right - 190), y: rect.bottom + 4 })
+          } else {
+            setKbMenu(null)
+          }
+        }} title={`键盘模式：退格=${keyboard.backspace === 8 ? '^H' : 'DEL'}，删除=${keyboard.delete === 8 ? '^H' : 'DEL'}`}>⚙</button>}
         {isClosed ? (
           <>
             <span className="tm-closed-label">已断开</span>
@@ -334,6 +359,23 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
         }}
       >{currentLog.path}</div>}
       {showShare && <ShareDialog sessionId={sessionId} label={label} onClose={() => setShowShare(false)} />}
+      {kbMenu !== null && (
+        <div className="tm-kbMenu" style={{ left: kbMenu.x, top: kbMenu.y }} onClick={(event) => event.stopPropagation()}>
+          <div className="tm-kbTitle">键盘模式</div>
+          <label>退格键
+            <select value={keyboard.backspace} onChange={(event) => { void updateKeyboard({ backspace: Number(event.target.value) }) }}>
+              <option value={8}>^H (8)</option>
+              <option value={127}>DEL (127)</option>
+            </select>
+          </label>
+          <label>删除键
+            <select value={keyboard.delete} onChange={(event) => { void updateKeyboard({ delete: Number(event.target.value) }) }}>
+              <option value={8}>^H (8)</option>
+              <option value={127}>DEL (127)</option>
+            </select>
+          </label>
+        </div>
+      )}
     </div>
   )
 }

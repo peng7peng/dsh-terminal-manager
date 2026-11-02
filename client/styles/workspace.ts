@@ -151,4 +151,17 @@ export const WORKSPACE_CSS = `
 .tm-pane.tm-focus-flash {
   animation: tm-focus-flash 0.6s ease-in-out 2;
 }
+
+/* 键盘模式浮层（createPortal 到 body，避开窗格 overflow 裁剪） */
+.tm-kbMenu { position:fixed; z-index:80; width:182px; padding:8px 10px; border-radius:8px; background:var(--dsw-alias-bg-layer-1, #fff); border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.12)); box-shadow:0 6px 20px rgba(0,0,0,.16); font-size:12px; color:var(--dsw-alias-label-primary, #000); }
+.tm-kbMenu .tm-kbTitle { font-weight:600; margin-bottom:6px; }
+.tm-kbMenu label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 0; }
+.tm-kbMenu select { border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.12)); background:transparent; color:inherit; border-radius:4px; padding:2px 6px; font-size:12px; }
+
+/* 连接探针：小圆点；点击探测，成功绿 / 失败红 / 探测中闪烁 */
+.tm-probe { flex:none; font-size:9px; line-height:1; color:var(--dsw-alias-label-tertiary, #999); cursor:pointer; padding:2px; border-radius:50%; }
+.tm-probe:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.08)); }
+.tm-probe.ok { color:var(--dsw-static-green-500, #22c55e); }
+.tm-probe.bad { color:var(--dsw-alias-state-error-primary, #ef4444); }
+.tm-probe.probing { animation:tm-flash-red 1s infinite; }
 `

@@ -1,4 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { readdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { resolve, sep } from 'node:path'
+import type { PortLogToolApi } from '../index.ts'
 import type { TmEventBus } from '../../types/events.ts'
 import type { SessionManagerApi } from '../../types/session-api.ts'
 import { join } from 'node:path'
@@ -10,6 +14,9 @@ import { RuntimeEventHub } from './sse.ts'
 import { ShareManager } from './share-manager.ts'
 import { SessionLogManager } from './session-log-manager.ts'
 import { createDirectoryPicker, type DirectoryPickerService } from './directory-picker.ts'
+import { exportMappingsCsv, parseMappingsCsv } from './csv.ts'
+import { resolveKnownFolders } from './known-folders.ts'
+import type { PortMappingInput, SessionLogOptions, ShareConfig } from './types.ts'
 
 export interface PortLogExtensionDeps {
   sessions: SessionManagerApi
@@ -22,8 +29,8 @@ export interface PortLogExtensionDeps {
  *
  * E0 仅建立可确定卸载的生命周期边界；后续能力都在本目录内装配。
  */
-export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDeps): void {
-  if (typeof ctx.effect !== 'function' || typeof ctx.get !== 'function') return
+export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDeps): PortLogToolApi | undefined {
+  if (typeof ctx.effect !== 'function' || typeof ctx.get !== 'function') return undefined
   const root = join(deps.dataDir, 'ext', 'port-log')
   const logger = new AppLogger(join(root, 'log'))
   const store = new MappingStore(join(root, 'mappings.json'))
@@ -45,6 +52,64 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
   const ready = mappings.initialize()
     .then(() => logger.log('info', 'extension.started'))
     .then(() => mappings.autoStart())
+
+  const api: PortLogToolApi = {
+    ready,
+    mappings: {
+      list: () => mappings.list(),
+      async create(input) { await ready; return mappings.create(input as unknown as PortMappingInput) },
+      async update(id, patch) { await ready; return mappings.update(id, patch as unknown as Partial<PortMappingInput>) },
+      async remove(id) { await ready; await mappings.remove(id) },
+      async start(id) { await ready; return mappings.start(id) },
+      async stop(id) { await ready; return mappings.stop(id) },
+      async importCsv(csv) { await ready; return mappings.merge(parseMappingsCsv(csv)) },
+      exportCsv: () => exportMappingsCsv(mappings.list()),
+    },
+    shares: {
+      list: () => shares.list(),
+      async start(input) {
+        await ready
+        if (deps.events === undefined) throw new Error('会话服务尚未就绪')
+        return shares.start({
+          sessionId: String(input.sessionId ?? ''),
+          localAddr: typeof input.localAddr === 'string' ? input.localAddr : '0.0.0.0',
+          sharePort: Number(input.sharePort ?? 2323),
+          maxClients: Number(input.maxClients ?? 0),
+          welcomeMessage: typeof input.welcomeMessage === 'string' ? input.welcomeMessage : '',
+        } satisfies ShareConfig)
+      },
+      async stop(sessionId) { await ready; await shares.stop(sessionId) },
+    },
+    sessionLogs: {
+      list: () => sessionLogs.list(),
+      async start(sessionId, options, directory) {
+        await ready
+        return sessionLogs.start(sessionId, {
+          timestamp: options.timestamp === true,
+          stripAnsi: options.stripAnsi !== false,
+        } satisfies SessionLogOptions, directory)
+      },
+      async update(sessionId, options) {
+        await ready
+        return sessionLogs.update(sessionId, {
+          timestamp: options.timestamp === true,
+          stripAnsi: options.stripAnsi !== false,
+        } satisfies SessionLogOptions)
+      },
+      async stop(sessionId) { await ready; await sessionLogs.stop(sessionId) },
+      getDefaultDirectory: () => sessionLogs.getDefaultDirectory(),
+      async listDir(rawPath) {
+        const raw = rawPath?.trim() ?? ''
+        const dir = raw === '' ? sessionLogs.getDefaultDirectory() : resolve(raw)
+        const entries = await readdir(dir, { withFileTypes: true })
+        const dirs = entries.filter(e => e.isDirectory()).map(e => e.name)
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+        const isRoot = sep === '/' ? dir === '/' : /^[A-Za-z]:[\\/]?$/.test(dir)
+        return { path: dir, parent: isRoot ? null : resolve(dir, '..'), dirs }
+      },
+      knownFolders: () => resolveKnownFolders(),
+    },
+  }
 
   ctx.effect(
     () => {
@@ -110,4 +175,5 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
     },
     'terminal-manager: port-log extension',
   )
+  return api
 }

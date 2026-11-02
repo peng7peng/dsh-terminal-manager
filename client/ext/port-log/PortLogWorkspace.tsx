@@ -1,5 +1,7 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { LogsTab } from './LogsTab.tsx'
 import { MappingsTab } from './MappingsTab.tsx'
+import { SharesTab } from './SharesTab.tsx'
 import { portLogRpc, subscribePortLogEvents } from './rpc.ts'
 import {
   applyPortLogEvent, loadDefaultLogDirectory, setPortLogError, setPortLogLoading, setPortLogSnapshot,
@@ -9,6 +11,7 @@ import {
 
 export function PortLogWorkspace(): React.JSX.Element | null {
   const state = usePortLogState()
+  const [tab, setTab] = useState<'mappings' | 'logs' | 'shares'>('mappings')
 
   const refresh = useCallback(async (): Promise<void> => {
     setPortLogLoading(true)
@@ -46,8 +49,15 @@ export function PortLogWorkspace(): React.JSX.Element | null {
     </header>
     {state.error && <div className="tm-ext-pl-global-error" role="alert">{state.error}<button type="button" onClick={() => setPortLogError(undefined)}>关闭</button></div>}
     {state.loading && <div className="tm-ext-pl-loading">正在同步运行状态…</div>}
+    <nav className="tm-ext-pl-tabs" role="tablist" aria-label="端口映射工作区页签">
+      <button type="button" role="tab" aria-selected={tab === 'mappings'} className={tab === 'mappings' ? 'is-active' : ''} onClick={() => setTab('mappings')}>端口映射</button>
+      <button type="button" role="tab" aria-selected={tab === 'logs'} className={tab === 'logs' ? 'is-active' : ''} onClick={() => setTab('logs')}>会话日志</button>
+      <button type="button" role="tab" aria-selected={tab === 'shares'} className={tab === 'shares' ? 'is-active' : ''} onClick={() => setTab('shares')}>会话共享</button>
+    </nav>
     <main className="tm-ext-pl-content">
-      <MappingsTab mappings={state.mappings} refresh={refresh} reportError={reportError} />
+      {tab === 'mappings' && <MappingsTab mappings={state.mappings} refresh={refresh} reportError={reportError} />}
+      {tab === 'logs' && <LogsTab sessions={state.sessions} sessionLogs={state.sessionLogs} appLog={state.appLog} refresh={refresh} reportError={reportError} />}
+      {tab === 'shares' && <SharesTab sessions={state.sessions} shares={state.shares} refresh={refresh} reportError={reportError} />}
     </main>
   </div>
 }

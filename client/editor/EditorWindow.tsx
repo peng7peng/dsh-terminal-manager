@@ -5,7 +5,6 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { IconCheckOutline14, IconChevronDownOutline14, IconCloseFill14, IconFullscreenOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import { localFsStore } from '../files/FilePanel.tsx'
@@ -15,6 +14,7 @@ import { CsvView } from './CsvView.tsx'
 import { EditorTabs } from './EditorTabs.tsx'
 import { createEditorStore, extOf, useEditorState, type EditorStore } from './editorStore.ts'
 import { RESIZE_DIRS, useFloatWindow } from './useFloatWindow.ts'
+import { IconCheckOutline14, IconChevronDownOutline14, IconCloseFill14, IconFullscreenOutline16 } from '../icons.tsx'
 
 /** CSV 类文件的扩展名集合 */
 const CSV_EXTS = new Set(['csv', 'tsv'])

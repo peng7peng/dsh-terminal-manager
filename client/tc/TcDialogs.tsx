@@ -4,9 +4,9 @@
  */
 
 import { useState } from 'react'
-import { IconPlayOutline16, IconSendOutline14, IconWarningOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { tcUsage, type RunItem } from './runScript.ts'
 import type { TcSession } from './tcMap.ts'
+import { IconPlayOutline16, IconSendOutline14, IconWarningOutline16 } from '../icons.tsx'
 
 export function TcConfirmDialog(props: {
   title: string

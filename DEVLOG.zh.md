@@ -60,3 +60,10 @@
 - **顺带补了文档里的批处理**：`SessionManager.sendBatch` + `tm_send.commands`（整批守卫预检、超时继续、断开后剩余标 skipped）。
 - **开发依赖改从 npm 装**：devDependencies 固定 `0.2.1-rc.5`，不再 link 相邻的 `../deepseek-harness` checkout；CI 也不用再克隆/构建 harness，E2E 直接 `npm i -g @deepseek-ai/dsh@0.2.1-rc.5` 后跑真实安装形态。
 - 测试基线 611 项；真机启动验证：profile `tm-dev` 插件激活、client bundle 200、带 cookie 的 RPC/WS/SSE 均通，未带 cookie 均 401。
+
+## 2026-11-02（续）：按设计文档 2.0 补齐功能（第一批）
+
+- **键盘模式**：连接配置与运行时可设退格/删除键字节（8/127）；终端工具栏齿轮切运行时值，退格/删除由客户端按模式发送。
+- **连接探针**：`connections.probe` + 传输层 `probe.ts`（Telnet TCP / SSH 握手+认证，不开 shell，并发 5），连接列表圆点点击探测。
+- **AI 工具补齐到 13 个**：`tm_keyboard_mode`、`tm_connection_config`、`tm_mapping`、`tm_share`、`tm_session_log`；port-log 扩展暴露结构化工具 API。
+- **port-log 工作区**：端口映射 / 会话日志 / 会话共享三个页签挂载。

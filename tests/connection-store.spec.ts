@@ -42,6 +42,18 @@ describe('ConnectionStore', () => {
     expect(cfg.auth).toBeUndefined()
   })
 
+  it('键盘模式：退格/删除字节 8/127 合法，其他拒绝', async () => {
+    const store = new ConnectionStore(join(dir, 'kb.json'))
+    await store.load()
+    const cfg = await store.create({ label: 'kb', protocol: 'telnet', host: '10.0.1.9', backspaceByte: 8, deleteByte: 127 })
+    expect(cfg.backspaceByte).toBe(8)
+    expect(cfg.deleteByte).toBe(127)
+    await expect(store.create({ label: 'kb2', protocol: 'telnet', host: '10.0.1.10', backspaceByte: 9 as never }))
+      .rejects.toThrow(/退格字节/)
+    await expect(store.create({ label: 'kb3', protocol: 'telnet', host: '10.0.1.11', deleteByte: 10 as never }))
+      .rejects.toThrow(/删除字节/)
+  })
+
   it('落盘后新实例能读回（持久化）', async () => {
     const fresh = new ConnectionStore(storePath)
     await fresh.load()

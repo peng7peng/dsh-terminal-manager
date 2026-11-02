@@ -63,3 +63,61 @@ export function IconPanelBottom16({ size = 16, className, visible = true }: { si
     </svg>
   )
 }
+
+/** 统一的小图标外壳：16x16 线性图标，currentColor 描边。 */
+function Glyph({ size = 16, className, children }: { size?: number; className?: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
+
+export function IconChevronRightOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconChevronDownOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M3 6l5 5 5-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconChevronUpOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M3 10l5-5 5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconLinkOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M6.5 9.5l3-3M5 7l-1.2 1.2a2.8 2.8 0 004 4L9 11M11 9l1.2-1.2a2.8 2.8 0 00-4-4L7 5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+export function IconGlobeOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" /><ellipse cx="8" cy="8" rx="2.6" ry="6" stroke="currentColor" strokeWidth="1.1" /><path d="M2.2 8h11.6" stroke="currentColor" strokeWidth="1.1" /></Glyph>
+}
+export function IconGoalOutline16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" /><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.2" /><circle cx="8" cy="8" r="0.9" fill="currentColor" /></Glyph>
+}
+export function IconRefreshOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M13 8a5 5 0 11-1.6-3.7M13 2.5V6h-3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconFolderClose16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M2 4.5A1.5 1.5 0 013.5 3H6l1.3 1.5H13A1.5 1.5 0 0114.5 6v5A1.5 1.5 0 0113 12.5H3A1.5 1.5 0 011.5 11V4.5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}
+export function IconFolderOpen16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M2 5h4l1.2 1.5H12A1.5 1.5 0 0113.5 8v4A1.5 1.5 0 0112 13.5H3A1.5 1.5 0 011.5 12V5M1.5 12l1.8-4.5h11.2" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}
+export function IconFolderOpenOutline16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M2 5.5h4l1.2 1.5H11A2 2 0 0113 9v3.5H3.5A1.5 1.5 0 012 11V5.5ZM2 11l1.6-4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}
+export function IconCheckOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M3 8.5l3 3L13 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconCloseFill14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></Glyph>
+}
+export function IconFullscreenOutline16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M6 2.5H2.5V6M10 2.5h3.5V6M6 13.5H2.5V10M10 13.5h3.5V10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+export function IconPlayOutline16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M5 3.5l7.5 4.5L5 12.5V3.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}
+export function IconSendOutline14(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M13.5 2.5L2.5 7l4.2 1.6L8.5 13l5-10.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M6.7 8.6L9.6 5.7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" /></Glyph>
+}
+export function IconWarningOutline16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M8 2.2l6 11H2l6-11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M8 6v3.2M8 11.2v.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></Glyph>
+}

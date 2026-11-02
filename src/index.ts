@@ -47,7 +47,6 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const files = new LocalFileService(sessions, sessions.events)
   const localPanel = createLocalPanelState()
 
-  registerTerminalTools(ctx, { sessions, files, workspaceRoot: cfg.workspaceRoot, localPanel })
   registerAmbiguityHandling(ctx, sessions)
 
   // 两个注册函数内部用 ctx.effect(() => webServer.register(...)) 正确挂载+清理；
@@ -61,7 +60,10 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   })
 
   // 扩展模块（日志管理 / 共享端口）：只拿契约里的东西，主线不知道它们的内部
-  registerExtensions(ctx, { sessions, events: sessions.events, files, dataDir })
+  const extensions = registerExtensions(ctx, { sessions, events: sessions.events, files, dataDir })
+
+  // AI 工具最后注册：tm_mapping/tm_share/tm_session_log 需要扩展模块的能力句柄
+  registerTerminalTools(ctx, { sessions, store, files, workspaceRoot: cfg.workspaceRoot, localPanel, extensions })
 
   ctx.effect(() => () => {
     void sessions.closeAll()

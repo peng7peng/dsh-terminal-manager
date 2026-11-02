@@ -45,7 +45,7 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   return agent
 }
 
-const TOOL_NAMES = ['tm_connect', 'tm_list', 'tm_send', 'tm_send_all', 'tm_read', 'tm_disconnect'] as const
+const TOOL_NAMES = ['tm_connect', 'tm_list', 'tm_send', 'tm_send_all', 'tm_read', 'tm_disconnect', 'tm_upload', 'tm_download', 'tm_keyboard_mode', 'tm_connection_config', 'tm_mapping', 'tm_share', 'tm_session_log'] as const
 
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
@@ -74,7 +74,7 @@ async function setup() {
   await ctx.plugin(AgentRegistry)
   const { emit, factory } = fakeFactory()
   const sessions = new SessionManager(store, factory)
-  registerTerminalTools(ctx, { sessions, files: new LocalFileService(), workspaceRoot: dir, localPanel: createLocalPanelState() })
+  registerTerminalTools(ctx, { sessions, store, files: new LocalFileService(), workspaceRoot: dir, localPanel: createLocalPanelState() })
   const agent = fakeAgent(ctx, 'm3-tools')
   const signal = new AbortController().signal
   let callNumber = 0
@@ -85,7 +85,7 @@ async function setup() {
 }
 
 describe('B6 工具层', () => {
-  it('注册恰好六个工具', async () => {
+  it('注册设计文档 2.0 的 13 个 tm_* 工具', async () => {
     const { ctx } = await setup()
     expect(TOOL_NAMES.every(name => ctx.tools.get(name) !== undefined)).toBe(true)
   })
@@ -149,6 +149,18 @@ describe('B6 工具层', () => {
     expect((await call('tm_send', { sessionId: 'x', command: '' })).isError).toBe(true)
     expect((await call('tm_send', { sessionId: '', command: 'x' })).isError).toBe(true)
     expect((await call('tm_disconnect', { sessionId: '不存在' })).isError).toBe(true)
+  })
+
+  it('tm_keyboard_mode：get / set 键盘模式', async () => {
+    const { call } = await setup()
+    const opened = await call('tm_connect', { connId })
+    const sid = (opened.value as { sessionId: string }).sessionId
+    const got = await call('tm_keyboard_mode', { sessionId: sid, action: 'get' })
+    expect(got.value).toEqual({ backspace: 127, delete: 127 })
+    const set = await call('tm_keyboard_mode', { sessionId: sid, action: 'set', backspace: 8, delete: 8 })
+    expect(set.value).toEqual({ backspace: 8, delete: 8 })
+    const read = await call('tm_keyboard_mode', { sessionId: sid, action: 'get' })
+    expect(read.value).toEqual({ backspace: 8, delete: 8 })
   })
 
   it('tm_send 批处理：commands 串行执行并逐条返回', async () => {

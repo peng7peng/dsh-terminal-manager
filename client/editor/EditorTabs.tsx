@@ -4,8 +4,8 @@
  * @module dsh-terminal-manager/client/editor/EditorTabs
  */
 
-import { IconCloseFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { EditorTab } from './editorStore.ts'
+import { IconCloseFill14 } from '../icons.tsx'
 
 export function EditorTabs(props: {
   tabs: EditorTab[]

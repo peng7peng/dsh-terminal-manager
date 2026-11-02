@@ -341,6 +341,27 @@ describe('SessionManager 广播', () => {
   })
 })
 
+describe('SessionManager 键盘模式', () => {
+  it('连接时从配置装载，运行时可切换，非法字节拒绝', async () => {
+    const { factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const conn = await store.create({ label: 'kb', protocol: 'telnet', host: '127.0.0.1', port: 12, backspaceByte: 8, deleteByte: 127 })
+    const snap = await sm.connectByConnId(conn.id)
+    expect(sm.getKeyboardMode(snap.sessionId)).toEqual({ backspaceByte: 8, deleteByte: 127 })
+    expect(sm.setKeyboardMode(snap.sessionId, { deleteByte: 8 })).toEqual({ backspaceByte: 8, deleteByte: 8 })
+    expect(() => sm.setKeyboardMode(snap.sessionId, { backspaceByte: 9 as never })).toThrow(/8 或 127/)
+    await sm.disconnect(snap.sessionId)
+  })
+
+  it('临时连接用默认 127/127', async () => {
+    const { factory } = fakeFactory()
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 13, label: 'tmp' })
+    expect(sm.getKeyboardMode(snap.sessionId)).toEqual({ backspaceByte: 127, deleteByte: 127 })
+    await sm.disconnect(snap.sessionId)
+  })
+})
+
 describe('SessionManager 批处理', () => {
   it('串行执行：超时归 timeout 并继续下一条，输出逐条返回', async () => {
     const { rec, factory } = fakeFactory()

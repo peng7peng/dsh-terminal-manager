@@ -94,6 +94,10 @@ export async function dispatch(
       }
       case 'sessions.list':
         return ok(deps.sessions.list())
+      case 'connections.probe': {
+        const { ids } = payload as { ids?: string[] }
+        return ok(await deps.sessions.probeAll(ids))
+      }
       case 'sessions.connect': {
         const { connId, protocol, host, port, username, password, privateKey, passphrase, label, telnetMode, connectTimeoutMs, newline, localEcho } = payload as {
           connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; privateKey?: string; passphrase?: string; label?: string; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean
@@ -144,6 +148,21 @@ export async function dispatch(
           signal,
         })
         return ok(result)
+      }
+      // 键盘模式：读取 / 运行时切换某会话的退格、删除键字节
+      case 'tm_keyboard_mode': {
+        const { action, sessionId, backspace, delete: del } = payload as {
+          action?: 'get' | 'set'; sessionId: string; backspace?: number; delete?: number
+        }
+        if (action === 'set') {
+          const mode = deps.sessions.setKeyboardMode(sessionId, {
+            ...(backspace !== undefined ? { backspaceByte: backspace as 8 | 127 } : {}),
+            ...(del !== undefined ? { deleteByte: del as 8 | 127 } : {}),
+          })
+          return ok({ backspace: mode.backspaceByte, delete: mode.deleteByte })
+        }
+        const mode = deps.sessions.getKeyboardMode(sessionId)
+        return ok({ backspace: mode.backspaceByte, delete: mode.deleteByte })
       }
       // 本地文件（B10）：root 由前端每次传入（当前树根），path 必须在 root 内
       case 'files.tree': {
@@ -388,8 +407,9 @@ export function createDownloadFetch(deps: RemoteDeps): (request: Request) => Pro
 
 /** 本插件的控制面方法全集（每个方法注册一条 /api 下的精确 Fetch 路由）。 */
 export const TERM_MANAGER_METHODS = [
-  'connections.list', 'connections.create', 'connections.update', 'connections.remove',
+  'connections.list', 'connections.create', 'connections.update', 'connections.remove', 'connections.probe',
   'sessions.list', 'sessions.connect', 'sessions.disconnect', 'sessions.reconnect', 'sessions.read', 'sessions.send',
+  'tm_keyboard_mode',
   'files.tree', 'files.read', 'files.write', 'files.dirs', 'files.root', 'files.setLocalPanel', 'files.open',
   'files.remoteTree', 'files.remoteCwd', 'files.downloadToLocal', 'files.uploadLocal',
 ] as const

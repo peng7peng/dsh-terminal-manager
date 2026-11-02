@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**611 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**627 项全绿是基线**，改挂必须修绿再提交）
 - E2E：`node scripts/run-e2e.mjs`（24 场景，自动拉起 mock 设备 + DSH 服务，一键跑完；前置：PATH 里有 `dsh` 或 `DSH_BIN`，profile 已装本插件；可选环境变量 `DSH_PORT`/`DSH_PROFILE`/`SKIP_BUILD=1`）
 - 冒烟（旧）：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（需手动起服务，已被 run-e2e.mjs 替代）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）
@@ -54,7 +54,9 @@ host 半：三个门（AI 工具 B6 / 指令通道 B7a / 数据流通道 B7b）�
 11. **worktree（junction node_modules）里 pnpm 命令带 `--config.verify-deps-before-run=false`**，否则 run 前校验依赖误报；另外 `tsdown`/`vitest` 都不做类型检查——纯逻辑改完要靠 vitest 跑真路径兜底，别只看构建过（S5-8 的 `pushFrame` 作用域笔误就是这么漏的）。
 12. **stub 测试断言要验证映射逻辑本身而非 fallback**——传普通 Error 走 fallback 分支返回 `REMOTE_IO`，断言 `code:'REMOTE_IO'` 能过但无法区分"走了映射"和"原样透传"；应传带 SFTP `STATUS_CODE`（如 `code=2` = NO_SUCH_FILE）的错误，断言映射后的 `code:'NOT_FOUND'` + `message` 含 `what` 参数。`mapSftpError` 的 4 个分支（NOT_FOUND/VALIDATION/DISCONNECTED/REMOTE_IO）各需独立用例。
 
+
 13. **外部插件拿不到 `ctx.remote.<namespace>`**：`@deepseek-ai/dsh-api-remotes` 的客户端贡献是构建期内联的白名单，外部 npm 包加不进；Typert codegen 又依赖 DSH monorepo 工程图。用 Connection 精确 Fetch 路由（`/api/<plugin>/...`）或通用 channel，别照着 in-tree 文档写 `ctx.remote`。
+14. **0.2.1 的 `dsh-client-ui-primitives` 不再导出通用图标**（IconLink/IconChevron/… 全没了；只剩 Permission/Reference 等少量图标）。客户端的线性图标统一放 `client/icons.tsx`，别再 import primitives 的图标，否则浏览器里 `shell.overlay` 会报 React #130（元素类型 undefined）。
 
 ## 钩子（Hooks）
 

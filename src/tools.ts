@@ -12,6 +12,8 @@ import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ExtensionHandle } from './ext/index.ts'
+import type { ConnectionConfig, ConnectionInput, ConnectionStore } from './connection-store.ts'
 import type { FileService } from './types/file-service.ts'
 import type { LocalPanelState } from './local-panel-state.ts'
 import { effectiveCwd, effectiveRoot } from './local-panel-state.ts'
@@ -166,20 +168,30 @@ function recode(error: unknown): never {
   throw error instanceof Error ? error : new Error(String(error))
 }
 
+/** 连接配置脱敏：删除凭据与 undefined 字段（AI 路径永不返回密码/私钥）。 */
+function sanitizeConnection(cfg: ConnectionConfig): Record<string, unknown> {
+  const { auth: _auth, ...rest } = cfg
+  return Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined))
+}
+
 /** B6 工具层依赖。 */
 export interface TerminalToolDeps {
   sessions: SessionManager
+  /** 连接存储（tm_connection_config） */
+  store: ConnectionStore
   /** 文件服务（tm_upload / tm_download 用） */
   files: FileService
   /** 本地工作区树根（与 files.root 端点一致；面板未同步时的围栏回退基准） */
   workspaceRoot: string
   /** 本地面板状态镜像（root/cwd）；前端推送，工具层读 */
   localPanel: LocalPanelState
+  /** 扩展模块能力句柄（tm_mapping / tm_share / tm_session_log） */
+  extensions?: ExtensionHandle
 }
 
 /** 注册 tm_* 工具。需在 ctx.tools / ctx.systemPrompt 就绪后调用。 */
 export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): void {
-  const { sessions, files, workspaceRoot, localPanel } = deps
+  const { sessions, store, files, workspaceRoot, localPanel, extensions } = deps
   ctx.systemPrompt.section({
     name: 'tool:term-manager',
     order: 107,
@@ -367,6 +379,230 @@ export function registerTerminalTools(ctx: Context, deps: TerminalToolDeps): voi
       }))
     },
     presentCall: (args) => ({ card: 'generic', title: `广播命令：${(args as SendAllArgs).command}`, kind: 'execute' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_keyboard_mode',
+    description: '读取或切换某会话的键盘模式：退格/删除键发送 8（^H）还是 127（DEL）。嵌入式设备与 Linux 默认不同，按键删错字符时用它调整。',
+    parameters: {
+      sessionId: { type: 'string', required: true, description: '会话编号' },
+      action: { type: 'string', required: true, enum: ['get', 'set'], description: 'get 读取；set 切换' },
+      backspace: { type: 'number', description: '退格字节：8 或 127（set 时可选）' },
+      delete: { type: 'number', description: '删除字节：8 或 127（set 时可选）' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          backspace: { type: 'number', required: true },
+          delete: { type: 'number', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `键盘模式：退格=${value.backspace}（${value.backspace === 8 ? '^H' : 'DEL'}），删除=${value.delete}（${value.delete === 8 ? '^H' : 'DEL'}）` }],
+    },
+    execute(args, _exec) {
+      if (args.action === 'get') {
+        const mode = sessions.getKeyboardMode(args.sessionId)
+        return { backspace: mode.backspaceByte, delete: mode.deleteByte }
+      }
+      const mode = sessions.setKeyboardMode(args.sessionId, {
+        ...(args.backspace !== undefined ? { backspaceByte: args.backspace as 8 | 127 } : {}),
+        ...(args.delete !== undefined ? { deleteByte: args.delete as 8 | 127 } : {}),
+      })
+      return { backspace: mode.backspaceByte, delete: mode.deleteByte }
+    },
+    presentCall: () => ({ card: 'generic', title: '键盘模式', kind: 'read' }),
+  }))
+
+  // ── 连接配置 / 扩展能力（设计文档 2.0 §3.10）──
+  const portLog = (): NonNullable<ExtensionHandle['portLog']> => {
+    const api = extensions?.portLog
+    if (api === undefined) throw new Error('port-log 扩展未启用')
+    return api
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'tm_connection_config',
+    description: '查看/新建/修改/删除保存的连接配置。列表结果不含密码/私钥；新建 SSH 连接需要 username 和 password 或 privateKey。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['list', 'create', 'update', 'remove'], description: '操作类型' },
+      id: { type: 'string', description: '连接编号（update/remove 必填）' },
+      label: { type: 'string', description: '显示名（create 必填）' },
+      protocol: { type: 'string', enum: ['ssh', 'telnet'], description: '协议（create 必填）' },
+      host: { type: 'string', description: '地址（create 必填）' },
+      port: { type: 'number', description: '端口（缺省 ssh=22 / telnet=23）' },
+      username: { type: 'string', description: 'SSH 用户名' },
+      password: { type: 'string', description: 'SSH 密码（只写；不会回显）' },
+      privateKey: { type: 'string', description: 'SSH 私钥内容或路径（只写）' },
+      passphrase: { type: 'string', description: '私钥口令（只写）' },
+      note: { type: 'string', description: '备注' },
+      favorited: { type: 'boolean', description: '是否收藏' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    async execute(args) {
+      await store.ensureLoaded()
+      if (args.action === 'list') return store.list().map(sanitizeConnection)
+      if (args.action === 'remove') {
+        if (args.id === undefined) throw new Error('remove 需要 id')
+        await store.remove(args.id)
+        return { ok: true, id: args.id }
+      }
+      if (args.action === 'create') {
+        if (args.label === undefined || args.protocol === undefined || args.host === undefined) {
+          throw new Error('create 需要 label、protocol、host')
+        }
+        const input: ConnectionInput = {
+          label: args.label,
+          protocol: args.protocol,
+          host: args.host,
+          ...(args.port !== undefined ? { port: args.port } : {}),
+          ...(args.username !== undefined ? { username: args.username } : {}),
+          ...(args.password !== undefined ? { auth: { kind: 'password' as const, password: args.password } } : {}),
+          ...(args.privateKey !== undefined ? { auth: { kind: 'key' as const, privateKey: args.privateKey, ...(args.passphrase !== undefined ? { passphrase: args.passphrase } : {}) } } : {}),
+          ...(args.note !== undefined ? { note: args.note } : {}),
+          ...(args.favorited !== undefined ? { favorited: args.favorited } : {}),
+        }
+        return sanitizeConnection(await store.create(input))
+      }
+      if (args.id === undefined) throw new Error('update 需要 id')
+      const patch: Partial<ConnectionInput> = {
+        ...(args.label !== undefined ? { label: args.label } : {}),
+        ...(args.protocol !== undefined ? { protocol: args.protocol } : {}),
+        ...(args.host !== undefined ? { host: args.host } : {}),
+        ...(args.port !== undefined ? { port: args.port } : {}),
+        ...(args.username !== undefined ? { username: args.username } : {}),
+        ...(args.password !== undefined ? { auth: { kind: 'password' as const, password: args.password } } : {}),
+        ...(args.privateKey !== undefined ? { auth: { kind: 'key' as const, privateKey: args.privateKey, ...(args.passphrase !== undefined ? { passphrase: args.passphrase } : {}) } } : {}),
+        ...(args.note !== undefined ? { note: args.note } : {}),
+        ...(args.favorited !== undefined ? { favorited: args.favorited } : {}),
+      }
+      return sanitizeConnection(await store.update(args.id, patch))
+    },
+    presentCall: (args) => ({ card: 'generic', title: `连接配置：${(args as { action: string }).action}`, kind: 'read' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_mapping',
+    description: '管理端口映射（TCP/UDP）：列表、新建、修改、删除、启停、CSV 导入/导出。start 属于高风险动作，执行前先征得用户同意。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['list', 'create', 'update', 'remove', 'start', 'stop', 'importCsv', 'exportCsv'], description: '操作类型' },
+      id: { type: 'string', description: '映射编号（update/remove/start/stop 必填）' },
+      protocol: { type: 'string', enum: ['tcp', 'udp'], description: '协议' },
+      localAddr: { type: 'string', description: '本地监听地址' },
+      localPort: { type: 'number', description: '本地监听端口' },
+      redirectAddr: { type: 'string', description: '目标地址' },
+      redirectPort: { type: 'number', description: '目标端口' },
+      autoStart: { type: 'boolean', description: '随插件启动' },
+      csv: { type: 'string', description: 'importCsv 的 CSV 文本' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    async execute(args) {
+      const api = portLog()
+      await api.ready
+      switch (args.action) {
+        case 'list': return api.mappings.list()
+        case 'exportCsv': return { csv: api.mappings.exportCsv() }
+        case 'importCsv':
+          if (args.csv === undefined) throw new Error('importCsv 需要 csv')
+          return api.mappings.importCsv(args.csv)
+        case 'remove':
+          if (args.id === undefined) throw new Error('remove 需要 id')
+          await api.mappings.remove(args.id)
+          return { ok: true, id: args.id }
+        case 'start':
+          if (args.id === undefined) throw new Error('start 需要 id')
+          return api.mappings.start(args.id)
+        case 'stop':
+          if (args.id === undefined) throw new Error('stop 需要 id')
+          return api.mappings.stop(args.id)
+        case 'update': {
+          if (args.id === undefined) throw new Error('update 需要 id')
+          const patch: Record<string, unknown> = Object.fromEntries(Object.entries({
+            protocol: args.protocol, localAddr: args.localAddr, localPort: args.localPort,
+            redirectAddr: args.redirectAddr, redirectPort: args.redirectPort, autoStart: args.autoStart,
+          }).filter(([, value]) => value !== undefined))
+          return api.mappings.update(args.id, patch)
+        }
+        default: {
+          if (args.protocol === undefined || args.localAddr === undefined || args.localPort === undefined || args.redirectAddr === undefined || args.redirectPort === undefined) {
+            throw new Error('create 需要 protocol、localAddr、localPort、redirectAddr、redirectPort')
+          }
+          return api.mappings.create({
+            protocol: args.protocol, localAddr: args.localAddr, localPort: args.localPort,
+            redirectAddr: args.redirectAddr, redirectPort: args.redirectPort,
+            autoStart: args.autoStart === true,
+          })
+        }
+      }
+    },
+    presentCall: (args) => ({ card: 'generic', title: `端口映射：${(args as { action: string }).action}`, kind: 'execute' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_share',
+    description: '把已打开的会话通过 TCP 共享给其他客户端：列表、开启、停止。start 属于高风险动作，执行前先征得用户同意。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['list', 'start', 'stop'], description: '操作类型' },
+      sessionId: { type: 'string', description: '会话编号（start/stop 必填）' },
+      localAddr: { type: 'string', description: '监听地址（缺省 0.0.0.0）' },
+      sharePort: { type: 'number', description: '共享端口（缺省 2323）' },
+      maxClients: { type: 'number', description: '最大客户端数（0=不限）' },
+      welcomeMessage: { type: 'string', description: '新客户端欢迎语' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    async execute(args) {
+      const api = portLog()
+      await api.ready
+      if (args.action === 'list') return api.shares.list()
+      if (args.sessionId === undefined) throw new Error(`${args.action} 需要 sessionId`)
+      if (args.action === 'stop') {
+        await api.shares.stop(args.sessionId)
+        return { ok: true, sessionId: args.sessionId }
+      }
+      return api.shares.start({
+        sessionId: args.sessionId,
+        localAddr: args.localAddr ?? '0.0.0.0',
+        sharePort: args.sharePort ?? 2323,
+        maxClients: args.maxClients ?? 0,
+        welcomeMessage: args.welcomeMessage ?? '',
+      })
+    },
+    presentCall: (args) => ({ card: 'generic', title: `会话共享：${(args as { action: string }).action}`, kind: 'execute' }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'tm_session_log',
+    description: '管理会话日志：列表、开启/修改/停止、默认目录、列目录、常用目录。只记录设备输出，不记录输入。',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['list', 'start', 'update', 'stop', 'default_dir', 'list_dir', 'known_folders'], description: '操作类型' },
+      sessionId: { type: 'string', description: '会话编号（start/update/stop 必填）' },
+      timestamp: { type: 'boolean', description: '每行加时间戳' },
+      stripAnsi: { type: 'boolean', description: '清理 ANSI 控制序列（默认 true）' },
+      directory: { type: 'string', description: '日志目录（start 可选）' },
+      path: { type: 'string', description: 'list_dir 要列出的目录' },
+    },
+    output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    async execute(args) {
+      const api = portLog()
+      await api.ready
+      switch (args.action) {
+        case 'list': return api.sessionLogs.list()
+        case 'default_dir': return { directory: api.sessionLogs.getDefaultDirectory() }
+        case 'known_folders': return api.sessionLogs.knownFolders()
+        case 'list_dir': return api.sessionLogs.listDir(args.path)
+        default: break
+      }
+      if (args.sessionId === undefined) throw new Error(`${args.action} 需要 sessionId`)
+      if (args.action === 'stop') {
+        await api.sessionLogs.stop(args.sessionId)
+        return { ok: true, sessionId: args.sessionId }
+      }
+      const options = { timestamp: args.timestamp === true, stripAnsi: args.stripAnsi !== false }
+      if (args.action === 'update') return api.sessionLogs.update(args.sessionId, options)
+      return api.sessionLogs.start(args.sessionId, options, args.directory)
+    },
+    presentCall: (args) => ({ card: 'generic', title: `会话日志：${(args as { action: string }).action}`, kind: 'execute' }),
   }))
 
   ctx.tools.register(defineTool({

@@ -78,6 +78,9 @@ export const WORKSPACE_CSS = `
 /* 连接面板 */
 .tm-sideHead { flex:none; display:flex; align-items:center; gap:6px; padding:10px 12px; border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }
 .tm-sideHead .t { font-size:14px; font-weight:600; display:inline-flex; align-items:center; gap:5px; }
+.tm-sideHead .tm-probeAll { margin-left:auto; flex:none; display:inline-flex; align-items:center; gap:3px; height:24px; padding:0 7px; border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.14)); border-radius:6px; background:transparent; color:var(--dsw-alias-label-secondary, #666); font-size:11px; cursor:pointer; }
+.tm-sideHead .tm-probeAll:hover:not(:disabled) { color:var(--dsw-alias-state-business-primary, #4170e6); border-color:var(--dsw-alias-state-business-primary, #4170e6); }
+.tm-sideHead .tm-probeAll:disabled { cursor:wait; opacity:.6; }
 .tm-sideIcon { flex:none; }
 .tm-sideScroll { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:10px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif; }
 .tm-ptabs { display:flex; gap:2px; }

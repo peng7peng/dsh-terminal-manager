@@ -77,6 +77,28 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   useEffect(() => { void loadDefaultLogDirectory().catch(() => { /* 目录选择器仍可重试并显示错误。 */ }) }, [])
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
+  async function probeAllConnections(): Promise<void> {
+    const ids = conns.map(c => c.id)
+    if (ids.length === 0) return
+    setProbing(new Set(ids))
+    try {
+      const results = await rpc<Array<{ connId: string; ok: boolean; latencyMs?: number; reason?: string }>>('connections.probe', { ids })
+      setProbeResults(prev => {
+        const next = { ...prev }
+        for (const result of results) next[result.connId] = { ok: result.ok, ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}), ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+        return next
+      })
+    } catch (error) {
+      setProbeResults(prev => {
+        const next = { ...prev }
+        for (const id of ids) next[id] = { ok: false, reason: error instanceof Error ? error.message : '探测失败' }
+        return next
+      })
+    } finally {
+      setProbing(new Set())
+    }
+  }
+
   async function probeConn(id: string): Promise<void> {
     setProbing(prev => new Set(prev).add(id))
     try {
@@ -231,6 +253,9 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')} title="SSH：加密远程登录，需用户名+密码或私钥">SSH</div>
           <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')} title="Telnet：明文远程登录，常用于网络设备（ESL 环境）">Telnet</div>
         </div>
+        <button type="button" className="tm-probeAll" disabled={conns.length === 0 || probing.size > 0} title="一键探测全部保存的连接（并发 5）" aria-label="探测全部连接" onClick={() => { void probeAllConnections() }}>
+          <IconProbe16 size={13} />{probing.size > 0 ? '探测中' : '探测全部'}
+        </button>
       </div>
       <div className="tm-sideScroll">
         <div className="tm-secLabel">连接参数</div>

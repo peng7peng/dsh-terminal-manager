@@ -292,11 +292,15 @@ async function main() {
     cleanups.push(() => disconnect(r.value.sessionId))
   })
 
-  // E-CONN-02b 连接探针（PR #2）
-  await test('E-CONN-02b', 'connections.probe 可达', async () => {
-    const r = await rpc('connections.probe', { ids: [savedId] })
-    assert(r.ok && r.value[0]?.ok === true, `探针可达（实际: ${r.ok ? JSON.stringify(r.value) : r.error.message}）`)
-    assert(typeof r.value[0]?.latencyMs === 'number', '带 latencyMs')
+  // E-CONN-02b 连接探针：一次探测多台（PR #2 一键探测）
+  await test('E-CONN-02b', '一键探测多台', async () => {
+    const second = await rpc('connections.create', { label: 'e2b', protocol: 'telnet', host: '127.0.0.1', port: 2324 })
+    assert(second.ok, '第二台保存成功')
+    cleanups.push(() => rpc('connections.remove', { id: second.value.id }))
+    const r = await rpc('connections.probe', { ids: [savedId, second.value.id] })
+    assert(r.ok && r.value.length === 2, `两台都有结果（实际: ${r.ok ? JSON.stringify(r.value) : r.error.message}）`)
+    assert(r.value.every((item) => item.ok === true), '两台都可达')
+    assert(r.value.every((item) => typeof item.latencyMs === 'number'), '都带 latencyMs')
   })
 
   // E-CONN-03 编辑连接

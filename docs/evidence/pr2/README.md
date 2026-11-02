@@ -10,3 +10,4 @@
 | 连接探针圆点 | `before-connections.png`（无圆点） | `after-connections.png`（圆点）/ `after-probe.png`（点击后绿色可达） |
 | 终端键盘模式齿轮 | `before-terminal.png`（无齿轮） | `after-terminal.png`（齿轮）/ `after-keyboard.png`（浮层） |
 | port-log 页签 | `before-portlog.png`（只有映射） | `after-portlog.png`（端口映射/会话日志/会话共享） |
+| 一键探测多台 | `before-probeall.png`（只能逐行点、无「探测全部」按钮） | `after-probeall.png`（一键探测两台：一台绿色可达、一台红色不可达） |

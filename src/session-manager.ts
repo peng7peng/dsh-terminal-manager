@@ -47,6 +47,17 @@ export class SessionError extends Error {
   }
 }
 
+
+/** 批处理单条结果（tm_send 的 batch 分支；不属于跨模块契约）。 */
+export interface BatchCommandResult {
+  index: number
+  command: string
+  outcome: 'ok' | 'timeout' | 'skipped' | 'disconnected' | 'aborted'
+  output?: string
+  waitReason?: WaitReason
+  truncated?: boolean
+}
+
 /** 传输层工厂（可注入假实现用于测试）。 */
 export type TransportFactory = (
   target: ConnectTarget,
@@ -377,6 +388,70 @@ export class SessionManager implements SessionManagerApi {
     } finally {
       record.busy = false
     }
+  }
+
+
+  /**
+   * 同会话串行执行多条命令（tm_send 的 commands 分支）。
+   * - 整批先做守卫预检：任一命中即整批不执行（第 N 条被拦截）；
+   * - 每条独立完成判定，超时归 timeout 并继续下一条；
+   * - 会话中途断开时把剩余条目标 skipped；取消（signal）标 aborted。
+   */
+  async sendBatch(sessionId: string, commands: readonly string[], options: SendOptions = {}): Promise<BatchCommandResult[]> {
+    const record = this.requireOpen(sessionId)
+    if (commands.length === 0) return []
+    if (options.guard !== undefined) {
+      const merged = this.mergeGuard(record, options.guard)
+      for (let i = 0; i < commands.length; i += 1) {
+        const decision = checkCommand(commands[i]!, merged)
+        if (decision.verdict === 'block') {
+          throw new SessionError('COMMAND_BLOCKED', `第 ${i + 1} 条命令被安全策略拦截：${decision.rule?.why ?? '未知原因'}`)
+        }
+      }
+    }
+    const results: BatchCommandResult[] = []
+    let stopRemaining: BatchCommandResult['outcome'] | undefined
+    for (let i = 0; i < commands.length; i += 1) {
+      const command = commands[i]!
+      if (stopRemaining !== undefined) {
+        results.push({ index: i, command, outcome: 'skipped' })
+        continue
+      }
+      if (options.signal?.aborted) {
+        results.push({ index: i, command, outcome: 'aborted' })
+        stopRemaining = 'aborted'
+        continue
+      }
+      if (record.status !== 'open') {
+        results.push({ index: i, command, outcome: 'skipped' })
+        stopRemaining = 'skipped'
+        continue
+      }
+      try {
+        const result = await this.sendAndWait(sessionId, command, options)
+        results.push({
+          index: i,
+          command,
+          outcome: result.waitReason === 'timeout' ? 'timeout' : 'ok',
+          output: result.output,
+          waitReason: result.waitReason,
+          truncated: result.truncated,
+        })
+      } catch (error) {
+        if (error instanceof SessionError && error.code === 'COMMAND_BLOCKED') {
+          // 预检之后才命中（理论上不会发生）：本条 aborted，后续不再执行
+          results.push({ index: i, command, outcome: 'aborted' })
+          stopRemaining = 'aborted'
+        } else if (error instanceof SessionError && error.code === 'SESSION_BUSY') {
+          results.push({ index: i, command, outcome: 'skipped' })
+          stopRemaining = 'skipped'
+        } else {
+          results.push({ index: i, command, outcome: 'disconnected' })
+          stopRemaining = 'skipped'
+        }
+      }
+    }
+    return results
   }
 
   /** 广播：逐台独立执行、互不阻塞，每台单独出结果。 */

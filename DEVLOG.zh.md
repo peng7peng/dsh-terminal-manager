@@ -48,3 +48,15 @@
 - **凭据只留一种结构**：密码/密钥原来有两种写法——连接配置里是嵌套的 `{kind, ...}`，临时连接和传输层却是扁平的几个字段，会话管理器每次都要拆拆装装（三处），容易漏掉密钥口令（passphrase）。现在只有一种：嵌套的 `auth` 判别联合，定义放在契约文件里，会话管理器直接透传，想漏都漏不了。前端和 AI 的用法完全不变（各自的边界处组装一下），所以这次改动外面看不出来。
 
 改完 `pnpm build` + 446 项测试全绿（基线数字同步更新到 CLAUDE.md——port-log 合入后老基线 376 已过时）。审查报告里剩下的中危项（路由前缀隐式依赖、安全栅栏重复）是扩展模块接缝的事，下轮处理。
+
+## 2026-11-02：升级到 DSH 0.2.1
+
+按《软件设计文档 2.0》做一次集成层重构，把插件从 DSH 0.1.2-rc.1 迁到 0.2.1。
+
+- **控制面迁到 `/api` 精确 Fetch 路由**：`/api/term-manager/<method>`、`/api/port-log/<method>`，认证交给 DSH Connection（Host/Origin 栅栏 + 浏览器 cookie）；上传/下载也挂 Connection 的精确路由（上传 `requestBody: 'streaming'`，下载返回流式 `Response`）。插件不再自建 CORS / loopback 判断。
+- **数据面走 `ctx.connection.admit`**：`/term-io` WebSocket 升级前和 port-log SSE 都先过 DSH 认证，未登录直接 401。
+- **为什么不用文档里的 TypertRemoteService**：0.2.1 里客户端 `ctx.remote.<ns>` 的包列表是 `@deepseek-ai/dsh-api-remotes` 构建期内联的白名单，外部 npm 插件挂不进去；Typert codegen 又依赖 monorepo 工程图。0.2.1 的 `/api` interceptor 也已被 Typert Gateway 独占。精确 Fetch 路由是外部插件可用的受支持路径，行为等价（统一认证 + JSON RPC 封包）。
+- **依赖/构建**：客户端平台模块表补齐 0.2.1 的 11 项（新增 `zod`、`@tanstack/react-virtual`、`dockkit`）；`dsh.client.inject` 只留 `@deepseek-ai/dsh-client-ui-sidebar`；peer 范围改成 `>=0.2.1-rc.3 <0.3.0`，避免安装兼容门禁拒绝。
+- **顺带补了文档里的批处理**：`SessionManager.sendBatch` + `tm_send.commands`（整批守卫预检、超时继续、断开后剩余标 skipped）。
+- **开发依赖改从 npm 装**：devDependencies 固定 `0.2.1-rc.5`，不再 link 相邻的 `../deepseek-harness` checkout；CI 也不用再克隆/构建 harness，E2E 直接 `npm i -g @deepseek-ai/dsh@0.2.1-rc.5` 后跑真实安装形态。
+- 测试基线 611 项；真机启动验证：profile `tm-dev` 插件激活、client bundle 200、带 cookie 的 RPC/WS/SSE 均通，未带 cookie 均 401。

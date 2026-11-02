@@ -190,6 +190,14 @@ describe('registerWsIo 心跳与清理', () => {
     await new Promise<void>(resolve => httpServer.listen(0, '127.0.0.1', resolve))
     port = (httpServer.address() as { port: number }).port
 
+    const trusted = (request: { headers: Record<string, string | undefined> }): boolean => {
+      const host = request.headers.host ?? ''
+      const allowedHost = host === `127.0.0.1:${port}` || host === `localhost:${port}`
+      if (!allowedHost) return false
+      const origin = request.headers.origin
+      if (origin === undefined) return true
+      try { return new URL(origin).host === host } catch { return false }
+    }
     const ctx = {
       get: (name: string) => {
         if (name === 'webServer') {
@@ -199,6 +207,10 @@ describe('registerWsIo 心跳与清理', () => {
               return () => httpServer.removeAllListeners('upgrade')
             },
           }
+        }
+        if (name === 'connection') {
+          // 假 Connection：只做与真实实现相同的 Host/Origin 判定（认证由 cookie 负责，测试客户端不带 cookie）
+          return { admit: (request: { headers: Record<string, string | undefined> }) => trusted(request) ? { peer: {} } : { rejection: 403 } }
         }
         return undefined
       },
@@ -298,6 +310,7 @@ describe('registerWsIo 心跳与清理', () => {
           '\r\n',
         )
       })
+      socket.resume()
       socket.on('close', () => resolve())
       socket.on('error', reject)
       setTimeout(() => { socket.destroy(); reject(new Error('非 loopback socket 未被销毁')) }, 1000)
@@ -316,6 +329,7 @@ describe('registerWsIo 心跳与清理', () => {
           '\r\n',
         )
       })
+      socket.resume()
       socket.on('close', () => resolve())
       socket.on('error', reject)
       setTimeout(() => { socket.destroy(); reject(new Error('恶意 Origin 的 socket 未被销毁')) }, 1000)

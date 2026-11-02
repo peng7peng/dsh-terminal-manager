@@ -1,4 +1,5 @@
-const PREFIX = '/term-manager/ext/port-log'
+const PREFIX = '/api/port-log'
+const EVENTS_PATH = '/term-manager/ext/port-log/events'
 
 export interface PortLogRpcError extends Error { code: string }
 
@@ -9,7 +10,7 @@ function rpcError(code: string, message: string): PortLogRpcError {
 }
 
 export async function portLogRpc<T>(method: string, payload: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(PREFIX, {
+  const response = await fetch(`${PREFIX}/${method}`, {
     method: 'POST',
     signal,
     headers: { 'content-type': 'application/json' },
@@ -32,7 +33,7 @@ export function subscribePortLogEvents(
   onEvent: (type: string, data: unknown) => void,
   onOpen: () => void,
 ): () => void {
-  const source = new EventSource(`${PREFIX}/events`)
+  const source = new EventSource(EVENTS_PATH)
   const types = ['mapping-status', 'mapping-removed', 'share-status', 'share-removed', 'session-log-status', 'app-log-status']
   const handlers = types.map((type) => {
     const handler = (event: MessageEvent<string>): void => {

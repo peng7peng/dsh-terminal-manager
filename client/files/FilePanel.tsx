@@ -12,6 +12,7 @@ import { toast } from '../toast.ts'
 import { ContextMenu } from '../tc/ContextMenu.tsx'
 import { breadcrumbs, createLocalFsStore, formatSize, humanError, parentDir, samePath, useLocalFsState, type FileEntryView, type LocalFsStore } from './localFs.ts'
 import { openTargetFor } from './openRule.ts'
+import { clampPanelHeight } from './panel-layout.ts'
 import { remoteFsStore } from './RemoteFilePanel.tsx'
 import { useRemoteFsState } from './remoteFs.ts'
 
@@ -119,13 +120,8 @@ function DirPicker(props: { initial: string; onCancel: () => void; onPick: (path
 }
 
 const HEIGHT_KEY = 'tm.files.height'
-export const PANEL_MIN_H = 120
 export const PANEL_DEFAULT_H = 220
-
-/** 面板高度上限：视口的 70%（留出终端网格） */
-export function clampPanelHeight(h: number, viewportH: number): number {
-  return Math.round(Math.min(Math.max(h, PANEL_MIN_H), Math.max(PANEL_MIN_H, viewportH * 0.7)))
-}
+export { clampPanelHeight, PANEL_MIN_H } from './panel-layout.ts'
 
 function readStoredHeight(): number {
   try {

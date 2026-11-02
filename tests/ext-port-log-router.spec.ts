@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AppLogger } from '../src/ext/port-log/app-logger.ts'
 import { MappingStore } from '../src/ext/port-log/mapping-store.ts'
-import { createPortLogHttpHandler } from '../src/ext/port-log/router.ts'
+import { createPortLogEventsHandler, createPortLogRpcHandler, PORT_LOG_EVENTS_PATH } from '../src/ext/port-log/router.ts'
 import { RuntimeEventHub } from '../src/ext/port-log/sse.ts'
 
 const servers: Array<ReturnType<typeof createServer>> = []
@@ -20,7 +20,35 @@ async function fixture(pickDirectory?: (signal: AbortSignal) => Promise<string |
   const logger = new AppLogger(join(directory, 'log'))
   const events = new RuntimeEventHub()
   const ready = store.ensureLoaded()
-  const server = createServer(createPortLogHttpHandler({ store, logger, events, ready, pickDirectory }))
+  const routerDeps = { store, logger, events, ready, pickDirectory }
+  const dispatch = createPortLogRpcHandler(routerDeps)
+  const sse = createPortLogEventsHandler(routerDeps)
+  // 模拟 DSH Connection 的 /api 通道：认证已由 Connection 完成，这里只做解包 + 分发。
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    if (request.method === 'GET' && url.pathname === PORT_LOG_EVENTS_PATH) {
+      sse(request, response)
+      return
+    }
+    if (request.method !== 'POST' || !url.pathname.startsWith('/api/port-log/')) {
+      response.writeHead(404)
+      response.end()
+      return
+    }
+    let raw = ''
+    for await (const chunk of request) raw += chunk
+    let body: { rpcId?: unknown; payload?: unknown } = {}
+    try { body = JSON.parse(raw) as typeof body } catch { response.writeHead(400); response.end(); return }
+    const rpcId = typeof body.rpcId === 'string' ? body.rpcId : 'invalid'
+    const method = url.pathname.slice('/api/port-log/'.length)
+    const controller = new AbortController()
+    response.once('close', () => controller.abort())
+    const result = await dispatch(method, body.payload ?? {}, controller.signal)
+    if (!response.destroyed) {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ type: 'server-response', rpcId, result }))
+    }
+  })
   servers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
@@ -28,20 +56,18 @@ async function fixture(pickDirectory?: (signal: AbortSignal) => Promise<string |
   return { base: `http://127.0.0.1:${address.port}`, logger }
 }
 
-async function rpc(base: string, method: string, payload: Record<string, unknown> = {}, headers: Record<string, string> = {}): Promise<Response> {
-  return fetch(`${base}/term-manager/ext/port-log`, {
+async function rpc(base: string, method: string, payload: Record<string, unknown> = {}): Promise<Response> {
+  return fetch(`${base}/api/port-log/${method}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method, payload }),
   })
 }
 
 describe('port-log 控制面', () => {
-  it('系统目录选择返回选中路径或取消，跨站请求不能打开窗口', async () => {
+  it('系统目录选择返回选中路径或取消', async () => {
     let calls = 0
     const { base, logger } = await fixture(async () => ++calls === 1 ? 'C:\\日志 目录' : null)
-    expect((await rpc(base, 'sessionLogs.pickDirectory', {}, { origin: 'http://evil.example' })).status).toBe(403)
-    expect(calls).toBe(0)
     const chosen = await (await rpc(base, 'sessionLogs.pickDirectory')).json()
     expect(chosen.result).toEqual({ ok: true, value: { directory: 'C:\\日志 目录' } })
     const canceled = await (await rpc(base, 'sessionLogs.pickDirectory')).json()
@@ -59,9 +85,9 @@ describe('port-log 控制面', () => {
       opened()
     }))
     const controller = new AbortController()
-    const request = fetch(`${base}/term-manager/ext/port-log`, {
+    const request = fetch(`${base}/api/port-log/sessionLogs.pickDirectory`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method: 'sessionLogs.pickDirectory' }), signal: controller.signal,
+      body: JSON.stringify({ method: 'sessionLogs.pickDirectory', payload: {} }), signal: controller.signal,
     }).catch(() => undefined)
     await opening
     controller.abort()
@@ -84,23 +110,6 @@ describe('port-log 控制面', () => {
     expect(exported.result.value.csv).toContain('protocol,localAddr')
     const removed = await (await rpc(base, 'mappings.remove', { id: created.result.value.id })).json() as any
     expect(removed.result).toMatchObject({ ok: true })
-    await logger.close()
-  })
-
-  it('拒绝跨来源 Origin 和错误 Content-Type', async () => {
-    const { base, logger } = await fixture()
-    expect((await rpc(base, 'mappings.list', {}, { origin: 'http://evil.example' })).status).toBe(403)
-    const response = await fetch(`${base}/term-manager/ext/port-log`, { method: 'POST', body: '{}' })
-    expect(response.status).toBe(415)
-    await logger.close()
-  })
-
-  it('处理 OPTIONS 并限制 2 MiB 请求体', async () => {
-    const { base, logger } = await fixture()
-    expect((await fetch(`${base}/term-manager/ext/port-log`, { method: 'OPTIONS' })).status).toBe(204)
-    const response = await rpc(base, 'mappings.importCsv', { csv: 'x'.repeat(2 * 1024 * 1024) })
-    const body = await response.json() as any
-    expect(body.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
     await logger.close()
   })
 
@@ -270,87 +279,4 @@ describe('port-log 控制面', () => {
     await logger.close()
   })
 
-  it('非 POST/GET/OPTIONS 方法返回 405', async () => {
-    const { base, logger } = await fixture()
-    const response = await fetch(`${base}/term-manager/ext/port-log`, { method: 'DELETE' })
-    expect(response.status).toBe(405)
-    const body = await response.json() as any
-    expect(body.error.code).toBe('VALIDATION')
-    await logger.close()
-  })
-
-  it('请求体非 JSON 返回 400', async () => {
-    const { base, logger } = await fixture()
-    const response = await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not-json{',
-    })
-    expect(response.status).toBe(400)
-    const body = await response.json() as any
-    expect(body.result).toMatchObject({ ok: false })
-    await logger.close()
-  })
-
-  it('method 非字符串和 payload 非对象返回 200+错误封包', async () => {
-    const { base, logger } = await fixture()
-    const noMethod = await (await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rpcId: 'r1', payload: {} }),
-    })).json() as any
-    expect(noMethod.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
-    const arrayPayload = await (await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rpcId: 'r1', method: 'mappings.list', payload: [] }),
-    })).json() as any
-    expect(arrayPayload.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
-    const nullPayload = await (await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rpcId: 'r1', method: 'mappings.list', payload: null }),
-    })).json() as any
-    expect(nullPayload.result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
-    await logger.close()
-  })
-
-  it('rpcId 非字符串时回退为 invalid，响应仍包含 rpcId', async () => {
-    const { base, logger } = await fixture()
-    const body = await (await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rpcId: 123, method: 'mappings.list' }),
-    })).json() as any
-    expect(body.rpcId).toBe('invalid')
-    expect(body.result.ok).toBe(true)
-    await logger.close()
-  })
-
-  it('带合法 Origin 且 host 匹配时允许请求', async () => {
-    const { base, logger } = await fixture()
-    const response = await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: base },
-      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
-    })
-    expect(response.status).toBe(200)
-    await logger.close()
-  })
-
-  it('带不合法 Origin（host 不匹配）返回 403', async () => {
-    const { base, logger } = await fixture()
-    const response = await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'http://evil.example' },
-      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
-    })
-    expect(response.status).toBe(403)
-    await logger.close()
-  })
-
-  it('带畸形 Origin 返回 403', async () => {
-    const { base, logger } = await fixture()
-    const response = await fetch(`${base}/term-manager/ext/port-log`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'not-a-url' },
-      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'mappings.list', payload: {} }),
-    })
-    expect(response.status).toBe(403)
-    await logger.close()
-  })
 })

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { AppLogger } from './app-logger.ts'
 import { MappingStore } from './mapping-store.ts'
 import { MappingManager } from './mapping-manager.ts'
-import { createPortLogHttpHandler, PORT_LOG_ROUTE_PREFIX } from './router.ts'
+import { createPortLogEventsHandler, createPortLogRpcHandler, PORT_LOG_ENDPOINT_PREFIX, PORT_LOG_EVENTS_PATH, PORT_LOG_METHODS } from './router.ts'
 import { RuntimeEventHub } from './sse.ts'
 import { ShareManager } from './share-manager.ts'
 import { SessionLogManager } from './session-log-manager.ts'
@@ -49,16 +49,55 @@ export function registerPortLogExtension(ctx: Context, deps: PortLogExtensionDep
   ctx.effect(
     () => {
       const webServer = ctx.get('webServer')
+      const connection = ctx.get('connection')
+      const routerDeps = {
+        store, mappings, shares, sessions: deps.sessions, sessionLogs, logger, events, ready,
+        pickDirectory: (signal: AbortSignal) => pickDirectory(AbortSignal.any([signal, lifetime.signal])),
+      }
+      // RPC 走 /api 下的精确 Fetch 路由（POST /api/port-log/<method>）；认证由 Connection 负责
+      const rpcHandler = createPortLogRpcHandler(routerDeps)
+      const routeDisposers: Array<() => Promise<void>> = []
+      for (const method of PORT_LOG_METHODS) {
+        const disposer = connection?.fetch?.register({
+          path: `/api/${PORT_LOG_ENDPOINT_PREFIX}${method}`,
+          methods: ['POST'],
+          requestBody: 'buffered',
+          fetch: async (request: Request) => {
+            let rpcId = 'invalid'
+            let payload: unknown = {}
+            try {
+              const body = await request.json() as { rpcId?: unknown; payload?: unknown }
+              if (typeof body.rpcId === 'string') rpcId = body.rpcId
+              payload = body.payload ?? {}
+            } catch {
+              return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: { code: 'VALIDATION', message: '请求体不是 JSON', details: {} } } }, { status: 400 })
+            }
+            const result = await rpcHandler(method, payload, request.signal)
+            return Response.json({ type: 'server-response', rpcId, result })
+          },
+        })
+        if (disposer !== undefined) routeDisposers.push(disposer)
+      }
+      // SSE 保留非 /api 前缀的 stream 例外；认证仍由 Connection 负责
+      const eventsHandler = createPortLogEventsHandler(routerDeps)
       const unregister = webServer?.register({
-        kind: 'prefix' as const,
-        path: PORT_LOG_ROUTE_PREFIX,
-        handler: createPortLogHttpHandler({ store, mappings, shares, sessions: deps.sessions, sessionLogs, logger, events, ready,
-          pickDirectory: signal => pickDirectory(AbortSignal.any([signal, lifetime.signal])),
-        }),
+        kind: 'exact' as const,
+        path: PORT_LOG_EVENTS_PATH,
+        handler: (request, response) => {
+          const admission = connection?.admit(request)
+          if (admission === undefined || 'rejection' in admission) {
+            const status = admission !== undefined && 'rejection' in admission ? admission.rejection : 401
+            response.writeHead(status)
+            response.end()
+            return
+          }
+          eventsHandler(request, response)
+        },
       }) ?? (() => undefined)
       return async () => {
         lifetime.abort()
         unregister()
+        await Promise.all(routeDisposers.map(dispose => dispose()))
         events.close()
         unsubscribeMetadata()
         await ready.catch(() => undefined)

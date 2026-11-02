@@ -25,10 +25,9 @@ describe('B3 Telnet 传输（裸 TCP）', () => {
   })
 
   it('地址不通 → HOST_UNREACHABLE', async () => {
-    const { port } = await lab.startEchoServer()
-    await lab.cleanup() // 关掉监听，留下一个确定无服务的端口
+    // 用永远无法解析的域名，避免本机对「刚关闭的端口」先 connect 再 RST 的环境差异
     await expect(connectTelnet(
-      { host: '127.0.0.1', port, connectTimeoutMs: 2000 },
+      { host: 'terminal-manager.invalid', port: 23, connectTimeoutMs: 2000 },
       { onData: () => {}, onClose: () => {} },
     )).rejects.toMatchObject({ code: 'HOST_UNREACHABLE' })
   })
@@ -125,11 +124,9 @@ describe('B3 Telnet IAC 协商', () => {
 })
 
 describe('B3 Telnet 传输边界', () => {
-  it('连接到无服务的端口 → HOST_UNREACHABLE', async () => {
-    const { port } = await lab.startEchoServer()
-    await lab.cleanup()
+  it('无法解析的主机 → HOST_UNREACHABLE', async () => {
     await expect(connectTelnet(
-      { host: '127.0.0.1', port, connectTimeoutMs: 2000 },
+      { host: 'terminal-manager.invalid', port: 23, connectTimeoutMs: 3000 },
       { onData: () => {}, onClose: () => {} },
     )).rejects.toMatchObject({ code: 'HOST_UNREACHABLE' })
   })

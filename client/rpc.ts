@@ -1,5 +1,5 @@
 /**
- * 浏览器侧指令通道客户端 —— 往 /term-manager/<method> POST。
+ * 浏览器侧指令通道客户端 —— 往 /api/term-manager/<method> POST。
  * host 端 webServer.register 拦截前缀路由，调度到 remotes.dispatch。
  * @module dsh-terminal-manager/client/rpc
  */
@@ -15,9 +15,9 @@ function makeError(code: string, message: string): RpcError {
 }
 
 /** 调用后端指令通道。失败抛 RpcError（code 在 error.code）。
- *  独立 channel /term-manager（不抢 /api）；POST 到 /term-manager/<方法>。 */
+ *  走 DSH Connection 统一认证的 /api 精确 Fetch 路由；POST 到 /api/term-manager/<方法>。 */
 export async function rpc<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
-  const response = await fetch(`/term-manager/${method}`, {
+  const response = await fetch(`/api/term-manager/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload }),

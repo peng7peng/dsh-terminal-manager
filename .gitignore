@@ -10,3 +10,5 @@ coverage/
 
 # codegraph index cache
 .codegraph/
+
+e2e-results/

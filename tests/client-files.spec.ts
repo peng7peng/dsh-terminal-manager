@@ -369,7 +369,7 @@ describe('remoteFs store（S5）', () => {
     const file = { name: 'cfg.json', size: 9 } as File
     expect(store.uploadBrowserFile(file)).toBe('started')
     expect(uploads).toHaveLength(1)
-    expect(uploads[0]!.url).toBe('/term-manager/files/upload?sessionId=s1&remotePath=%2Fcfg.json&transferId=t1')
+    expect(uploads[0]!.url).toBe('/api/term-manager/files/upload?sessionId=s1&remotePath=%2Fcfg.json&transferId=t1')
     onProgress(4, 9)
     expect(store.getState().transfers[0]).toMatchObject({ transferred: 4, percent: 44 })
     await tick()
@@ -382,7 +382,7 @@ describe('remoteFs store（S5）', () => {
     expect(store.saveAs('/var/log/app.log')).toBe('blocked')
     await store.setSession('s1')
     expect(store.saveAs('/var/log/app.log')).toBe('started')
-    expect(nav).toEqual(['/term-manager/files/download?sessionId=s1&remotePath=%2Fvar%2Flog%2Fapp.log&transferId=t1'])
+    expect(nav).toEqual(['/api/term-manager/files/download?sessionId=s1&remotePath=%2Fvar%2Flog%2Fapp.log&transferId=t1'])
     expect(store.getState().transfers[0]).toMatchObject({ op: 'download', name: 'app.log', remotePath: '/var/log/app.log' })
     store.pushFrame({ kind: 'file-progress', transferId: 'other', transferred: 999, done: true, ok: true })   // 别人的
     expect(store.getState().transfers[0]).toMatchObject({ done: false })

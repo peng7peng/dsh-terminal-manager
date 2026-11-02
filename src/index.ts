@@ -26,7 +26,7 @@ import { registerWsIo } from './ws-io.ts'
 export const name = 'terminal-manager'
 
 /** 需要的服务：工具 + 系统提示 + Web 服务器。 */
-export const inject = ['tools', 'systemPrompt', 'webServer']
+export const inject = ['tools', 'systemPrompt', 'webServer', 'connection']
 
 /** 配置 schema（DSH 按导出名 `Config` 取；类型同名）。 */
 export { Config } from './config.ts'

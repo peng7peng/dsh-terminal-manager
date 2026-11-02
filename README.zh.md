@@ -2,7 +2,7 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 装的终端管理插件：人与 AI **共用同一批远程终端**（SSH / Telnet），AI 能在对话里直接操作设备终端。
 
-> 本版本基于 **DeepSeek Harness 0.1.2-rc.1** 开发。
+> 本版本基于 **DeepSeek Harness 0.2.1** 开发（Connection 统一认证 + 精确 Fetch 路由 + WS admit）。
 
 **仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
 
@@ -69,7 +69,7 @@
 
 - **Node.js** 22+（[下载](https://nodejs.org/)）
 - **pnpm** 11+（`npm install -g pnpm`）
-- **DeepSeek Harness** 0.1.2-rc.1
+- **DeepSeek Harness** 0.2.1
 
 ## 安装
 
@@ -94,6 +94,13 @@ pnpm install
 pnpm build
 # 然后重启 DSH
 ```
+
+## DSH 兼容性（0.2.1）
+
+- 控制面：`POST /api/term-manager/<method>`（Connection 精确 Fetch 路由，走 DSH 的 Host/Origin 栅栏 + 浏览器 cookie 认证）；文件流：`POST /api/term-manager/files/upload`、`GET /api/term-manager/files/download`。
+- 数据面：`/term-io` WebSocket 升级前调用 `ctx.connection.admit(req)`；port-log 的 SSE 同样走 `admit`。
+- 为什么不用 `ctx.remote.<namespace>`：0.2.1 的客户端 Remote 命名空间由 `@deepseek-ai/dsh-api-remotes` 内置白名单挂载，外部 npm 插件无法注册；Typert codegen 依赖 DSH monorepo 的工程图。精确 Fetch 路由是 DSH 文档给外部插件的受支持路径。
+- 为什么不直接把 RPC 挂在 `/api` 的 interceptor：`/api` 的 Typert Gateway 只允许一个 interceptor；外部插件改用精确 Fetch 路由。
 
 ## 许可证
 

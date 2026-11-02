@@ -2,17 +2,16 @@
  * B7a 指令通道 —— 前端控制面 RPC。
  *
  * 前端经通道①（HTTP）调用这些方法：连接配置增删改查、会话连接/断开/重连/列表/读缓冲。
- * 调度逻辑是纯函数（dispatch），便于直接测试；registerRemotes 负责挂到 ctx.webServer。
- * 挂载方式：ctx.webServer.register({ kind: 'prefix', prefix: '/term-manager' })
+ * 调度逻辑是纯函数（dispatch），便于直接测试；registerRemotes 把 RPC 挂到 Connection 的
+ * 专用 channel `/term-manager`（DSH 统一认证），文件流挂到 Connection 的精确 Fetch 路由。
  * @module dsh-terminal-manager/remotes
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ConnectionRpcHandlerResult, ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { randomUUID } from 'node:crypto'
 import { basename as posixBasename } from 'node:path/posix'
-import { pipeline } from 'node:stream/promises'
+import { Readable } from 'node:stream'
 import type { Config } from './config.ts'
 import type { ConnectionConfig, ConnectionInput } from './connection-store.ts'
 import { StoreNotFoundError, StoreValidationError } from './connection-store.ts'
@@ -50,6 +49,9 @@ function requireFiles(deps: RemoteDeps): FileService {
 /** 连接页查询/表单的载荷类型。 */
 type Payload = Record<string, unknown>
 
+/** Connection 的统一 RPC 结果（与 DSH 0.2.1 的 /api 通道一致）。 */
+type RpcResult<T> = ConnectionRpcResult<T>
+
 /** 把领域异常折叠成 RpcResult 的错误分支（code 编进 message，M4 可细化）。 */
 function toError(error: unknown): RpcResult<never>['error'] {
   const message = error instanceof Error ? error.message : String(error)
@@ -70,6 +72,7 @@ export async function dispatch(
   deps: RemoteDeps,
   signal: AbortSignal,
 ): Promise<RpcResult<unknown>> {
+  if (signal.aborted) return { ok: false, error: { code: 'cancelled', message: '已取消', details: {} } }
   try {
     await deps.store.ensureLoaded()
     switch (endpoint) {
@@ -261,18 +264,6 @@ export const REMOTE_ERROR_CODES = [
   'PATH_OUTSIDE_ROOT', 'NOT_FOUND', 'FILE_TOO_LARGE', 'REMOTE_IO', 'UNSUPPORTED',
 ] as const
 
-/** 来源围栏：只放行本机页面。无 Origin（同源 GET / 非浏览器）放行；Origin 是 loopback 或与 Host 相同放行；其余 403。
- *  背景：本插件的页面与路由同源（fetch 相对路径），本不需要 CORS；但 files.* 端点能读写本机文件，
- *  不能让互联网上的恶意网页借浏览器跨源打进来（CSRF）。 */
-export function isTrustedOrigin(origin: string | undefined, host: string | undefined): boolean {
-  if (origin === undefined || origin === '') return true
-  let url: URL
-  try { url = new URL(origin) } catch { return false }
-  const h = url.hostname.toLowerCase()
-  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1') return true
-  return host !== undefined && url.host.toLowerCase() === host.toLowerCase()
-}
-
 /** 前端生成的传输关联 id（不透明回显，≤64 字符；缺省时服务端生成）。 */
 function transferIdOf(raw: string | null | undefined): string {
   const id = (raw ?? '').trim()
@@ -294,41 +285,6 @@ function transferErrorStatus(error: unknown): number {
   return error instanceof FileServiceError && error.code === 'NOT_FOUND' ? 404 : 400
 }
 
-/** writeJson 的小包装。 */
-function respondJson(res: ServerResponse, status: number, cors: Record<string, string>, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json', ...cors })
-  res.end(JSON.stringify(body))
-}
-
-/**
- * POST /term-manager/files/upload —— 浏览器直传（XHR 发 raw 二进制）。
- * req 本体就是流，直接交给 FileService（SFTP 远端带临时文件 + rename 半成品保护）；
- * 不把 body 读成字符串。进度经 WS file-progress 帧广播；响应 settle 为准（双保险）。
- */
-async function handleFileUpload(deps: RemoteDeps, req: IncomingMessage, res: ServerResponse, url: URL, cors: Record<string, string>): Promise<void> {
-  try {
-    const { sessionId, remotePath, transferId } = transferQueryOf(url)
-    const contentLength = Number(req.headers['content-length'])
-    const size = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : undefined
-    const result = await requireFiles(deps).upload({
-      sessionId,
-      remotePath,
-      source: { kind: 'stream', stream: req, ...(size !== undefined ? { size } : {}) },
-      onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p }),
-    })
-    deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
-    respondJson(res, 200, cors, { ok: true, value: { ...result, transferId } })
-  } catch (error) {
-    const { sessionId, remotePath, transferId } = safeQueryOf(url)
-    deps.broadcastFileProgress?.({
-      kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath,
-      transferred: 0, done: true, ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    respondJson(res, transferErrorStatus(error), cors, { ok: false, error: toError(error) })
-  }
-}
-
 /** 失败路径上尽量还原查询参数（校验失败时字段可能缺失，回显空串即可）。 */
 function safeQueryOf(url: URL): { sessionId: string; remotePath: string; transferId: string } {
   const sessionId = url.searchParams.get('sessionId') ?? ''
@@ -337,147 +293,180 @@ function safeQueryOf(url: URL): { sessionId: string; remotePath: string; transfe
   return { sessionId, remotePath, transferId: raw.length > 0 && raw.length <= 64 ? raw : '' }
 }
 
+/** 传输路由的错误响应（Fetch 形态，已过 Connection 认证）。 */
+function transferErrorResponse(error: unknown): Response {
+  return Response.json({ ok: false, error: toError(error) }, { status: transferErrorStatus(error) })
+}
+
 /**
- * GET /term-manager/files/download —— 浏览器另存为（导航式下载，可选任意本机目录）。
+ * POST /api/term-manager/files/upload —— 浏览器直传（raw 二进制）。
+ * Connection 的 streaming 路由把 Request.body 原样交给 FileService（SFTP 远端带临时文件 + rename
+ * 半成品保护），不把 body 读成字符串。进度经 WS file-progress 帧广播；HTTP 响应 settle 为准（双保险）。
+ */
+export function createUploadFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const url = new URL(request.url)
+    try {
+      const { sessionId, remotePath, transferId } = transferQueryOf(url)
+      const rawLength = request.headers.get('content-length')
+      const contentLength = rawLength === null ? Number.NaN : Number(rawLength)
+      const size = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : undefined
+      if (request.body === null) throw new FileServiceError('VALIDATION', '缺少上传内容')
+      const result = await requireFiles(deps).upload({
+        sessionId,
+        remotePath,
+        source: { kind: 'stream', stream: Readable.fromWeb(request.body as import('node:stream/web').ReadableStream<Uint8Array>), ...(size !== undefined ? { size } : {}) },
+        onProgress: (p) => deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p }),
+      })
+      deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath, transferred: result.bytes, done: true, ok: true })
+      return Response.json({ ok: true, value: { ...result, transferId } })
+    } catch (error) {
+      const { sessionId, remotePath, transferId } = safeQueryOf(url)
+      deps.broadcastFileProgress?.({
+        kind: 'file-progress', transferId, op: 'upload', sessionId, remotePath,
+        transferred: 0, done: true, ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return transferErrorResponse(error)
+    }
+  }
+}
+
+/**
+ * GET /api/term-manager/files/download —— 浏览器另存为（导航式下载，可选任意本机目录）。
  * 前置 stat 在 FileService.download 里完成（不存在 → 进 404 分支，头未发）；
  * 文件名 RFC 5987 编码支持中文；no-store 防缓存。终态帧是前端唯一的完成/失败信号。
  */
-async function handleFileDownload(deps: RemoteDeps, req: IncomingMessage, res: ServerResponse, url: URL, cors: Record<string, string>): Promise<void> {
-  try {
-    const { sessionId, remotePath, transferId } = transferQueryOf(url)
-    let transferred = 0
-    const { stream, size } = await requireFiles(deps).download({
-      sessionId,
-      remotePath,
-      onProgress: (p) => {
-        transferred = p.transferred
-        deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p })
-      },
-    })
-    const filename = posixBasename(remotePath) || 'download'
-    const asciiFallback = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
-    const encoded = encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-    res.writeHead(200, {
-      ...cors,
-      'content-type': 'application/octet-stream',
-      ...(size !== undefined ? { 'content-length': String(size) } : {}),
-      'content-disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
-      'cache-control': 'no-store',
-    })
-    await pipeline(stream, res)
-    deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'download', sessionId, remotePath, transferred, done: true, ok: true })
-  } catch (error) {
-    const { sessionId, remotePath, transferId } = safeQueryOf(url)
-    deps.broadcastFileProgress?.({
-      kind: 'file-progress', transferId, op: 'download', sessionId, remotePath,
-      transferred: 0, done: true, ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    if (res.headersSent) {
-      res.destroy() // 流已开写，只能断开（浏览器报下载失败）
-      return
+export function createDownloadFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const url = new URL(request.url)
+    try {
+      const { sessionId, remotePath, transferId } = transferQueryOf(url)
+      let transferred = 0
+      const { stream, size } = await requireFiles(deps).download({
+        sessionId,
+        remotePath,
+        onProgress: (p) => {
+          transferred = p.transferred
+          deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, ...p })
+        },
+      })
+      const filename = posixBasename(remotePath) || 'download'
+      const asciiFallback = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
+      const encoded = encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+      // 传输结束时发终态帧（done=true）；响应体自行流式写出，错误时 destroy 让浏览器感知失败。
+      const body = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>
+      stream.once('end', () => {
+        deps.broadcastFileProgress?.({ kind: 'file-progress', transferId, op: 'download', sessionId, remotePath, transferred, done: true, ok: true })
+      })
+      stream.once('error', (error: Error) => {
+        deps.broadcastFileProgress?.({
+          kind: 'file-progress', transferId, op: 'download', sessionId, remotePath,
+          transferred, done: true, ok: false, error: error.message,
+        })
+      })
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'content-type': 'application/octet-stream',
+          ...(size !== undefined ? { 'content-length': String(size) } : {}),
+          'content-disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
+          'cache-control': 'no-store',
+        },
+      })
+    } catch (error) {
+      const { sessionId, remotePath, transferId } = safeQueryOf(url)
+      deps.broadcastFileProgress?.({
+        kind: 'file-progress', transferId, op: 'download', sessionId, remotePath,
+        transferred: 0, done: true, ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return transferErrorResponse(error)
     }
-    respondJson(res, transferErrorStatus(error), cors, { ok: false, error: toError(error) })
   }
 }
 
+/** 本插件的控制面方法全集（每个方法注册一条 /api 下的精确 Fetch 路由）。 */
+export const TERM_MANAGER_METHODS = [
+  'connections.list', 'connections.create', 'connections.update', 'connections.remove',
+  'sessions.list', 'sessions.connect', 'sessions.disconnect', 'sessions.reconnect', 'sessions.read', 'sessions.send',
+  'files.tree', 'files.read', 'files.write', 'files.dirs', 'files.root', 'files.setLocalPanel', 'files.open',
+  'files.remoteTree', 'files.remoteCwd', 'files.downloadToLocal', 'files.uploadLocal',
+] as const
+
 /**
- * 构造 HTTP 路由 handler（便于独立测试）。
- * 返回一个 (req, res) => void 的异步函数。
- * S5 传输路由（/files/upload POST raw、/files/download GET 流式）在 JSON RPC 之前分流，
- * 与 RPC 共用 isTrustedOrigin / CORS 栅栏（单一来源，不允许绕过）。
+ * 一条 RPC 精确 Fetch 路由：`POST /api/term-manager/<method>`。
+ * 精确路由在 Typert Gateway interceptor 之前命中，因此可用 /api 的统一认证；
+ * 认证、Host/Origin 栅栏由 Connection 负责（精确路由只放行 owner Peer）。
  */
-export function createHttpHandler(deps: RemoteDeps): (req: IncomingMessage, res: ServerResponse) => void {
-  return async (req, res) => {
-    const origin = req.headers.origin
-    if (!isTrustedOrigin(origin, req.headers.host)) {
-      res.writeHead(403, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: 'forbidden origin' }))
-      return
-    }
-    // 允许的来源原样回显（不再用 *）；同源请求没有 Origin 时不发 CORS 头
-    const cors: Record<string, string> = origin !== undefined && origin !== '' ? { 'access-control-allow-origin': origin, 'vary': 'Origin' } : {}
-    // CORS 预检：浏览器 POST application/json 前会先 OPTIONS，必须放行
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        ...cors,
-        'access-control-allow-methods': 'POST, GET, OPTIONS',
-        'access-control-allow-headers': 'content-type',
-      })
-      res.end()
-      return
-    }
-    // S5 文件传输路由（raw body / GET 流式），在 JSON RPC 分流之前处理
-    const url = new URL(req.url ?? '/', 'http://localhost')
-    if (url.pathname === '/term-manager/files/upload') {
-      if (req.method !== 'POST') {
-        respondJson(res, 405, cors, { error: 'method not allowed' })
-        return
-      }
-      await handleFileUpload(deps, req, res, url, cors)
-      return
-    }
-    if (url.pathname === '/term-manager/files/download') {
-      if (req.method !== 'GET') {
-        respondJson(res, 405, cors, { error: 'method not allowed' })
-        return
-      }
-      await handleFileDownload(deps, req, res, url, cors)
-      return
-    }
-    if (req.method !== 'POST') {
-      res.writeHead(405, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: 'method not allowed' }))
-      return
-    }
-    let raw = ''
-    for await (const chunk of req) raw += chunk
-    let rpcId = '', method = '', payload: unknown = {}
+export function createRpcFetch(deps: RemoteDeps, method: string): (request: Request) => Promise<Response> {
+  return async (request) => {
+    let rpcId = 'invalid'
+    let payload: unknown = {}
     try {
-      const body = JSON.parse(raw) as { type?: string; rpcId?: string; method?: string; payload?: unknown }
-      rpcId = body.rpcId ?? ''
-      method = body.method ?? ''
+      const body = await request.json() as { rpcId?: unknown; payload?: unknown }
+      if (typeof body.rpcId === 'string') rpcId = body.rpcId
       payload = body.payload ?? {}
     } catch {
-      res.writeHead(400, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ type: 'server-response', rpcId: 'invalid', result: { ok: false, error: { code: 'bad-request', message: 'invalid JSON', details: {} } } }))
-      return
+      return Response.json({
+        type: 'server-response', rpcId,
+        result: { ok: false, error: { code: 'internal', message: 'invalid JSON', details: {} } },
+      }, { status: 400 })
     }
-    const urlMethod = (req.url ?? '').replace(/^\/term-manager\//, '').split('?')[0]
-    const endpoint = method || urlMethod
-    try {
-      const result = await dispatch(endpoint, payload as Payload, deps, new AbortController().signal)
-      res.writeHead(200, { 'content-type': 'application/json', ...cors })
-      res.end(JSON.stringify({ type: 'server-response', rpcId, result }))
-    } catch (error) {
-      res.writeHead(200, { 'content-type': 'application/json', ...cors })
-      res.end(JSON.stringify({ type: 'server-response', rpcId, result: { ok: false, error: toError(error) } }))
-    }
+    const result = await dispatch(method, payload as Payload, deps, request.signal)
+    return Response.json({ type: 'server-response', rpcId, result })
+  }
+}
+
+/** 兼容旧测试/直调：endpoint 形如 `term-manager/connections.list`。 */
+export function createRpcHandler(deps: RemoteDeps): (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcHandlerResult> {
+  return async (endpoint, payload, signal) => {
+    const method = endpoint.startsWith('term-manager/') ? endpoint.slice('term-manager/'.length) : endpoint
+    return dispatch(method, (payload ?? {}) as Payload, deps, signal)
   }
 }
 
 /**
- * 把指令通道挂成 webServer 的前缀路由 /term-manager（绕开 connection.rpc.handle——
- * 后者经 connection 服务的 ctx.effect 注册，作用域问题导致路由没进 webServer 表）。
- * 客户端 POST 到 /term-manager/<方法>，body = ClientRequest 封包，返回 ClientResponse。
- * 信任栅栏：MVP 仅 loopback（webServer 本机绑定时已限）。
+ * 把控制面挂到 DSH 统一认证的 /api 下。
+ * 为什么用精确 Fetch 路由而不是 Typert/`connection.rpc.handle`：
+ * - `/api` 的 Typert Gateway 只允许一个 interceptor，外部插件不能另注册；
+ * - 0.2.1 的 `connection.rpc.handle` 在服务自身 ctx 上注册 webServer 路由，外部插件调用会报
+ *   “cannot get property webServer without inject”；
+ * - 精确 Fetch 路由是 DSH 文档给外部插件的受支持路径，且在 Gateway interceptor 之前命中。
+ * 认证、Host/Origin 栅栏都由 Connection 负责，插件不再自建 CORS/loopback 判断。
  */
 export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
-  const webServer = ctx.get('webServer')
-  if (webServer === undefined) {
-    console.log('[term-manager] webServer 不可用，remotes 未挂载')
+  const connection = ctx.get('connection')
+  if (connection === undefined) {
+    console.warn('[term-manager] connection 服务不可用，remotes 未挂载')
     return () => {}
   }
-  console.log('[term-manager] 挂载 /term-manager 前缀路由（直连 webServer）')
-  const route = {
-    kind: 'prefix' as const,
-    path: '/term-manager',
-    handler: (req: IncomingMessage, res: ServerResponse) => createHttpHandler(deps)(req, res),
+  // connection.fetch.register 的 effect 挂在 Connection 服务自己的 ctx 上；这里把返回的
+  // disposer 再挂到本插件 ctx，保证插件热卸载时路由一起消失（不留下指向已销毁状态的 handler）。
+  const disposers: Array<() => Promise<void>> = []
+  for (const method of TERM_MANAGER_METHODS) {
+    disposers.push(connection.fetch.register({
+      path: `/api/term-manager/${method}`,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: createRpcFetch(deps, method),
+    }))
   }
-  // ctx.effect(fn)：fn 立即执行、其返回值是清理函数。把 register 放进 fn，
-  // 返回的 disposer 才会被存为清理（而不是被立即执行删掉路由）。
-  ctx.effect(() => webServer.register(route), 'terminal-manager: /term-manager 路由')
-  return () => {}
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload',
+    methods: ['POST'],
+    requestBody: 'streaming',
+    fetch: createUploadFetch(deps),
+  }))
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/download',
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: createDownloadFetch(deps),
+  }))
+  const disposeAll = (): void => { void Promise.all(disposers.map(dispose => dispose())) }
+  ctx.effect(() => disposeAll, 'terminal-manager: /api 控制面路由')
+  return disposeAll
 }
 
 /** 仅用于类型导出（前端类型生成可用）。 */

@@ -270,7 +270,7 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
     beginTransfer({ transferId, sessionId: sid, op: 'upload', name: finalName, remotePath, total: file.size })
     const upload = deps.httpUpload ?? xhrUpload
     void upload({
-      url: `/term-manager/files/upload?sessionId=${encodeURIComponent(sid)}&remotePath=${encodeURIComponent(remotePath)}&transferId=${encodeURIComponent(transferId)}`,
+      url: `/api/term-manager/files/upload?sessionId=${encodeURIComponent(sid)}&remotePath=${encodeURIComponent(remotePath)}&transferId=${encodeURIComponent(transferId)}`,
       body: file,
       onProgress: (transferred, total) => applyProgressFrame({ kind: 'file-progress', transferId, transferred, ...(total !== undefined ? { total } : {}) }),
     }).then(
@@ -417,7 +417,7 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
       if (sid === null) return 'blocked'
       const transferId = uuid()
       beginTransfer({ transferId, sessionId: sid, op: 'download', name: baseName(remotePath), remotePath })
-      ;(deps.navigate ?? defaultNavigate)(`/term-manager/files/download?sessionId=${encodeURIComponent(sid)}&remotePath=${encodeURIComponent(remotePath)}&transferId=${encodeURIComponent(transferId)}`)
+      ;(deps.navigate ?? defaultNavigate)(`/api/term-manager/files/download?sessionId=${encodeURIComponent(sid)}&remotePath=${encodeURIComponent(remotePath)}&transferId=${encodeURIComponent(transferId)}`)
       return 'started'
     },
 

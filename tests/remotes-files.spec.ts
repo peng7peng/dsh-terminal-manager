@@ -5,11 +5,11 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough, Readable } from 'node:stream'
+import { Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import { LocalFileService } from '../src/file-service.ts'
-import { createHttpHandler, dispatch, type RemoteDeps } from '../src/remotes.ts'
+import { createDownloadFetch, createUploadFetch, dispatch, type RemoteDeps } from '../src/remotes.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import { connectSsh } from '../src/transport/ssh.ts'
 import type { Transport, TransportCallbacks } from '../src/transport/types.ts'
@@ -167,7 +167,7 @@ describe('sessions.send 端点', () => {
   })
 })
 
-describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
+describe('S5 传输（RPC + Fetch 路由，挂 mock SFTP 设备）', () => {
   const lab = createDeviceLab()
   const SESSION = 'sess-route'
   let dir: string
@@ -177,7 +177,8 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
   let transport: Transport | undefined
   let deps: RemoteDeps
   let frames: FileProgressFrame[]
-  let handler: ReturnType<typeof createHttpHandler>
+  let upload: ReturnType<typeof createUploadFetch>
+  let download: ReturnType<typeof createDownloadFetch>
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'tm-s5-route-'))
@@ -199,7 +200,8 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
       ),
       broadcastFileProgress: (f) => frames.push(f),
     }
-    handler = createHttpHandler(deps)
+    upload = createUploadFetch(deps)
+    download = createDownloadFetch(deps)
   })
 
   afterAll(async () => {
@@ -207,38 +209,6 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     await lab.cleanup()
     await rm(dir, { recursive: true, force: true })
   })
-
-  /** 假 req：body 作为 raw 流（upload 直传用） */
-  function fakeReq(method: string, url: string, body?: string) {
-    const readable = Readable.from(body !== undefined ? [Buffer.from(body)] : [])
-    return Object.assign(readable, { method, url, headers: { host: '127.0.0.1:3180' } })
-  }
-
-  /** 假 res：JSON 响应用（只记录 writeHead/end） */
-  function fakeRes() {
-    const calls: { statusCode: number; headers: Record<string, string> }[] = []
-    let ended = ''
-    return {
-      writeHead(statusCode: number, headers?: Record<string, string>) { calls.push({ statusCode, headers: headers ?? {} }) },
-      end(data?: string) { ended = data ?? '' },
-      _calls: calls,
-      _json: () => JSON.parse(ended) as Record<string, unknown>,
-    }
-  }
-
-  /** 假 res：流式响应用（真 Writable，收内容 + 记 writeHead） */
-  function fakeStreamRes() {
-    const calls: { statusCode: number; headers: Record<string, string> }[] = []
-    const chunks: Buffer[] = []
-    const res = new PassThrough()
-    res.on('data', (c: Buffer) => chunks.push(c))
-    return Object.assign(res, {
-      writeHead(statusCode: number, headers?: Record<string, string>) { calls.push({ statusCode, headers: headers ?? {} }) },
-      _calls: calls,
-      _bytes: () => Buffer.concat(chunks),
-      _headers: () => calls[0]?.headers ?? {},
-    })
-  }
 
   it('RPC files.remoteTree：远端列表（目录在前、不分大小写）', async () => {
     await mkdir(join(devRoot, 'rdir'))
@@ -251,8 +221,7 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
   it('RPC files.remoteCwd：SFTP realpath(".") 返回绝对路径', async () => {
     const r = await dispatch('files.remoteCwd', { sessionId: SESSION }, deps, abort)
     expect(r.ok).toBe(true)
-    const cwd = value<string>(r)
-    expect(cwd).toMatch(/^\//)
+    expect(value<string>(r)).toMatch(/^\//)
   })
 
   it('RPC files.remoteCwd：会话不存在 → SESSION_NOT_FOUND', async () => {
@@ -291,11 +260,14 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
     expect(frames.filter((f) => f.transferId === 'tLocal').at(-1)).toMatchObject({ transferId: 'tLocal', op: 'upload', done: true, ok: true, transferred: 14 })
   })
 
-  it('POST /files/upload（raw body）：直传落设备、value 带字节与 transferId、进度帧 + 终态帧', async () => {
-    const res = fakeRes()
-    await handler(fakeReq('POST', `/term-manager/files/upload?sessionId=${SESSION}&remotePath=%2Fup.txt&transferId=t1`, 'hello upload') as never, res as never)
-    expect(res._calls[0]?.statusCode).toBe(200)
-    expect((res._json() as { value: { bytes: number; transferId: string; ok: boolean } }).value).toMatchObject({ bytes: 12, transferId: 't1', ok: true })
+  it('POST /files/upload（streaming body）：直传落设备、value 带字节与 transferId、进度帧 + 终态帧', async () => {
+    const response = await upload(new Request(`http://localhost/term-manager/files/upload?sessionId=${SESSION}&remotePath=%2Fup.txt&transferId=t1`, {
+      method: 'POST',
+      body: 'hello upload',
+      headers: { 'content-length': '12' },
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.json() as { value: { bytes: number; transferId: string; ok: boolean } }).toMatchObject({ value: { bytes: 12, transferId: 't1', ok: true } })
     expect(await readFile(join(devRoot, 'up.txt'), 'utf8')).toBe('hello upload')
     const t1 = frames.filter((f) => f.transferId === 't1')
     expect(t1.length).toBeGreaterThanOrEqual(2)
@@ -304,47 +276,36 @@ describe('S5 传输（RPC + HTTP 路由，挂 mock SFTP 设备）', () => {
   })
 
   it('POST /files/upload 缺 sessionId → 400 VALIDATION；终态帧 ok:false', async () => {
-    const res = fakeRes()
-    await handler(fakeReq('POST', '/term-manager/files/upload?remotePath=%2Fx&transferId=t2', 'data') as never, res as never)
-    expect(res._calls[0]?.statusCode).toBe(400)
-    expect((res._json() as { error: { message: string } }).error.message).toContain('VALIDATION')
+    const response = await upload(new Request('http://localhost/term-manager/files/upload?remotePath=%2Fx&transferId=t2', { method: 'POST', body: 'data' }))
+    expect(response.status).toBe(400)
+    expect((await response.json() as { error: { message: string } }).error.message).toContain('VALIDATION')
     expect(frames.filter((f) => f.transferId === 't2').at(-1)).toMatchObject({ transferId: 't2', done: true, ok: false })
   })
 
   it('GET /files/download：RFC 5987 文件名、no-store、content-length、内容一致、终态帧 ok', async () => {
     const content = 'download-content-中文'
     await writeFile(join(devRoot, '中文 报告.txt'), content)
-    const res = fakeStreamRes()
-    await handler(fakeReq('GET', `/term-manager/files/download?sessionId=${SESSION}&remotePath=${encodeURIComponent('/中文 报告.txt')}&transferId=d1`) as never, res as never)
-    const headers = res._headers()
-    expect(headers['content-type']).toBe('application/octet-stream')
-    expect(headers['cache-control']).toBe('no-store')
-    expect(headers['content-disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('中文 报告.txt')}`)
-    expect(headers['content-disposition']).toContain('filename="__ __.txt"')
-    expect(headers['content-length']).toBe(String(Buffer.byteLength(content)))
-    expect(res._bytes().toString('utf8')).toBe(content)
+    const response = await download(new Request(`http://localhost/term-manager/files/download?sessionId=${SESSION}&remotePath=${encodeURIComponent('/中文 报告.txt')}&transferId=d1`))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/octet-stream')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('content-disposition')).toContain(`filename*=UTF-8''${encodeURIComponent('中文 报告.txt')}`)
+    expect(response.headers.get('content-disposition')).toContain('filename="__ __.txt"')
+    expect(response.headers.get('content-length')).toBe(String(Buffer.byteLength(content)))
+    expect(Buffer.from(await response.arrayBuffer()).toString('utf8')).toBe(content)
+    await new Promise(r => setTimeout(r, 20))
     expect(frames.filter((f) => f.transferId === 'd1').at(-1)).toMatchObject({ transferId: 'd1', done: true, ok: true })
   })
 
-  it('GET /files/download 文件不存在 → 404 JSON（头未发）、终态帧 ok:false', async () => {
-    const res = fakeStreamRes()
-    await handler(fakeReq('GET', `/term-manager/files/download?sessionId=${SESSION}&remotePath=%2Fnope.bin&transferId=d2`) as never, res as never)
-    expect(res._calls[0]?.statusCode).toBe(404)
-    expect((JSON.parse(res._bytes().toString('utf8')) as { ok: boolean }).ok).toBe(false)
+  it('GET /files/download 文件不存在 → 404 JSON、终态帧 ok:false', async () => {
+    const response = await download(new Request(`http://localhost/term-manager/files/download?sessionId=${SESSION}&remotePath=%2Fnope.bin&transferId=d2`))
+    expect(response.status).toBe(404)
+    expect(await response.json() as { ok: boolean }).toMatchObject({ ok: false })
     expect(frames.filter((f) => f.transferId === 'd2').at(-1)).toMatchObject({ transferId: 'd2', done: true, ok: false })
-  })
-
-  it('方法不对 → 405（GET /files/upload、POST /files/download）', async () => {
-    const a = fakeRes()
-    await handler(fakeReq('GET', '/term-manager/files/upload') as never, a as never)
-    expect(a._calls[0]?.statusCode).toBe(405)
-    const b = fakeRes()
-    await handler(fakeReq('POST', '/term-manager/files/download') as never, b as never)
-    expect(b._calls[0]?.statusCode).toBe(405)
   })
 })
 
-describe('download 流已发送后出错（覆盖 res.headersSent → res.destroy 分支）', () => {
+describe('download 流读取中途出错（Fetch Response 体错误传播 + 终态帧 ok:false）', () => {
   let dir: string
   let store: ConnectionStore
   let frames: FileProgressFrame[]
@@ -360,14 +321,7 @@ describe('download 流已发送后出错（覆盖 res.headersSent → res.destro
     await rm(dir, { recursive: true, force: true })
   })
 
-  /** 假 req：GET 请求无 body */
-  function fakeGetReq(url: string) {
-    const readable = Readable.from([])
-    return Object.assign(readable, { method: 'GET', url, headers: { host: '127.0.0.1:3180' } })
-  }
-
-  it('headersSent 后 pipeline 失败 → res.destroy 被调、终态帧 ok:false', async () => {
-    // mock FileService：download 返回一个先吐数据再报错的流
+  it('download 流中途报错 → Response 体读取失败、终态帧 ok:false', async () => {
     const mockFiles = {
       download: async () => ({
         stream: Readable.from((async function* () {
@@ -377,8 +331,6 @@ describe('download 流已发送后出错（覆盖 res.headersSent → res.destro
         size: 100,
       }),
     } as never
-
-    // 用与 S5 describe 相同的 fakeFactory 模式（类型安全，不绕过 TransportFactory 签名）
     const factory: TransportFactory = async (_t, callbacks) => ({
       write: () => {},
       close: async () => { callbacks.onClose('done') },
@@ -389,34 +341,10 @@ describe('download 流已发送后出错（覆盖 res.headersSent → res.destro
       files: mockFiles,
       broadcastFileProgress: (f) => frames.push(f),
     }
-    const localHandler = createHttpHandler(errorDeps)
-
-    // 假 res：PassThrough + headersSent + destroy 计数
-    const res = new PassThrough() as PassThrough & {
-      headersSent: boolean
-      writeHead(statusCode: number, headers?: Record<string, string>): void
-      _destroyCalls: number
-    }
-    res.headersSent = false
-    res.writeHead = (_statusCode: number, _headers?: Record<string, string>) => { res.headersSent = true }
-    res._destroyCalls = 0
-    const origDestroy = res.destroy.bind(res)
-    res.destroy = ((err?: Error) => { res._destroyCalls++; return origDestroy(err) }) as typeof res.destroy
-
-    // pipeline 失败时 PassThrough 会 emit error；记录而非吞掉，验证是预期的传输中断
-    let streamError: Error | null = null
-    res.on('error', (e: Error) => { streamError = e })
-
-    await localHandler(
-      fakeGetReq('/term-manager/files/download?sessionId=s1&remotePath=%2Fbig.bin&transferId=err1') as never,
-      res as never,
-    )
-
-    expect(res.headersSent).toBe(true)
-    expect(res._destroyCalls).toBeGreaterThanOrEqual(1)
-    // pipeline 销毁传播的错误应包含原始中断信息
-    expect(streamError).not.toBeNull()
-    expect(streamError!.message).toContain('transfer interrupted')
+    const response = await createDownloadFetch(errorDeps)(new Request('http://localhost/term-manager/files/download?sessionId=s1&remotePath=%2Fbig.bin&transferId=err1'))
+    expect(response.status).toBe(200)
+    await expect(response.arrayBuffer()).rejects.toThrow(/transfer interrupted/)
+    await new Promise(r => setTimeout(r, 20))
     expect(frames.filter((f) => f.transferId === 'err1').at(-1)).toMatchObject({ transferId: 'err1', done: true, ok: false })
   })
 })

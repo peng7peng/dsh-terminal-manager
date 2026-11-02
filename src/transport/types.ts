@@ -75,6 +75,17 @@ export interface SftpTransferOptions {
 }
 
 /**
+ * 随机位置写入句柄（大文件分片上传用；position-based，不共享文件游标）。
+ * 由 `SftpLike.openWrite` 打开，`SftpConcurrentWriter` 在其上做并发子包写入。
+ */
+export interface SftpWriteHandle {
+  /** 在 position 处写入整个 buffer（短写由实现内部保证） */
+  write(buffer: Buffer, position: number): Promise<void>
+  /** 关闭句柄（幂等；重复调用安全） */
+  close(): Promise<void>
+}
+
+/**
  * 协议无关的 SFTP 门面接口（传输层不暴露 ssh2 类型；串口等未来实现同一接口即可）。
  * SshTransport 返回 `SftpFacade`（`transport/sftp.ts`，包 ssh2 SFTPWrapper）；
  * Telnet 不实现——远端文件操作对 Telnet 会话抛 UNSUPPORTED（由 FileService 按协议分派）。
@@ -94,6 +105,15 @@ export interface SftpLike {
   get(remotePath: string, localPath: string, opts?: SftpTransferOptions): Promise<{ bytes: number; size?: number }>
   /** 下载成流（HTTP 路由直接管响应） */
   downloadStream(remotePath: string, opts?: SftpTransferOptions): Promise<{ stream: Readable; size?: number }>
+
+  // ── 大文件分片上传（可选能力；不支持的门面由上层返回 UNSUPPORTED）──
+
+  /** 打开随机写句柄；mode='w' 截断新建（create），'r+' 保留已写内容（断点续传） */
+  openWrite?(path: string, mode?: 'w' | 'r+'): Promise<SftpWriteHandle>
+  /** 原子落位：临时文件改名覆盖目标（与 put 的落位语义一致） */
+  replace?(from: string, to: string): Promise<void>
+  /** 删除远端文件（不存在视为成功；用于取消 / 过期清理） */
+  unlink?(path: string): Promise<void>
 }
 
 /** 一条活跃连接。 */

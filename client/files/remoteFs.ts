@@ -12,6 +12,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { baseName, humanError, type FileEntryView } from './localFs.ts'
+import { isChunkedUploadEligible, uploadLargeFile } from './chunkedUpload.ts'
 import type { FileProgressFrame } from '../ws.ts'
 
 export type TransferOp = 'upload' | 'download'
@@ -62,10 +63,30 @@ export type HttpUpload = (args: {
   onProgress: (transferred: number, total?: number) => void
 }) => Promise<void>
 
+/** 大文件分片上传（≥100 MiB 走这条；测试注入假实现）。 */
+export type ChunkedUploadFn = (args: {
+  sessionId: string
+  remotePath: string
+  file: File
+  onProgress: (transferred: number, total: number) => void
+  signal?: AbortSignal
+}) => Promise<{ bytes: number; uploadId?: string }>
+
+/** 缺省实现：真实 HTTP 分片上传（断点续传、有限并发、有限重试）。 */
+const defaultChunkedUpload: ChunkedUploadFn = args => uploadLargeFile({
+  sessionId: args.sessionId,
+  remotePath: args.remotePath,
+  file: args.file,
+  onProgress: args.onProgress,
+  ...(args.signal !== undefined ? { signal: args.signal } : {}),
+})
+
 export interface RemoteFsDeps {
   rpc: RpcFn
   /** 浏览器文件直传实现；缺省 XHR */
   httpUpload?: HttpUpload
+  /** 大文件（≥100MB）分片上传实现；缺省走 chunkedUpload.ts 的真实 HTTP 实现 */
+  chunkedUpload?: ChunkedUploadFn
   /** 本地面板当前目录里的名字集合（下载②同名冲突检查用） */
   localNames?: () => Set<string>
   /** 本地面板当前目录（下载②目标 root + cwd）；未就绪返回 undefined */
@@ -175,8 +196,10 @@ export interface RemoteFsStore {
   toggleExpanded(): void
   /** 本地源上传（本地面板选中 / 编辑器当前文件；同名冲突走决策） */
   uploadLocalFile(file: UploadLocalFile): TransferStart
-  /** 浏览器文件直传（OS 拖拽；本期单文件） */
+  /** 浏览器文件直传（OS 拖拽；本期单文件）；≥100 MiB 自动走分片上传 */
   uploadBrowserFile(file: File): TransferStart
+  /** 取消进行中的上传（分片上传会中止在途请求；服务端临时文件由 TTL 清理） */
+  cancelTransfer(transferId: string): void
   /** 下载到本地面板当前目录（路径②；同名冲突查本地面板） */
   downloadToWorkspace(remotePath: string): TransferStart
   /** 另存为（路径③）：导航式 GET 下载，保存位置与同名由浏览器管 */
@@ -205,6 +228,8 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
   const cwdBySession = new Map<string, string>()
   /** 本 store 发起的 transferId（进度帧是广播的，别人的传输忽略） */
   const mine = new Set<string>()
+  /** 分片上传的取消句柄（普通直传 / 下载没有取消入口） */
+  const aborters = new Map<string, AbortController>()
   let loadSeq = 0
   /** 冲突待决策的续传闭包（决策时目标目录可能已变，sessionId/cwd 在发起时捕获） */
   let pending: { conflict: ConflictDecision; existing: ReadonlySet<string>; proceed: (finalName: string) => void } | undefined
@@ -277,6 +302,29 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
       () => { finishTransfer(transferId, true); refreshIfStillThere(sid, remoteParent(remotePath)) },
       (error: unknown) => finishTransfer(transferId, false, humanError(error)),
     )
+  }
+
+  /** ≥100 MiB：分片上传（断点续传）；进度直接更新本 store 的传输行。 */
+  function runUploadBrowserChunked(sid: string, cwd: string, file: File, finalName: string): void {
+    const transferId = uuid()
+    const remotePath = remoteJoin(cwd, finalName)
+    const controller = new AbortController()
+    aborters.set(transferId, controller)
+    beginTransfer({ transferId, sessionId: sid, op: 'upload', name: finalName, remotePath, total: file.size })
+    const upload = deps.chunkedUpload ?? defaultChunkedUpload
+    void upload({
+      sessionId: sid,
+      remotePath,
+      file,
+      signal: controller.signal,
+      onProgress: (transferred, total) => applyProgressFrame({ kind: 'file-progress', transferId, transferred, total }),
+    }).then(
+      (result) => {
+        finishTransfer(transferId, true, undefined, result.bytes)
+        refreshIfStillThere(sid, remoteParent(remotePath))
+      },
+      (error: unknown) => finishTransfer(transferId, false, humanError(error)),
+    ).finally(() => { aborters.delete(transferId) })
   }
 
   function runDownloadToLocal(sid: string, remotePath: string, target: { root: string; path: string }, finalName: string): void {
@@ -388,13 +436,21 @@ export function createRemoteFsStore(deps: RemoteFsDeps): RemoteFsStore {
       if (sid === null) return 'blocked'
       const cwd = state.cwd
       const existing = remoteNames()
+      const run = isChunkedUploadEligible(file.size) ? runUploadBrowserChunked : runUploadBrowser
       if (existing.has(file.name)) {
-        pending = { conflict: { op: 'upload', name: file.name }, existing, proceed: (finalName) => runUploadBrowser(sid, cwd, file, finalName) }
+        pending = { conflict: { op: 'upload', name: file.name }, existing, proceed: (finalName) => run(sid, cwd, file, finalName) }
         set({ conflict: pending.conflict })
         return 'conflict'
       }
-      runUploadBrowser(sid, cwd, file, file.name)
+      run(sid, cwd, file, file.name)
       return 'started'
+    },
+
+    cancelTransfer(transferId) {
+      const controller = aborters.get(transferId)
+      if (controller === undefined) return
+      aborters.delete(transferId)
+      controller.abort()
     },
 
     downloadToWorkspace(remotePath) {

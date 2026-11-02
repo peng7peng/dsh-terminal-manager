@@ -160,6 +160,14 @@ export class LocalFileService implements FileService {
   // ── 远端（S5，按会话协议分派：SSH → SFTP 门面；Telnet → UNSUPPORTED，base64 模拟已砍）──
 
   /**
+   * 取会话的 SFTP 门面（分片上传等新能力复用同一套会话/协议校验；错误码同远端四方法）。
+   * 日常远端四方法仍走私有 requireSftp，避免契约面扩大。
+   */
+  async getSftp(sessionId: string): Promise<SftpLike> {
+    return this.requireSftp(sessionId)
+  }
+
+  /**
    * 远端操作前置分派：会话存在 → open → SSH → 拿 SFTP 门面。
    * 无 SESSION_BUSY 锁：SFTP 是 SSH 独立子通道，不碰 PTY 字节流，与终端交互互不干扰。
    * 传输层错误映射：DISCONNECTED 保留，其余归 REMOTE_IO。

@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises'
 import ssh2, { type SFTPWrapper, type TransferOptions } from 'ssh2'
 import { FileServiceError } from '../file-errors.ts'
 import type { FileEntry } from '../types/file-service.ts'
-import type { SftpLike, SftpProgress, SftpPutSource, SftpStatInfo, SftpTransferOptions } from './types.ts'
+import type { SftpLike, SftpProgress, SftpPutSource, SftpStatInfo, SftpTransferOptions, SftpWriteHandle } from './types.ts'
 
 const { STATUS_CODE, OPEN_MODE } = ssh2.utils.sftp
 
@@ -204,6 +204,59 @@ export class SftpFacade implements SftpLike {
     out.on('close', () => { if (!rs.readableEnded) rs.destroy() })
     rs.pipe(out)
     return { stream: out, ...(size !== undefined ? { size } : {}) }
+  }
+
+  // ── 大文件分片上传（position-based pwrite 句柄）────────────
+
+  /**
+   * 打开随机写句柄（分片上传）。'w' 截断新建；'r+' 保留已写内容（host 重启后续传）。
+   * ssh2 的 write 是 position-based，多个子包可并发写同一句柄。
+   */
+  openWrite(path: string, mode: 'w' | 'r+' = 'w'): Promise<SftpWriteHandle> {
+    return new Promise((resolve, reject) => {
+      this.sftp.open(path, mode, (err, handle) => {
+        if (err) {
+          reject(mapSftpError(err, `打开写入文件 ${path}`))
+          return
+        }
+        let closed = false
+        resolve({
+          write: (buffer: Buffer, position: number) => new Promise<void>((done, fail) => {
+            this.sftp.write(handle, buffer, 0, buffer.length, position, (writeErr) => {
+              if (writeErr) fail(mapSftpError(writeErr, `写入 ${path}`))
+              else done()
+            })
+          }),
+          close: () => new Promise<void>((done) => {
+            if (closed) { done(); return }
+            closed = true
+            // 关闭失败不打断清理：临时文件仍可被 unlink / 下次重新打开
+            this.sftp.close(handle, () => done())
+          }),
+        })
+      })
+    })
+  }
+
+  /** 原子落位（rename 覆盖语义，与 put 的临时文件落位一致） */
+  async replace(from: string, to: string): Promise<void> {
+    try {
+      await this.place(from, to)
+    } catch (err) {
+      throw mapSftpError(err, `落位 ${to}`)
+    }
+  }
+
+  /** 删除远端文件（不存在也算成功；其余错误映射后抛出） */
+  async unlink(path: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      this.sftp.unlink(path, (err) => {
+        if (err === undefined || err === null) { resolve(); return }
+        const code = (err as { code?: number }).code
+        if (code === STATUS_CODE.NO_SUCH_FILE) { resolve(); return }
+        reject(mapSftpError(err, `删除 ${path}`))
+      })
+    })
   }
 
   // ── 内部 ──────────────────────────────────────────────

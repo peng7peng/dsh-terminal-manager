@@ -12,6 +12,7 @@ import { checkCommand, type GuardOptions } from './command-guard.ts'
 import type { ConnectionStore } from './connection-store.ts'
 import { createEventBus } from './event-bus.ts'
 import { connectSsh } from './transport/ssh.ts'
+import { probeMany, type ProbeResult } from './transport/probe.ts'
 import { connectTelnet } from './transport/telnet.ts'
 import type { SftpLike, Transport, TransportCallbacks } from './transport/types.ts'
 import type { TmEventBus, TmInputSource } from './types/events.ts'
@@ -74,6 +75,15 @@ const defaultTransportFactory: TransportFactory = (target, callbacks) => {
 const BUFFER_CAP_BYTES = 1024 * 1024
 /** 完成判定轮询间隔。 */
 const POLL_INTERVAL_MS = 50
+/** 键盘模式默认值：退格/删除都发 DEL（127）；可在连接配置或运行时切到 ^H（8）。 */
+const DEFAULT_BACKSPACE_BYTE = 127 as const
+const DEFAULT_DELETE_BYTE = 127 as const
+
+/** 单会话键盘模式（退格/删除键发送的字节）。 */
+export interface KeyboardMode {
+  backspaceByte: 8 | 127
+  deleteByte: 8 | 127
+}
 
 interface SessionRecord {
   sessionId: string
@@ -90,6 +100,9 @@ interface SessionRecord {
   closeReason?: string
   /** 连接级换行（来自 ConnectTarget / 连接配置），sendAndWait/sendImmediate 缺省时回退到此值 */
   newline?: 'lf' | 'cr' | 'crlf'
+  /** 键盘模式（退格/删除键字节），连接/重连时从连接配置装载。 */
+  backspaceByte: 8 | 127
+  deleteByte: 8 | 127
 }
 
 /** 输入来源缺省规则：传了 guard 就是 AI 路径，否则是人。 */
@@ -185,6 +198,7 @@ export class SessionManager implements SessionManagerApi {
       })
       effectiveConnId = autoConn.id
     }
+    const persisted = effectiveConnId !== undefined && this.store !== undefined ? this.store.get(effectiveConnId) : undefined
     const sessionId = randomUUID()
     const record: SessionRecord = {
       sessionId,
@@ -197,6 +211,8 @@ export class SessionManager implements SessionManagerApi {
       subscribers: new Set(),
       busy: false,
       ...(target.newline !== undefined ? { newline: target.newline } : {}),
+      backspaceByte: persisted?.backspaceByte ?? DEFAULT_BACKSPACE_BYTE,
+      deleteByte: persisted?.deleteByte ?? DEFAULT_DELETE_BYTE,
     }
     this.sessions.set(sessionId, record)
     this.notify(record)
@@ -253,6 +269,8 @@ export class SessionManager implements SessionManagerApi {
       if (conn === undefined) {
         throw new SessionError('SESSION_NOT_FOUND', '无法获取连接配置')
       }
+      record.backspaceByte = conn.backspaceByte ?? DEFAULT_BACKSPACE_BYTE
+      record.deleteByte = conn.deleteByte ?? DEFAULT_DELETE_BYTE
       const transport = await this.transportFactory({
         protocol: conn.protocol,
         host: conn.host,
@@ -303,6 +321,26 @@ export class SessionManager implements SessionManagerApi {
   resize(sessionId: string, cols: number, rows: number): void {
     const record = this.requireOpen(sessionId)
     record.transport?.resize?.(cols, rows)
+  }
+
+  /** 读取某会话的键盘模式（退格/删除键字节）。 */
+  getKeyboardMode(sessionId: string): KeyboardMode {
+    const record = this.requireRecord(sessionId)
+    return { backspaceByte: record.backspaceByte, deleteByte: record.deleteByte }
+  }
+
+  /** 运行时切换键盘模式（只影响当前会话；连接配置里的值在下一次连接/重连时装载）。 */
+  setKeyboardMode(sessionId: string, mode: Partial<KeyboardMode>): KeyboardMode {
+    const record = this.requireRecord(sessionId)
+    if (mode.backspaceByte !== undefined) {
+      if (mode.backspaceByte !== 8 && mode.backspaceByte !== 127) throw new Error('退格字节只能是 8 或 127')
+      record.backspaceByte = mode.backspaceByte
+    }
+    if (mode.deleteByte !== undefined) {
+      if (mode.deleteByte !== 8 && mode.deleteByte !== 127) throw new Error('删除字节只能是 8 或 127')
+      record.deleteByte = mode.deleteByte
+    }
+    return { backspaceByte: record.backspaceByte, deleteByte: record.deleteByte }
   }
 
   /**
@@ -475,6 +513,15 @@ export class SessionManager implements SessionManagerApi {
       }
     }))
     return entries
+  }
+
+  /** 批量探测已保存连接的可达性（并发 5，不开 shell）。 */
+  async probeAll(connIds?: readonly string[]): Promise<ProbeResult[]> {
+    if (this.store === undefined) return []
+    await this.store.ensureLoaded()
+    const ids = connIds ?? this.store.list().map(conn => conn.id)
+    const cfgs = ids.map(id => this.store!.get(id)).filter((cfg): cfg is NonNullable<typeof cfg> => cfg !== undefined)
+    return probeMany(cfgs)
   }
 
   /** 关闭全部会话（插件卸载时用）。 */

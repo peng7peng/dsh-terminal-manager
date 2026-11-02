@@ -77,6 +77,18 @@ describe('createRpcHandler /api 分发', () => {
     expect((result as { error: { message: string } }).error.message).toContain('SESSION_NOT_FOUND')
   })
 
+  it('tm_keyboard_mode：get 返回默认值，set 切换后 get 读回', async () => {
+    const connected = await handler('term-manager/sessions.connect', { connId }, abort, peer)
+    const sid = (connected as { value: { sessionId: string } }).value.sessionId
+    const got = await handler('term-manager/tm_keyboard_mode', { action: 'get', sessionId: sid }, abort, peer)
+    expect(got).toMatchObject({ ok: true, value: { backspace: 127, delete: 127 } })
+    const set = await handler('term-manager/tm_keyboard_mode', { action: 'set', sessionId: sid, backspace: 8, delete: 8 }, abort, peer)
+    expect(set).toMatchObject({ ok: true, value: { backspace: 8, delete: 8 } })
+    const read = await handler('term-manager/tm_keyboard_mode', { action: 'get', sessionId: sid }, abort, peer)
+    expect(read).toMatchObject({ ok: true, value: { backspace: 8, delete: 8 } })
+    await handler('term-manager/sessions.disconnect', { sessionId: sid }, abort, peer)
+  })
+
   it('sessions.connect 用已保存连接建立会话', async () => {
     const result = await handler('term-manager/sessions.connect', { connId }, abort, peer)
     expect(result).toMatchObject({ ok: true, value: { connId, status: 'open' } })

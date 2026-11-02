@@ -8,7 +8,6 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronRightOutline14, IconChevronUpOutline14, IconGlobeOutline14, IconGoalOutline16, IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { rpc } from '../rpc.ts'
 import { toast } from '../toast.ts'
 import type { SessionSnap } from '../ConnectionsPanel.tsx'
@@ -18,6 +17,7 @@ import { useEditorState } from '../editor/editorStore.ts'
 import { FileList, localFsStore } from './FilePanel.tsx'
 import { baseName, breadcrumbs, type FileEntryView } from './localFs.ts'
 import { createRemoteFsStore, useRemoteFsState, type RemoteFsStore, type TransferStart } from './remoteFs.ts'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconGlobeOutline14, IconGoalOutline16, IconRefreshOutline14 } from '../icons.tsx'
 
 let singleton: RemoteFsStore | undefined
 /** 模块级单例：面板收起 / 重开不丢状态；本地侧闭包接本地面板（下载②目标 / 同名冲突检查）。 */

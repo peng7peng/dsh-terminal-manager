@@ -5,13 +5,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { IconLinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
+import { IconLinkOutline14, IconProbe16 } from './icons.tsx'
 
-export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
+export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; backspaceByte?: 8 | 127; deleteByte?: 8 | 127; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
 export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string }
 
@@ -55,6 +55,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [showAdv, setShowAdv] = useState(false)
   const [newline, setNewline] = useState<'lf' | 'cr' | 'crlf'>('crlf')
   const [localEcho, setLocalEcho] = useState(false)
+  const [kbBackspace, setKbBackspace] = useState<8 | 127>(127)
+  const [kbDelete, setKbDelete] = useState<8 | 127>(127)
   const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('telnet')
   const [handshakeTimeout, setHandshakeTimeout] = useState<number>(15)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
@@ -68,11 +70,46 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [logDirectory, setLogDirectory] = useState('')
   const [showDirPicker, setShowDirPicker] = useState(false)
   const [logDirectoryError, setLogDirectoryError] = useState<string | null>(null)
+  const [probeResults, setProbeResults] = useState<Record<string, { ok: boolean; latencyMs?: number; reason?: string }>>({})
+  const [probing, setProbing] = useState<Set<string>>(new Set())
   const portLogState = usePortLogState()
   const sessionLogMap = new Map(portLogState.sessionLogs.map(l => [l.sessionId, l]))
   useEffect(() => { void loadDefaultLogDirectory().catch(() => { /* 目录选择器仍可重试并显示错误。 */ }) }, [])
 
   const refresh = useCallback(async () => { try { setConns(await rpc<ConnectionCfg[]>('connections.list')) } catch { /* */ } }, [])
+  async function probeAllConnections(): Promise<void> {
+    const ids = conns.map(c => c.id)
+    if (ids.length === 0) return
+    setProbing(new Set(ids))
+    try {
+      const results = await rpc<Array<{ connId: string; ok: boolean; latencyMs?: number; reason?: string }>>('connections.probe', { ids })
+      setProbeResults(prev => {
+        const next = { ...prev }
+        for (const result of results) next[result.connId] = { ok: result.ok, ...(result.latencyMs !== undefined ? { latencyMs: result.latencyMs } : {}), ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+        return next
+      })
+    } catch (error) {
+      setProbeResults(prev => {
+        const next = { ...prev }
+        for (const id of ids) next[id] = { ok: false, reason: error instanceof Error ? error.message : '探测失败' }
+        return next
+      })
+    } finally {
+      setProbing(new Set())
+    }
+  }
+
+  async function probeConn(id: string): Promise<void> {
+    setProbing(prev => new Set(prev).add(id))
+    try {
+      const [result] = await rpc<Array<{ ok: boolean; latencyMs?: number; code?: string; reason?: string }>>('connections.probe', { ids: [id] })
+      if (result !== undefined) setProbeResults(prev => ({ ...prev, [id]: result }))
+    } catch (error) {
+      setProbeResults(prev => ({ ...prev, [id]: { ok: false, reason: error instanceof Error ? error.message : '探测失败' } }))
+    } finally {
+      setProbing(prev => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
   useEffect(() => { void refresh() }, [refresh])
   // 当会话列表增加时（AI 工具或其他方式新建了会话），重拉连接列表
   const prevSessionCount = useRef(sessions.length)
@@ -87,8 +124,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   }, [ctxMenu])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setKbBackspace(127); setKbDelete(127); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setKbBackspace(c.backspaceByte ?? 127); setKbDelete(c.deleteByte ?? 127); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -99,7 +136,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   async function save(): Promise<void> {
     if (!validate()) return
     const port = Number(form.port) || (proto === 'ssh' ? 22 : 23)
-    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho, log: { enabled: true, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) } }
+    const base = { label: form.label.trim(), protocol: proto, host: form.host.trim(), port, username: proto === 'ssh' ? form.user.trim() : undefined, note: form.note.trim() || undefined, ...(proto === 'ssh' && authMode === 'password' ? { auth: { kind: 'password' as const, password: form.pass } } : {}), ...(proto === 'ssh' && authMode === 'key' ? { auth: { kind: 'key' as const, privateKey: form.key, passphrase: form.passphrase || undefined } } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), newline, localEcho, backspaceByte: kbBackspace, deleteByte: kbDelete, log: { enabled: true, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) } }
     try { if (editing !== null) await rpc('connections.update', { id: editing, patch: base }); else await rpc('connections.create', base); await refresh(); resetForm() } catch (err) { alert((err as RpcError).message) }
   }
   async function quickConnect(): Promise<void> {
@@ -203,7 +240,9 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     const statusClass = status === 'open' ? 'on' : status === 'connecting' ? 'connecting' : status === 'closed' ? 'closed' : 'off'
     const title = status === 'open' ? '已连接 - 点击聚焦' : status === 'closed' ? '已断开 - 点击重连' : '点击连接'
 
-    return <div key={c.id} className="tm-ritem" onClick={handleClick} onContextMenu={e => onConnContext(e, c)} title={title}><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'st ' + statusClass} /></div>
+    const probe = probeResults[c.id]
+    const probeTitle = probing.has(c.id) ? '探测中…' : probe === undefined ? '点击探测可达性' : probe.ok ? `可达（${probe.latencyMs ?? '?'}ms）` : `不可达：${probe.reason ?? probe.code ?? '未知'}`
+    return <div key={c.id} className="tm-ritem" onClick={handleClick} onContextMenu={e => onConnContext(e, c)} title={title}><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'tm-probe ' + (probing.has(c.id) ? 'probing' : probe === undefined ? '' : probe.ok ? 'ok' : 'bad')} role="button" aria-label={probeTitle} title={probeTitle} onClick={e => { e.stopPropagation(); void probeConn(c.id) }}><IconProbe16 size={12} /></span><span className={'st ' + statusClass} /></div>
   }
 
   return (
@@ -214,6 +253,9 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           <div className={'tm-ptab ' + (proto === 'ssh' ? 'on' : '')} onClick={() => setProto('ssh')} title="SSH：加密远程登录，需用户名+密码或私钥">SSH</div>
           <div className={'tm-ptab ' + (proto === 'telnet' ? 'on' : '')} onClick={() => setProto('telnet')} title="Telnet：明文远程登录，常用于网络设备（ESL 环境）">Telnet</div>
         </div>
+        <button type="button" className="tm-probeAll" disabled={conns.length === 0 || probing.size > 0} title="一键探测全部保存的连接（并发 5）" aria-label="探测全部连接" onClick={() => { void probeAllConnections() }}>
+          <IconProbe16 size={13} />{probing.size > 0 ? '探测中' : '探测全部'}
+        </button>
       </div>
       <div className="tm-sideScroll">
         <div className="tm-secLabel">连接参数</div>
@@ -239,6 +281,10 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           <div style={{ display: 'flex', gap: 7 }}>
             <div className="tm-fld" style={{ flex: 1 }}><label title="发送命令时每行末尾追加的换行符；多数网络设备用 CRLF（\r\n），部分设备用 LF">换行</label><select value={newline} onChange={e => setNewline(e.target.value as 'lf' | 'cr' | 'crlf')}><option value="lf">LF (\n)</option><option value="cr">CR (\r)</option><option value="crlf">CRLF (\r\n)</option></select></div>
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label title="本地回显：自己敲的字符是否在终端上显示。设备本身不回显输入时（部分串口/Telnet）开启；设备已回显则关闭，否则会出现双字符">回显</label><input type="checkbox" checked={localEcho} onChange={e => setLocalEcho(e.target.checked)} /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
+            <div className="tm-fld" style={{ flex: 1 }}><label title="退格键发送的字节；设备删错字符时在 ^H (8) 与 DEL (127) 之间切换">退格键</label><select value={kbBackspace} onChange={e => setKbBackspace(Number(e.target.value) as 8 | 127)}><option value={8}>^H (8)</option><option value={127}>DEL (127)</option></select></div>
+            <div className="tm-fld" style={{ flex: 1 }}><label title="删除键发送的字节；多数设备用 DEL (127)，少数用 ^H (8)">删除键</label><select value={kbDelete} onChange={e => setKbDelete(Number(e.target.value) as 8 | 127)}><option value={8}>^H (8)</option><option value={127}>DEL (127)</option></select></div>
           </div>
           <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
             <div className="tm-fld" style={{ flex: '0 0 auto' }}><label>时间戳</label><input type="checkbox" checked={logTimestamp} onChange={e => setLogTimestamp(e.target.checked)} /></div>

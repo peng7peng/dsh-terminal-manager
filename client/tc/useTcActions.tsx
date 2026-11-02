@@ -8,7 +8,6 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { IconPlayOutline16, IconSendOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { delayHints, parseTcScript, resolveTargetsAt, sectionRange, type TcLine } from '../../src/tc-parser.ts'
 import { editorStore, getActiveEditor } from '../editor/EditorWindow.tsx'
 import { extOf, useEditorState } from '../editor/editorStore.ts'
@@ -20,6 +19,7 @@ import { buildTcOrder, tcIndexMap, tcTargetMap, type TcSession } from './tcMap.t
 import { SendSelectionDialog, TcConfirmDialog, TcTimeoutDialog } from './TcDialogs.tsx'
 import { TcSummaryBar } from './TcSummaryBar.tsx'
 import { getSendSkipConfirm, getSkipConfirm, getTcRun, patchTcRun, setSendSkipConfirm, setSkipConfirm, setTcRun, useTcRun } from './tcRunStore.ts'
+import { IconPlayOutline16, IconSendOutline14 } from '../icons.tsx'
 
 /** 按钮可用性矩阵（D5） */
 export function abilitiesFor(ext: string): { run: boolean; send: boolean } {

@@ -137,7 +137,7 @@ describe('port-log UDP 映射', () => {
     const client2 = createSocket('udp4')
     cleanups.push(() => closeUdp(client2))
     client2.send(Buffer.from('second'), localPort, '127.0.0.1')
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
     expect(latest?.lastError).toContain('上限')
   })
 

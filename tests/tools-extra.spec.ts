@@ -21,6 +21,7 @@ import type { FileService } from '../src/types/file-service.ts'
 import { SessionManager, type TransportFactory } from '../src/session-manager.ts'
 import { registerTerminalTools } from '../src/tools.ts'
 import { createLocalPanelState } from '../src/local-panel-state.ts'
+import type { ExtensionHandle, PortLogToolApi } from '../src/ext/index.ts'
 import { createDeviceLab } from './helpers.ts'
 
 function fakeFactory(): { emit: (slot: number, chunk: string) => void; written: string[]; factory: TransportFactory } {
@@ -66,7 +67,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
 
-async function setup(opts: { files?: FileService; workspaceRoot?: string } = {}) {
+async function setup(opts: { files?: FileService; workspaceRoot?: string; extensions?: ExtensionHandle } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -75,9 +76,11 @@ async function setup(opts: { files?: FileService; workspaceRoot?: string } = {})
   const sessions = new SessionManager(store, factory)
   registerTerminalTools(ctx, {
     sessions,
+    store,
     files: opts.files ?? new LocalFileService(),
     workspaceRoot: opts.workspaceRoot ?? dir,
     localPanel: createLocalPanelState(),
+    ...(opts.extensions !== undefined ? { extensions: opts.extensions } : {}),
   })
   const agent = fakeAgent(ctx, 'tools-extra')
   const signal = new AbortController().signal
@@ -252,5 +255,94 @@ describe('tm_upload / tm_download（S5）', () => {
     expect(r.value).toMatchObject({ ok: true, bytes: 11 })
     expect(await readFile(join(wsRoot, 'out.txt'), 'utf8')).toBe('device-data')
     expect(tool('tm_download').presentCall!({ sessionId: 's', remotePath: '/a', localPath: 'C:/ws/a' })).toMatchObject({ title: '下载 /a → C:/ws/a', kind: 'execute' })
+  })
+})
+
+
+describe('tm_connection_config / 扩展工具', () => {
+  function fakeExt(): { ext: ExtensionHandle; calls: string[] } {
+    const calls: string[] = []
+    const record = <T>(name: string, value: T): T => { calls.push(name); return value }
+    const api: PortLogToolApi = {
+      ready: Promise.resolve(),
+      mappings: {
+        list: () => record('mappings.list', [{ id: 'm1' }]),
+        create: async (input) => record('mappings.create', { id: 'm1', ...input }),
+        update: async (id, patch) => record(`mappings.update:${id}`, { id, ...patch }),
+        remove: async (id) => { record(`mappings.remove:${id}`, undefined) },
+        start: async (id) => record(`mappings.start:${id}`, { id, state: 'running' }),
+        stop: async (id) => record(`mappings.stop:${id}`, { id, state: 'stopped' }),
+        importCsv: async (csv) => record('mappings.importCsv', { count: csv.split('\n').length }),
+        exportCsv: () => record('mappings.exportCsv', 'protocol,localAddr'),
+      },
+      shares: {
+        list: () => record('shares.list', [{ sessionId: 's1' }]),
+        start: async (input) => record('shares.start', { ...input, state: 'running' }),
+        stop: async (sessionId) => { record(`shares.stop:${sessionId}`, undefined) },
+      },
+      sessionLogs: {
+        list: () => record('sessionLogs.list', [{ sessionId: 's1' }]),
+        start: async (sessionId, options, directory) => record('sessionLogs.start', { sessionId, ...options, ...(directory !== undefined ? { directory } : {}) }),
+        update: async (sessionId, options) => record('sessionLogs.update', { sessionId, ...options }),
+        stop: async (sessionId) => { record(`sessionLogs.stop:${sessionId}`, undefined) },
+        getDefaultDirectory: () => record('sessionLogs.default', '/tmp/logs'),
+        listDir: async (path) => record('sessionLogs.listDir', { path: path ?? '/tmp', parent: '/', dirs: ['a'] }),
+        knownFolders: async () => record('sessionLogs.known', { home: '/home/u', quick: [], drives: [] }),
+      },
+    }
+    return { ext: { portLog: api }, calls }
+  }
+
+  it('tm_connection_config：list 脱敏，create/update/remove 走 store', async () => {
+    const { call } = await setup()
+    await store.create({ label: 'secret', protocol: 'ssh', host: '10.1.1.1', username: 'u', auth: { kind: 'password', password: 'pw-should-not-leak' } })
+    const listed = await call('tm_connection_config', { action: 'list' })
+    expect(listed.isError).toBe(false)
+    expect(JSON.stringify(listed.value)).not.toContain('pw-should-not-leak')
+    const created = await call('tm_connection_config', { action: 'create', label: 'new', protocol: 'telnet', host: '10.1.1.2' })
+    expect(created.value).toMatchObject({ label: 'new', protocol: 'telnet' })
+    const id = (created.value as { id: string }).id
+    const updated = await call('tm_connection_config', { action: 'update', id, label: 'renamed' })
+    expect(updated.value).toMatchObject({ id, label: 'renamed' })
+    const removed = await call('tm_connection_config', { action: 'remove', id })
+    expect(removed.value).toMatchObject({ ok: true, id })
+  })
+
+  it('tm_mapping：list/create/start/stop/remove/importCsv/exportCsv', async () => {
+    const { call } = await setup({ extensions: fakeExt().ext })
+    expect((await call('tm_mapping', { action: 'list' })).value).toEqual([{ id: 'm1' }])
+    const created = await call('tm_mapping', { action: 'create', protocol: 'tcp', localAddr: '127.0.0.1', localPort: 18080, redirectAddr: 'localhost', redirectPort: 22, autoStart: false })
+    expect(created.value).toMatchObject({ id: 'm1', protocol: 'tcp', localPort: 18080 })
+    expect((await call('tm_mapping', { action: 'start', id: 'm1' })).value).toMatchObject({ state: 'running' })
+    expect((await call('tm_mapping', { action: 'stop', id: 'm1' })).value).toMatchObject({ state: 'stopped' })
+    expect((await call('tm_mapping', { action: 'update', id: 'm1', autoStart: true })).value).toMatchObject({ autoStart: true })
+    expect((await call('tm_mapping', { action: 'importCsv', csv: 'a\nb' })).value).toMatchObject({ count: 2 })
+    expect((await call('tm_mapping', { action: 'exportCsv' })).value).toMatchObject({ csv: 'protocol,localAddr' })
+    expect((await call('tm_mapping', { action: 'remove', id: 'm1' })).value).toMatchObject({ ok: true })
+  })
+
+  it('tm_share：list/start/stop', async () => {
+    const { call } = await setup({ extensions: fakeExt().ext })
+    expect((await call('tm_share', { action: 'list' })).value).toEqual([{ sessionId: 's1' }])
+    const started = await call('tm_share', { action: 'start', sessionId: 's1', sharePort: 2323 })
+    expect(started.value).toMatchObject({ sessionId: 's1', sharePort: 2323, state: 'running' })
+    expect((await call('tm_share', { action: 'stop', sessionId: 's1' })).value).toMatchObject({ ok: true })
+  })
+
+  it('tm_session_log：list/start/update/stop/default_dir/list_dir/known_folders', async () => {
+    const { call } = await setup({ extensions: fakeExt().ext })
+    expect((await call('tm_session_log', { action: 'list' })).value).toEqual([{ sessionId: 's1' }])
+    expect((await call('tm_session_log', { action: 'start', sessionId: 's1', timestamp: true })).value).toMatchObject({ sessionId: 's1', timestamp: true })
+    expect((await call('tm_session_log', { action: 'update', sessionId: 's1', stripAnsi: false })).value).toMatchObject({ sessionId: 's1', stripAnsi: false })
+    expect((await call('tm_session_log', { action: 'stop', sessionId: 's1' })).value).toMatchObject({ ok: true })
+    expect((await call('tm_session_log', { action: 'default_dir' })).value).toEqual({ directory: '/tmp/logs' })
+    expect((await call('tm_session_log', { action: 'list_dir', path: '/tmp' })).value).toMatchObject({ dirs: ['a'] })
+    expect((await call('tm_session_log', { action: 'known_folders' })).value).toMatchObject({ home: '/home/u' })
+  })
+
+  it('扩展未启用时 tm_mapping 报错', async () => {
+    const { call } = await setup()
+    const result = await call('tm_mapping', { action: 'list' })
+    expect(result.isError).toBe(true)
   })
 })

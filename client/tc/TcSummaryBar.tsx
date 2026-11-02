@@ -3,9 +3,9 @@
  * @module dsh-terminal-manager/client/tc/TcSummaryBar
  */
 
-import { IconCloseFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { summarize } from './runScript.ts'
 import { setTcRun, useTcRun } from './tcRunStore.ts'
+import { IconCloseFill14 } from '../icons.tsx'
 
 const ICON: Record<string, string> = { ok: '✓', timeout: '✗', error: '✗', 'no-target': '✗', running: '⏳', pending: '·', aborted: '–' }
 const WHY: Record<string, string> = { timeout: '超时', 'no-target': '无对应在线终端', aborted: '已中止', running: '执行中', pending: '等待' }

@@ -292,6 +292,17 @@ async function main() {
     cleanups.push(() => disconnect(r.value.sessionId))
   })
 
+  // E-CONN-02b 连接探针：一次探测多台（PR #2 一键探测）
+  await test('E-CONN-02b', '一键探测多台', async () => {
+    const second = await rpc('connections.create', { label: 'e2b', protocol: 'telnet', host: '127.0.0.1', port: 2324 })
+    assert(second.ok, '第二台保存成功')
+    cleanups.push(() => rpc('connections.remove', { id: second.value.id }))
+    const r = await rpc('connections.probe', { ids: [savedId, second.value.id] })
+    assert(r.ok && r.value.length === 2, `两台都有结果（实际: ${r.ok ? JSON.stringify(r.value) : r.error.message}）`)
+    assert(r.value.every((item) => item.ok === true), '两台都可达')
+    assert(r.value.every((item) => typeof item.latencyMs === 'number'), '都带 latencyMs')
+  })
+
   // E-CONN-03 编辑连接
   await test('E-CONN-03', '编辑连接', async () => {
     const u = await rpc('connections.update', { id: savedId, patch: { label: 'e2-renamed' } })
@@ -335,6 +346,18 @@ async function main() {
     const l = await rpc('sessions.list')
     assert(l.ok && l.value.filter((s) => s.status === 'open').length >= 2, '2 个 open 会话')
     cleanups.push(() => disconnect(a.sessionId), () => disconnect(b.sessionId))
+  })
+
+  // E-KB-01 键盘模式 get/set（PR #2）
+  await test('E-KB-01', '键盘模式 get/set', async () => {
+    const s = await connect(DEV_A)
+    cleanups.push(() => disconnect(s.sessionId))
+    const got = await rpc('tm_keyboard_mode', { action: 'get', sessionId: s.sessionId })
+    assert(got.ok && got.value.backspace === 127 && got.value.delete === 127, '默认 127/127')
+    const set = await rpc('tm_keyboard_mode', { action: 'set', sessionId: s.sessionId, backspace: 8, delete: 8 })
+    assert(set.ok && set.value.backspace === 8 && set.value.delete === 8, '切到 8/8')
+    const read = await rpc('tm_keyboard_mode', { action: 'get', sessionId: s.sessionId })
+    assert(read.ok && read.value.backspace === 8 && read.value.delete === 8, '读回 8/8')
   })
 
   // E-SSH-01 SSH 密码连接

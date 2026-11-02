@@ -51,6 +51,10 @@ export interface ConnectionConfig {
   newline?: 'lf' | 'cr' | 'crlf'
   /** 本地回显开关（默认 false） */
   localEcho?: boolean
+  /** 退格键发送的字节：8（^H）或 127（DEL）；缺省 127 */
+  backspaceByte?: 8 | 127
+  /** 删除键发送的字节：8（^H）或 127（DEL）；缺省 127 */
+  deleteByte?: 8 | 127
   /** 是否收藏（默认 true；收藏状态跟连接配置一起落盘，不再存浏览器 localStorage） */
   favorited?: boolean
   /** 会话日志配置。 */
@@ -100,6 +104,12 @@ function validate(cfg: ConnectionConfig): void {
   }
   if (cfg.timeoutMs !== undefined && (cfg.timeoutMs < WAIT_LIMITS.timeoutMs.min || cfg.timeoutMs > WAIT_LIMITS.timeoutMs.max)) {
     fail(`超时必须在 ${WAIT_LIMITS.timeoutMs.min}–${WAIT_LIMITS.timeoutMs.max} 毫秒之间`)
+  }
+  if (cfg.backspaceByte !== undefined && cfg.backspaceByte !== 8 && cfg.backspaceByte !== 127) {
+    fail('退格字节只能是 8（^H）或 127（DEL）')
+  }
+  if (cfg.deleteByte !== undefined && cfg.deleteByte !== 8 && cfg.deleteByte !== 127) {
+    fail('删除字节只能是 8（^H）或 127（DEL）')
   }
   if (cfg.log !== undefined) {
     if (typeof cfg.log.enabled !== 'boolean' || typeof cfg.log.timestamp !== 'boolean' || typeof cfg.log.stripAnsi !== 'boolean') {

@@ -78,6 +78,9 @@ export const WORKSPACE_CSS = `
 /* 连接面板 */
 .tm-sideHead { flex:none; display:flex; align-items:center; gap:6px; padding:10px 12px; border-bottom:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }
 .tm-sideHead .t { font-size:14px; font-weight:600; display:inline-flex; align-items:center; gap:5px; }
+.tm-sideHead .tm-probeAll { margin-left:auto; flex:none; display:inline-flex; align-items:center; gap:3px; height:24px; padding:0 7px; border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.14)); border-radius:6px; background:transparent; color:var(--dsw-alias-label-secondary, #666); font-size:11px; cursor:pointer; }
+.tm-sideHead .tm-probeAll:hover:not(:disabled) { color:var(--dsw-alias-state-business-primary, #4170e6); border-color:var(--dsw-alias-state-business-primary, #4170e6); }
+.tm-sideHead .tm-probeAll:disabled { cursor:wait; opacity:.6; }
 .tm-sideIcon { flex:none; }
 .tm-sideScroll { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:10px; font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif; }
 .tm-ptabs { display:flex; gap:2px; }
@@ -151,4 +154,20 @@ export const WORKSPACE_CSS = `
 .tm-pane.tm-focus-flash {
   animation: tm-focus-flash 0.6s ease-in-out 2;
 }
+
+/* 键盘模式浮层（createPortal 到 body，避开窗格 overflow 裁剪） */
+.tm-kbMenu { position:fixed; z-index:80; width:182px; padding:8px 10px; border-radius:8px; background:var(--dsw-alias-bg-layer-1, #fff); border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.12)); box-shadow:0 6px 20px rgba(0,0,0,.16); font-size:12px; color:var(--dsw-alias-label-primary, #000); }
+.tm-kbMenu .tm-kbTitle { font-weight:600; margin-bottom:6px; }
+.tm-kbMenu label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 0; }
+.tm-kbMenu select { border:1px solid var(--dsw-alias-border-l2, rgba(0,0,0,.12)); background:transparent; color:inherit; border-radius:4px; padding:2px 6px; font-size:12px; }
+
+/* 连接探针：小圆点；点击探测，成功绿 / 失败红 / 探测中闪烁 */
+.tm-probe { flex:none; font-size:9px; line-height:1; color:var(--dsw-alias-label-tertiary, #999); cursor:pointer; padding:2px; border-radius:50%; }
+.tm-probe:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.08)); }
+.tm-probe.ok { color:var(--dsw-static-green-500, #22c55e); }
+.tm-probe.bad { color:var(--dsw-alias-state-error-primary, #ef4444); }
+.tm-probe.probing { animation:tm-flash-red 1s infinite; }
+/* 工具栏 SVG 图标对齐；探针图标与文本基线对齐 */
+.tm-paneBar button svg { display:block; }
+.tm-probe svg { display:block; }
 `

@@ -6,7 +6,7 @@
 ## 命令
 
 - 构建：`pnpm build`（tsdown 产出 `lib/index.js` host 半 + `lib/client.js` 浏览器半工厂包）
-- 测试：`pnpm test`（vitest；**627 项全绿是基线**，改挂必须修绿再提交）
+- 测试：`pnpm test`（vitest；**631 项全绿是基线**，改挂必须修绿再提交）
 - E2E：`node scripts/run-e2e.mjs`（24 场景，自动拉起 mock 设备 + DSH 服务，一键跑完；前置：PATH 里有 `dsh` 或 `DSH_BIN`，profile 已装本插件；可选环境变量 `DSH_PORT`/`DSH_PROFILE`/`SKIP_BUILD=1`）
 - 冒烟（旧）：`DSH_PORT=4680 node scripts/smoke-e2e.mjs`（需手动起服务，已被 run-e2e.mjs 替代）
 - 覆盖率：`pnpm vitest run --coverage`（阈值 90/80/90/90，src-only）

@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { ConnectionStore } from '../src/connection-store.ts'
 import type { ConnectionConfig } from '../src/connection-store.ts'
 import { SessionManager } from '../src/session-manager.ts'
-import { probeMany, probeConnection } from '../src/transport/probe.ts'
+import { probeCodeOf, probeMany, probeConnection } from '../src/transport/probe.ts'
 import { createDeviceLab } from './helpers.ts'
 
 const lab = createDeviceLab()
@@ -41,6 +41,26 @@ describe('连接探针', () => {
     const result = await probeConnection(cfg, 3000)
     expect(result).toMatchObject({ ok: false, code: 'AUTH_FAILED' })
     expect(JSON.stringify(result)).not.toContain('wrong-pass')
+  })
+
+  it('SSH：密钥认证 → ok', async () => {
+    const { generateKeyPairSync } = await import('node:crypto')
+    const key = generateKeyPairSync('ec', { namedCurve: 'P-256', privateKeyEncoding: { type: 'sec1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } }).privateKey
+    const { port } = await lab.startSshDevice()
+    const result = await probeConnection({ ...base('s3', 'ssh', '127.0.0.1', port), auth: { kind: 'key', privateKey: key } }, 3000)
+    expect(result).toMatchObject({ ok: true })
+  })
+
+  it('probeCodeOf：认证/不可达/超时/协议错误', () => {
+    expect(probeCodeOf({ level: 'client-authentication' })).toBe('AUTH_FAILED')
+    expect(probeCodeOf({ code: 'ECONNREFUSED' })).toBe('HOST_UNREACHABLE')
+    expect(probeCodeOf({ code: 'ENOTFOUND' })).toBe('HOST_UNREACHABLE')
+    expect(probeCodeOf({ code: 'ETIMEDOUT' })).toBe('CONN_TIMEOUT')
+    expect(probeCodeOf(new Error('x'))).toBe('PROTO_ERROR')
+  })
+
+  it('probeMany：空列表直接返回空数组', async () => {
+    await expect(probeMany([])).resolves.toEqual([])
   })
 
   it('probeMany：批量返回每台结果', async () => {

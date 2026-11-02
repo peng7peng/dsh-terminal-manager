@@ -140,7 +140,7 @@ export function connectTelnet(
             callbacks.onData(data.toString('utf8'))
           },
           onCommand: (cmd, option) => {
-            if (closed || negotiator === undefined) return
+            if (closed || negotiator === undefined || bareShell) return
             confirmTelnetd()
             for (const response of negotiator.handleCommand(cmd, option)) socket.write(response)
             // 服务器请求 NAWS：先回 WILL，再补一条当前尺寸（首次用 80x24）
@@ -150,7 +150,7 @@ export function connectTelnet(
             sendInitialWindowSize()
           },
           onSubnegotiation: (option, data) => {
-            if (closed || negotiator === undefined) return
+            if (closed || negotiator === undefined || bareShell) return
             confirmTelnetd()
             for (const response of negotiator.handleSubnegotiation(option, data)) socket.write(response)
             sendInitialWindowSize()

@@ -89,7 +89,7 @@ dsh plugin --profile web add dsh-terminal-manager
 从 [GitCode Releases](https://gitcode.com/pengpengR/dsh-terminal-manager/releases) **在浏览器中**下载 `.tgz` 文件（GitCode 附件下载需要登录）：
 
 ```bash
-dsh plugin --profile web add ./dsh-terminal-manager-0.1.0.tgz
+dsh plugin --profile web add ./dsh-terminal-manager-0.2.0.tgz
 ```
 
 ---

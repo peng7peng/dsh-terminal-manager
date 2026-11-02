@@ -58,4 +58,5 @@
 - **为什么不用文档里的 TypertRemoteService**：0.2.1 里客户端 `ctx.remote.<ns>` 的包列表是 `@deepseek-ai/dsh-api-remotes` 构建期内联的白名单，外部 npm 插件挂不进去；Typert codegen 又依赖 monorepo 工程图。0.2.1 的 `/api` interceptor 也已被 Typert Gateway 独占。精确 Fetch 路由是外部插件可用的受支持路径，行为等价（统一认证 + JSON RPC 封包）。
 - **依赖/构建**：客户端平台模块表补齐 0.2.1 的 11 项（新增 `zod`、`@tanstack/react-virtual`、`dockkit`）；`dsh.client.inject` 只留 `@deepseek-ai/dsh-client-ui-sidebar`；peer 范围改成 `>=0.2.1-rc.3 <0.3.0`，避免安装兼容门禁拒绝。
 - **顺带补了文档里的批处理**：`SessionManager.sendBatch` + `tm_send.commands`（整批守卫预检、超时继续、断开后剩余标 skipped）。
+- **开发依赖改从 npm 装**：devDependencies 固定 `0.2.1-rc.5`，不再 link 相邻的 `../deepseek-harness` checkout；CI 也不用再克隆/构建 harness，E2E 直接 `npm i -g @deepseek-ai/dsh@0.2.1-rc.5` 后跑真实安装形态。
 - 测试基线 611 项；真机启动验证：profile `tm-dev` 插件激活、client bundle 200、带 cookie 的 RPC/WS/SSE 均通，未带 cookie 均 401。

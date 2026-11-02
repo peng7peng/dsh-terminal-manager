@@ -13,18 +13,6 @@ jobs:
       - name: Checkout dsh-terminal-manager
         uses: actions/checkout@v4
 
-      # link: 依赖指向 ../deepseek-harness，先把这个（public）源仓库放在相邻目录
-      - name: "Checkout deepseek-harness (link: deps source)"
-        uses: actions/checkout@v4
-        with:
-          repository: deepseek-ai/deepseek-harness
-          path: .harness
-
-      # `link:` deps 指向 ../deepseek-harness，Actions 不允许 checkout 到工作区外，
-      # 所以在工作区外建一个符号链接，pnpm 解析时看到的就是兄弟目录。
-      - name: "Link deepseek-harness as sibling"
-        run: ln -sfn "$GITHUB_WORKSPACE/.harness" "$GITHUB_WORKSPACE/../deepseek-harness"
-
       # setup-node 的 pnpm 缓存需要先装好 pnpm；顺序反了会报 “Unable to locate executable file: pnpm”。
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -36,10 +24,6 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-
-      - name: "Install deepseek-harness deps (resolve link: sources)"
-        working-directory: ../deepseek-harness
-        run: pnpm install
 
       - name: Install dsh-terminal-manager deps
         run: pnpm install

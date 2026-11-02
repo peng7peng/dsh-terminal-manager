@@ -7,8 +7,8 @@
  *
  * 前置条件：
  *   - pnpm build 已执行（DSH 从 lib/index.js 加载）
- *   - ../deepseek-harness 存在且已 pnpm install
- *   - 端口 2323/2324/2222/4480 未被占用
+ *   - PATH 里有 `dsh`（或用 DSH_BIN 指定），profile 已安装本插件
+ *   - 端口 2323/2324/2222/DSH_PORT 未被占用
  *
  * 退出码：0=全过，1=有失败
  */
@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
-const DSH_HARNESS = join(PROJECT_ROOT, '..', 'deepseek-harness')
+const DSH_BIN = process.env.DSH_BIN ?? 'dsh'
 const RESULTS_DIR = join(PROJECT_ROOT, '..', '.codeartswork', 'tests', 'dsh-terminal-manager')
 
 const DSH_PORT = Number(process.env.DSH_PORT ?? 4480)
@@ -236,7 +236,7 @@ async function main() {
 
   // 3. 启动 DSH tm-dev
   console.log('\n▶ 启动 DSH tm-dev 服务')
-  const dsh = startProcess('pnpm', ['dsh', '--profile', DSH_PROFILE, '--port', String(DSH_PORT), '--no-open'], { cwd: DSH_HARNESS })
+  const dsh = startProcess(DSH_BIN, ['--profile', DSH_PROFILE, '--port', String(DSH_PORT), '--no-open'], { cwd: PROJECT_ROOT })
   let appUrl
   dsh.stdout?.on('data', (d) => {
     const match = /dsh web: (http:\/\/\S+)/.exec(d.toString())

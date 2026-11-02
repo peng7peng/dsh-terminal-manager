@@ -158,3 +158,49 @@ describe('ConnectionStore', () => {
     expect(store.list()).toHaveLength(1)
   })
 })
+
+describe('ConnectionStore Telnet 三档模式', () => {
+  it('新写入：passive/active/raw 原样落盘，旧值 telnet 保存时归一化为 active', async () => {
+    const path = join(dir, 'telnet-modes.json')
+    const store = new ConnectionStore(path)
+    await store.load()
+    const passive = await store.create({ label: 'p', protocol: 'telnet', host: 'h', telnetMode: 'passive' })
+    const active = await store.create({ label: 'a', protocol: 'telnet', host: 'h', telnetMode: 'telnet' as never })
+    const raw = await store.create({ label: 'r', protocol: 'telnet', host: 'h', telnetMode: 'raw' })
+    expect(passive.telnetMode).toBe('passive')
+    expect(active.telnetMode).toBe('active')
+    expect(raw.telnetMode).toBe('raw')
+    // 重新读盘仍是新值
+    const fresh = new ConnectionStore(path)
+    await fresh.load()
+    expect(fresh.get(active.id)?.telnetMode).toBe('active')
+    expect(fresh.get(raw.id)?.telnetMode).toBe('raw')
+  })
+
+  it('旧数据 telnetMode=telnet 读盘归一化为 active（老连接行为不变）', async () => {
+    const path = join(dir, 'legacy-telnet-mode.json')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(path, JSON.stringify({
+      version: 1,
+      connections: [{ id: 'legacy-mode', label: 'old', protocol: 'telnet', host: 'h', port: 23, telnetMode: 'telnet' }],
+    }))
+    const store = new ConnectionStore(path)
+    await store.load()
+    expect(store.get('legacy-mode')?.telnetMode).toBe('active')
+  })
+
+  it('update 传旧值 telnet 也归一化为 active', async () => {
+    const store = new ConnectionStore(join(dir, 'telnet-update.json'))
+    await store.load()
+    const cfg = await store.create({ label: 'u', protocol: 'telnet', host: 'h' })
+    const updated = await store.update(cfg.id, { telnetMode: 'telnet' as never })
+    expect(updated.telnetMode).toBe('active')
+  })
+
+  it('非法模式 → 校验失败且消息说明字段', async () => {
+    const store = new ConnectionStore(join(dir, 'telnet-invalid.json'))
+    await store.load()
+    await expect(store.create({ label: 'x', protocol: 'telnet', host: 'h', telnetMode: 'bogus' as never }))
+      .rejects.toThrow(/Telnet 模式/)
+  })
+})

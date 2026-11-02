@@ -191,29 +191,42 @@ describe('Telnet NAWS 防抖与转义', () => {
   }
 
   it('resize 抖动只发一条（停稳后的最后尺寸）；尺寸不变不重发；0xFF 按 RFC 1073 转义', async () => {
-    const { port, received } = await scriptedServer((socket) => { socket.write('login: ') })
+    // 先发 DO NAWS 让 passive/active 都确认是真 telnetd（#18：服务器等 NAWS 子协商，不回会断开）
+    const { port, received } = await scriptedServer((socket) => {
+      socket.write(Buffer.from([IAC, DO, NAWS]))
+      socket.write('login: ')
+    })
     const out = collector()
     const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'telnet' } as never, { onData: out.onData, onClose: () => {} })
     await out.waitFor('login: ')
-    await new Promise(r => setTimeout(r, 30))
-    // 连接时的 80x24（#18）已发 1 条
+    // TCP/Nagle 下协商字节可能晚几十毫秒到，轮询等待而不是固定 sleep
+    const waitForNaws = async (expected: number): Promise<void> => {
+      const deadline = Date.now() + 3000
+      while (nawsCount(received()) < expected) {
+        if (Date.now() > deadline) throw new Error(`等待第 ${expected} 条 NAWS 超时，当前 ${nawsCount(received())} 条`)
+        await new Promise(r => setTimeout(r, 10))
+      }
+    }
+    // 服务器 DO NAWS 后回 WILL + 当前尺寸 80x24（#18）已发 1 条
+    await waitForNaws(1)
     expect(nawsCount(received())).toBe(1)
     // 50ms 内连续 resize 10 次（模拟拖动面板 / 改列数）
     for (let i = 0; i < 10; i++) {
       t.resize?.(120 + i, 40)
       await new Promise(r => setTimeout(r, 5))
     }
-    await new Promise(r => setTimeout(r, 300))
     // 抖动只出 1 条，且是停稳后的最后尺寸 129x40
+    await waitForNaws(2)
+    await new Promise(r => setTimeout(r, 100))
     expect(nawsCount(received())).toBe(2)
     expect(received().includes(Buffer.from([IAC, SB, NAWS, 0, 129, 0, 40, IAC, SE]))).toBe(true)
     // 同尺寸再 resize：不重发
     t.resize?.(129, 40)
-    await new Promise(r => setTimeout(r, 300))
+    await new Promise(r => setTimeout(r, 400))
     expect(nawsCount(received())).toBe(2)
     // cols=255 → 低字节 0xFF 必须写成 FF FF（否则对端解析错位）
     t.resize?.(255, 41)
-    await new Promise(r => setTimeout(r, 300))
+    await waitForNaws(3)
     expect(received().includes(Buffer.from([IAC, SB, NAWS, 0, 0xff, 0xff, 0, 41, IAC, SE]))).toBe(true)
     await t.close()
   }, 8000)

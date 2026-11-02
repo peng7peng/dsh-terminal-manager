@@ -489,3 +489,54 @@ describe('SessionManager SFTP 门面（S5 步骤3）', () => {
     }
   })
 })
+
+describe('SessionManager Telnet 三档透传', () => {
+  it('connectByConnId 与 reconnect 都把连接配置里的 telnetMode 透传给传输层', async () => {
+    const modeConn = await store.create({
+      label: 'dev-mode',
+      protocol: 'telnet',
+      host: '127.0.0.1',
+      port: 9,
+      telnetMode: 'active',
+    })
+    const targets: Array<{ telnetMode?: string }> = []
+    const callbackSlots: TransportCallbacks[] = []
+    const factory: TransportFactory = async (target, callbacks) => {
+      targets.push(target)
+      callbackSlots.push(callbacks)
+      return { write: () => {}, resize: () => {}, close: async () => {} }
+    }
+    const sm = new SessionManager(store, factory)
+    const snap = await sm.connectByConnId(modeConn.id)
+    expect(targets[0]?.telnetMode).toBe('active')
+
+    // 模拟设备掉线 → reconnect 重新建连时仍要带上模式
+    callbackSlots[0].onClose('设备掉线')
+    await sm.reconnect(snap.sessionId)
+    expect(targets[1]?.telnetMode).toBe('active')
+  })
+
+  it('临时 connect 的 telnetMode 原样透传（passive/raw）', async () => {
+    const targets: Array<{ telnetMode?: string }> = []
+    const factory: TransportFactory = async (target) => {
+      targets.push(target)
+      return { write: () => {}, resize: () => {}, close: async () => {} }
+    }
+    const sm = new SessionManager(undefined, factory)
+    await sm.connect({ protocol: 'telnet', host: '127.0.0.1', port: 9, label: 't-passive', telnetMode: 'passive' })
+    await sm.connect({ protocol: 'telnet', host: '127.0.0.2', port: 9, label: 't-raw', telnetMode: 'raw' })
+    expect(targets.map(t => t.telnetMode)).toEqual(['passive', 'raw'])
+  })
+})
+
+describe('SessionManager 临时连接的模式落盘', () => {
+  it('临时 connect 的 telnetMode 写入自动创建的连接配置（最近连接重连仍生效）', async () => {
+    const autoStore = new ConnectionStore(join(dir, 'auto-mode.json'))
+    await autoStore.load()
+    const factory: TransportFactory = async () => ({ write: () => {}, resize: () => {}, close: async () => {} })
+    const sm = new SessionManager(autoStore, factory)
+    await sm.connect({ protocol: 'telnet', host: '127.0.0.9', port: 9, label: 'auto-active', telnetMode: 'active' })
+    expect(autoStore.list()).toHaveLength(1)
+    expect(autoStore.list()[0]?.telnetMode).toBe('active')
+  })
+})

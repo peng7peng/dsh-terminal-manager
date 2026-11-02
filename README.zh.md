@@ -10,7 +10,7 @@
 
 ### 连接与终端
 
-- **SSH / Telnet** 连接（密码 + 密钥；Telnet 完整协议协商，支持真实网络设备登录）；
+- **SSH / Telnet** 连接（密码 + 密钥；Telnet 支持被动 / 主动 / 原始三档，默认被动只回应设备协商，兼容老配置的 `telnet` 模式）；
 - 多会话同屏终端（xterm.js），窗口自然填充，支持 1/2/3 列布局和最大化；
 - **AI 工具（13 个）** `tm_connect` / `tm_list` / `tm_send` / `tm_send_all` / `tm_read` / `tm_disconnect` / `tm_upload` / `tm_download` / `tm_keyboard_mode` / `tm_connection_config` / `tm_mapping` / `tm_share` / `tm_session_log`——AI 在对话里调，自主连设备、发命令、拿回结果、传文件、管映射/共享/日志；
 - **命令守卫**：AI 发的危险命令（`rm -rf /` 等）自动拦截；
@@ -65,6 +65,11 @@
 本地文件面板与编辑器只能读写**当前根目录及其子目录**：默认根 = 启动 DSH 时的当前目录（可在 `cordis.yml` 里给本插件配 `workspaceRoot`），面板里「换目录」可临时切换（记在浏览器本地）。越界路径（含符号链接指向根外）一律拒绝。切换根目录即视为授权该目录。
 
 **远端文件**（仅 SSH 会话，走 SFTP）：远端无树根概念，面板浏览到的整个设备文件系统与 SSH 终端同等权限；Telnet 会话不支持文件传输（面板会提示）。上传到设备先写远端临时文件（`.tm-partial-*`）成功后改名，下载到工作区同样有半成品保护——中断不留半个文件。
+
+## 传输层调优（环境变量）
+
+- `TM_SFTP_OPEN_TIMEOUT_MS`：SFTP 子通道打开超时，默认 `30000` 毫秒；半死连接下会明确报超时，失败不缓存、后续操作可重试。
+- `TM_SSH_KEEPALIVE_MS` / `TM_SSH_KEEPALIVE_COUNT`：SSH keepalive 间隔与连续无响应次数，默认 `30000` 毫秒 / `3` 次；黑洞连接会被主动断开。
 
 ## 前提条件
 

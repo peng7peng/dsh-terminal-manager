@@ -1,8 +1,11 @@
+import { createServer, type Server, type Socket } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { connectSsh } from '../src/transport/ssh.ts'
 import { connectTelnet } from '../src/transport/telnet.ts'
 import { TransportError } from '../src/transport/types.ts'
 import { collector, createDeviceLab } from './helpers.ts'
+
+const IAC = 255, DO = 253, WILL = 251, SB = 250, SE = 240, SGA = 3, ECHO = 1, TTYPE = 24, NAWS = 31
 
 const lab = createDeviceLab()
 afterEach(async () => {
@@ -162,5 +165,150 @@ describe('B3 Telnet 传输边界', () => {
     )
     await transport.close()
     await expect(transport.close()).resolves.toBeUndefined()
+  })
+})
+
+// ── 三档 Telnet 模式：passive（默认）/ active（800ms 探测）/ raw ─────────────
+
+const probeServers: Server[] = []
+const probeSockets: Socket[] = []
+afterEach(() => {
+  for (const socket of probeSockets.splice(0)) socket.destroy()
+  for (const server of probeServers.splice(0)) { server.closeAllConnections?.(); server.close() }
+})
+
+/** 起一个能按脚本往客户端写字节、并记录客户端回复的 TCP 服务器 */
+function scriptedServer(onConnect: (socket: Socket) => void): Promise<{ port: number; received: () => Buffer }> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    const server = createServer((socket) => {
+      probeSockets.push(socket)
+      socket.on('data', (d: Buffer) => chunks.push(d))
+      socket.on('error', () => {})
+      onConnect(socket)
+    })
+    probeServers.push(server)
+    server.listen(0, '127.0.0.1', () => resolve({ port: (server.address() as { port: number }).port, received: () => Buffer.concat(chunks) }))
+  })
+}
+
+/** 轮询等条件成立（TCP/Nagle 下协商字节可能晚几十毫秒到） */
+function waitUntil(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs
+    const tick = (): void => {
+      if (predicate()) { resolve(); return }
+      if (Date.now() > deadline) { reject(new Error('等待条件超时')); return }
+      setTimeout(tick, 10)
+    }
+    tick()
+  })
+}
+
+const countSeq = (buf: Buffer, seq: number[]): number => {
+  let count = 0
+  for (let i = 0; i <= buf.length - seq.length; i++) {
+    if (seq.every((value, offset) => buf[i + offset] === value)) count++
+  }
+  return count
+}
+
+describe('B3 Telnet 三档模式', () => {
+  it('缺省 passive：连接后不主动发任何协商字节，只正常收发', async () => {
+    const { port, received } = await scriptedServer((socket) => { socket.write('login: ') })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port }, { onData: out.onData, onClose: () => {} })
+    await out.waitFor('login: ')
+    await new Promise(r => setTimeout(r, 150))
+    expect(received().length).toBe(0)
+    await t.close()
+  })
+
+  it('passive：服务器 DO TTYPE 才回 WILL TTYPE；未请求 NAWS 时 resize 不发子协商', async () => {
+    const { port, received } = await scriptedServer((socket) => {
+      socket.write(Buffer.from([IAC, DO, TTYPE]))
+    })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port }, { onData: out.onData, onClose: () => {} })
+    await waitUntil(() => received().includes(Buffer.from([IAC, WILL, TTYPE])))
+    expect(received().includes(Buffer.from([IAC, SB, NAWS]))).toBe(false)
+    t.resize?.(100, 30)
+    await new Promise(r => setTimeout(r, 300))
+    expect(received().includes(Buffer.from([IAC, SB, NAWS]))).toBe(false)
+    await t.close()
+  })
+
+  it('active：初始 DO SGA；收到合法 IAC 判真 telnetd 并回协商 + 补 NAWS', async () => {
+    const { port, received } = await scriptedServer((socket) => {
+      socket.write(Buffer.from([IAC, WILL, ECHO]))
+    })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'active' }, { onData: out.onData, onClose: () => {} })
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, SGA])))
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, ECHO])))
+    await waitUntil(() => received().includes(Buffer.from([IAC, SB, NAWS, 0, 80, 0, 24, IAC, SE])))
+    await t.close()
+  })
+
+  it('active：探测窗口内收到非 IAC 数据 → 切被动，不再发 NAWS/协商', async () => {
+    const { port, received } = await scriptedServer((socket) => { socket.write('shell> ') })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'active' }, { onData: out.onData, onClose: () => {} })
+    await out.waitFor('shell> ')
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, SGA])))
+    const before = received()
+    expect(before.includes(Buffer.from([IAC, SB, NAWS]))).toBe(false)
+    // 裸 shell 上 resize 不能再糊 NAWS 字节进去
+    t.resize?.(120, 40)
+    await new Promise(r => setTimeout(r, 300))
+    expect(received().includes(Buffer.from([IAC, SB, NAWS]))).toBe(false)
+    await t.close()
+  })
+
+  it('active：800ms 超时 → 保守按 telnetd 继续（补 NAWS，resize 生效）', async () => {
+    const { port, received } = await scriptedServer(() => { /* 黑洞：连上但不发任何字节 */ })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'active' }, { onData: out.onData, onClose: () => {} })
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, SGA])))
+    // 探测窗口内先不发 NAWS
+    await new Promise(r => setTimeout(r, 300))
+    expect(received().includes(Buffer.from([IAC, SB, NAWS]))).toBe(false)
+    // 超时后保守判 telnetd，补 80x24
+    await waitUntil(() => received().includes(Buffer.from([IAC, SB, NAWS, 0, 80, 0, 24, IAC, SE])), 2000)
+    t.resize?.(100, 30)
+    await waitUntil(() => received().includes(Buffer.from([IAC, SB, NAWS, 0, 100, 0, 30, IAC, SE])))
+    await t.close()
+  })
+
+  it('raw：不解析 IAC、不主动协商、IAC 字节原样进输出', async () => {
+    const { port, received } = await scriptedServer((socket) => {
+      socket.write(Buffer.concat([Buffer.from([IAC, WILL, ECHO]), Buffer.from('login: ')]))
+    })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'raw' }, { onData: out.onData, onClose: () => {} })
+    await out.waitFor('login: ')
+    expect(out.text()).toContain('\ufffd')
+    expect(received().length).toBe(0)
+    await t.close()
+  })
+
+  it('旧值 telnetMode=telnet 归一化为 active（连接后仍发 DO SGA）', async () => {
+    const { port, received } = await scriptedServer(() => {})
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'telnet' } as never, { onData: out.onData, onClose: () => {} })
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, SGA])))
+    await t.close()
+  })
+
+  it('Q-method 防环：服务器重复 WILL ECHO，客户端只回一次 DO ECHO', async () => {
+    const { port, received } = await scriptedServer((socket) => {
+      socket.write(Buffer.from([IAC, WILL, ECHO, IAC, WILL, ECHO, IAC, WILL, ECHO]))
+    })
+    const out = collector()
+    const t = await connectTelnet({ host: '127.0.0.1', port, telnetMode: 'active' }, { onData: out.onData, onClose: () => {} })
+    await waitUntil(() => received().includes(Buffer.from([IAC, DO, ECHO])))
+    await new Promise(r => setTimeout(r, 200))
+    expect(countSeq(received(), [IAC, DO, ECHO])).toBe(1)
+    await t.close()
   })
 })

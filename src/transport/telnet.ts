@@ -1,9 +1,13 @@
 /**
- * B3 Telnet 传输 —— 完整的 Telnet 协议协商支持。
+ * B3 Telnet 传输 —— 三档模式：passive（默认）/ active / raw。
  *
- * - telnetMode='telnet'（默认）：完整 IAC 协商——响应 WILL/WONT/DO/DONT，
- *   发送 WILL ECHO + DO SGA 实现字符模式（不回显本地输入，由服务器回显）。
- * - telnetMode='raw'：裸 TCP 透传，不做协议协商（适合串口服务器/ESL）。
+ * - passive（默认）：连接后不主动发协商，只回应服务器发来的 WILL/WONT/DO/DONT；
+ *   TTYPE / NAWS 在服务器请求时回；输入不做 0xFF 转义（除非已确认是真 telnetd）。
+ * - active：连接后发 1 条 DO SGA 并开 800ms 探测窗口——收到合法 IAC 判真 telnetd；
+ *   收到非 IAC 数据立即切被动（裸 shell，不再主动协商）；超时保守按 telnetd 继续。
+ * - raw：纯 TCP 透传，不解析 IAC、不协商、不转义（串口服务器 / ESL）。
+ * - 旧值 `'telnet'` 归一化为 `'active'`；缺省归一化为 `'passive'`。
+ *
  * @module dsh-terminal-manager/transport/telnet
  */
 
@@ -15,49 +19,33 @@ import {
   type TransportCallbacks,
   type TransportConnectOptions,
 } from './types.ts'
+import {
+  DO,
+  NAWS,
+  TELNET_PROBE_MS,
+  TelnetNegotiator,
+  TelnetStreamParser,
+  buildNaws,
+  escapeUserInput,
+  initialNegotiation,
+  normalizeTelnetMode,
+  type TelnetMode,
+} from './telnet-codec.ts'
 
-// Telnet 协议常量
-const IAC = 0xff // 255
-const DONT = 0xfe // 254
-const DO = 0xfd // 253
-const WONT = 0xfc // 252
-const WILL = 0xfb // 251
-const SB = 0xfa // 250
-const SE = 0xf0 // 240
+export type { TelnetMode } from './telnet-codec.ts'
+export { normalizeTelnetMode } from './telnet-codec.ts'
 
-// Telnet 选项
-const ECHO = 1 // 回显
-const SGA = 3 // Suppress Go Ahead（抑制继续进行）
-const TTYPE = 24 // Terminal Type
-const NAWS = 31 // Negotiate Window Size
+// 前端拖动布局时会每帧请求 resize；高频 NAWS 会把弱 telnetd 打糊涂（把协商字节当输入回显成乱码）。
+// 抖动期间只记最后一次尺寸，停稳 150ms 后发一条；尺寸没变不重发。
+const RESIZE_DEBOUNCE_MS = 150
 
-/**
- * 构建 IAC 响应序列
- */
-function iacResponse(cmd: number, option: number): Buffer {
-  return Buffer.from([IAC, cmd, option])
-}
-
-/**
- * 构建 IAC SB 子协商序列
- */
-function iacSubneg(option: number, data: Buffer): Buffer {
-  return Buffer.concat([
-    Buffer.from([IAC, SB, option]),
-    data,
-    Buffer.from([IAC, SE]),
-  ])
-}
-
-/**
- * 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。
- */
+/** 建立一条 Telnet/裸 TCP 连接。失败抛 TransportError。 */
 export function connectTelnet(
   options: TransportConnectOptions,
   callbacks: TransportCallbacks,
 ): Promise<Transport> {
   const timeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
-  const useTelnet = (options as { telnetMode?: string }).telnetMode !== 'raw'
+  const mode: TelnetMode = normalizeTelnetMode((options as { telnetMode?: unknown }).telnetMode)
   return new Promise<Transport>((resolve, reject) => {
     let settled = false
     const socket = net.connect({ host: options.host, port: options.port })
@@ -75,224 +63,134 @@ export function connectTelnet(
       settled = true
 
       let closed = false
-      const finishClose = (reason: string): void => {
-        if (closed) return
-        closed = true
-        callbacks.onClose(reason)
-      }
+      // active 探测：窗口内未见 IAC 且收到数据 → 判裸 shell；超时 → 保守按 telnetd
+      let probePending = mode === 'active'
+      let probeTimer: ReturnType<typeof setTimeout> | undefined
+      let confirmed = false // 已确认/保守判定为真 telnetd（决定输入 0xFF 是否转义）
+      let bareShell = false // active 探测中发现对端不是 telnetd，退化为被动
 
-      // 跨 chunk 的 IAC 解析状态
-      type IacState = 'data' | 'iac' | 'cmd' | 'sb' | 'sb-data' | 'sb-iac'
-      let iacState: IacState = 'data'
-      let iacCmd = 0
-      let sbOption = 0
-
-      /**
-       * 处理 Telnet 协商并发送响应
-       */
-      const handleNegotiation = (cmd: number, option: number): void => {
-        if (!useTelnet) return // raw 模式不处理协商
-
-        let response: Buffer | null = null
-
-        if (cmd === DO) {
-          // 服务器请求我们做某事
-          if (option === SGA) {
-            // 同意抑制 Go Ahead（字符模式）
-            response = iacResponse(WILL, SGA)
-          } else if (option === ECHO) {
-            // 同意让服务器回显（我们不在本地回显）
-            response = iacResponse(WILL, ECHO)
-          } else if (option === TTYPE) {
-            // 同意发送终端类型
-            response = iacResponse(WILL, TTYPE)
-          } else if (option === NAWS) {
-            // 同意发送窗口大小
-            response = iacResponse(WILL, NAWS)
-          } else {
-            // 拒绝其他请求
-            response = iacResponse(WONT, option)
-          }
-        } else if (cmd === WILL) {
-          // 服务器表示它要做某事
-          if (option === ECHO) {
-            // 同意服务器回显
-            response = iacResponse(DO, ECHO)
-          } else if (option === SGA) {
-            // 同意服务器抑制 Go Ahead
-            response = iacResponse(DO, SGA)
-          } else {
-            // 拒绝其他
-            response = iacResponse(DONT, option)
-          }
-        }
-        // DONT 和 WONT 不需要响应
-
-        if (response) {
-          socket.write(response)
-        }
-      }
-
-      /**
-       * 发送终端类型子协商
-       */
-      const sendTerminalType = (): void => {
-        if (!useTelnet) return
-        // IS (0) + "xterm"
-        const ttypeData = Buffer.concat([Buffer.from([0]), Buffer.from('xterm', 'ascii')])
-        socket.write(iacSubneg(TTYPE, ttypeData))
-      }
-
-      /**
-       * 子协商数据里的 0xFF 转义成 IAC IAC（RFC 1073）
-       */
-      const escapeIac = (data: Buffer): Buffer => {
-        const out: number[] = []
-        for (const b of data) {
-          if (b === IAC) out.push(IAC, IAC)
-          else out.push(b)
-        }
-        return Buffer.from(out)
-      }
-
-      /**
-       * 发送窗口大小子协商
-       */
-      const sendWindowSize = (cols: number, rows: number): void => {
-        if (!useTelnet) return
-        // NAWS 子协商：宽度 2 字节 + 高度 2 字节（大端序）
-        const nawsData = Buffer.alloc(4)
-        nawsData.writeUInt16BE(cols, 0)
-        nawsData.writeUInt16BE(rows, 2)
-        // RFC 1073：子协商数据里的 0xFF 字节要转义成 IAC IAC，否则破坏对端解析
-        socket.write(iacSubneg(NAWS, escapeIac(nawsData)))
-      }
-
-      // 前端拖动布局时会每帧请求 resize；高频 NAWS 会把弱 telnetd 打糊涂（把协商字节当输入回显成乱码）。
-      // 抖动期间只记最后一次尺寸，停稳 150ms 后发一条；尺寸没变不重发。
-      const RESIZE_DEBOUNCE_MS = 150
+      // 窗口大小状态：-1 表示还没发过
       let lastCols = -1
       let lastRows = -1
       let resizeTimer: ReturnType<typeof setTimeout> | undefined
       let pendingSize: { cols: number; rows: number } | null = null
+
+      const clearProbeTimer = (): void => {
+        if (probeTimer !== undefined) {
+          clearTimeout(probeTimer)
+          probeTimer = undefined
+        }
+      }
+
+      const finishClose = (reason: string): void => {
+        if (closed) return
+        closed = true
+        clearProbeTimer()
+        if (resizeTimer !== undefined) {
+          clearTimeout(resizeTimer)
+          resizeTimer = undefined
+        }
+        callbacks.onClose(reason)
+      }
+
+      // 协商器只在 passive/active 下存在；raw 完全绕过
+      const negotiator = mode === 'raw' ? undefined : new TelnetNegotiator()
+
+      const sendWindowSize = (cols: number, rows: number): void => {
+        if (closed || mode === 'raw') return
+        lastCols = cols
+        lastRows = rows
+        socket.write(buildNaws(cols, rows))
+      }
+
+      /** 当前能否发 NAWS：passive 必须等服务器 DO NAWS；active 探测确认后即可。 */
+      const canSendNaws = (): boolean => {
+        if (mode === 'raw' || bareShell) return false
+        if (negotiator?.localEnabled(NAWS) === true) return true
+        return mode === 'active' && confirmed
+      }
+
+      /**
+       * active 的初始窗口大小：探测出结果后再发（避免把 NAWS 字节糊到裸 shell 里）。
+       * 服务器先 DO NAWS 时由命令分支立即回，不会重复。
+       */
+      const sendInitialWindowSize = (): void => {
+        if (mode === 'active' && !bareShell && lastCols < 0) sendWindowSize(80, 24)
+      }
+
+      /** 收到任意合法 IAC：确认是真 telnetd，结束探测。 */
+      const confirmTelnetd = (): void => {
+        probePending = false
+        clearProbeTimer()
+        confirmed = true
+        negotiator?.markConfirmed()
+      }
+
+      const parser = negotiator === undefined
+        ? undefined
+        : new TelnetStreamParser({
+          onData: (data) => {
+            if (data.length === 0) return
+            // active 探测窗口内先收到普通数据 → 裸 shell / 串口，立即退化为被动
+            if (probePending) {
+              probePending = false
+              clearProbeTimer()
+              bareShell = true
+            }
+            callbacks.onData(data.toString('utf8'))
+          },
+          onCommand: (cmd, option) => {
+            if (closed || negotiator === undefined) return
+            confirmTelnetd()
+            for (const response of negotiator.handleCommand(cmd, option)) socket.write(response)
+            // 服务器请求 NAWS：先回 WILL，再补一条当前尺寸（首次用 80x24）
+            if (cmd === DO && option === NAWS && negotiator.localEnabled(NAWS)) {
+              sendWindowSize(lastCols < 0 ? 80 : lastCols, lastRows < 0 ? 24 : lastRows)
+            }
+            sendInitialWindowSize()
+          },
+          onSubnegotiation: (option, data) => {
+            if (closed || negotiator === undefined) return
+            confirmTelnetd()
+            for (const response of negotiator.handleSubnegotiation(option, data)) socket.write(response)
+            sendInitialWindowSize()
+          },
+        })
+
       const requestResize = (cols: number, rows: number): void => {
-        if (!useTelnet || closed) return
+        if (mode === 'raw' || closed) return
         if (cols === lastCols && rows === lastRows) return
         pendingSize = { cols, rows }
         if (resizeTimer === undefined) {
           resizeTimer = setTimeout(() => {
             resizeTimer = undefined
-            const p = pendingSize
+            const size = pendingSize
             pendingSize = null
-            if (p === null || closed) return
-            lastCols = p.cols
-            lastRows = p.rows
-            sendWindowSize(p.cols, p.rows)
+            if (size === null || closed || !canSendNaws()) return
+            sendWindowSize(size.cols, size.rows)
           }, RESIZE_DEBOUNCE_MS)
         }
       }
 
-      // Telnet 模式：发送初始协商
-      if (useTelnet) {
-        // 主动请求服务器回显和抑制 Go Ahead
-        socket.write(iacResponse(WILL, SGA))
-        socket.write(iacResponse(WILL, ECHO))
-        socket.write(iacResponse(DO, SGA))
-        socket.write(iacResponse(DO, ECHO))
-        // 主动发送默认窗口大小（80x24）
-        // 某些服务器在收到 DO NAWS 后会等子协商数据，超时不发送会导致断开
-        // （#18 修复；后续真实尺寸由前端 resize 防抖同步，晚一点到达无影响）
-        sendWindowSize(80, 24)
-        lastCols = 80
-        lastRows = 24
-      }
-
-      /**
-       * 处理接收到的数据，解析 IAC 序列
-       */
-      const processData = (chunk: Buffer): string => {
-        const output: number[] = []
-
-        for (let i = 0; i < chunk.length; i++) {
-          const byte = chunk[i]
-
-          switch (iacState) {
-            case 'data':
-              if (byte === IAC) {
-                iacState = 'iac'
-              } else {
-                output.push(byte)
-              }
-              break
-
-            case 'iac':
-              // 刚收到 IAC
-              if (byte === IAC) {
-                // IAC IAC = 数据字节 255
-                output.push(0xff)
-                iacState = 'data'
-              } else if (byte === SB) {
-                // 子协商开始
-                iacState = 'sb'
-              } else if (byte === WILL || byte === WONT || byte === DO || byte === DONT) {
-                iacCmd = byte
-                iacState = 'cmd'
-              } else {
-                // 未知命令，忽略
-                iacState = 'data'
-              }
-              break
-
-            case 'cmd':
-              // 收到命令后的选项字节
-              handleNegotiation(iacCmd, byte)
-              iacState = 'data'
-              break
-
-            case 'sb':
-              // 子协商的选项字节
-              sbOption = byte
-              iacState = 'sb-data'
-              break
-
-            case 'sb-data':
-              if (byte === IAC) {
-                iacState = 'sb-iac'
-              }
-              // 其他字节都是子协商数据，忽略
-              break
-
-            case 'sb-iac':
-              if (byte === SE) {
-                // 子协商结束
-                if (sbOption === TTYPE) {
-                  // 服务器请求终端类型
-                  sendTerminalType()
-                }
-                iacState = 'data'
-              } else if (byte === IAC) {
-                // IAC IAC in SB = 数据字节 255，忽略
-                iacState = 'sb-data'
-              } else {
-                // 错误，重置
-                iacState = 'data'
-              }
-              break
-          }
-        }
-
-        return output.length > 0 ? Buffer.from(output).toString('utf8') : ''
+      // 初始协商：active 发 1 条 DO SGA；passive/raw 什么都不发
+      for (const frame of initialNegotiation(mode)) socket.write(frame)
+      if (mode === 'active') {
+        probeTimer = setTimeout(() => {
+          probeTimer = undefined
+          if (closed || !probePending) return
+          // 超时保守判真 telnetd（宁可多发几条协商，也不让真设备卡在探测里）
+          confirmTelnetd()
+          sendInitialWindowSize()
+        }, TELNET_PROBE_MS)
       }
 
       socket.on('data', (chunk: Buffer) => {
-        if (useTelnet) {
-          const text = processData(chunk)
-          if (text.length > 0) {
-            callbacks.onData(text)
-          }
-        } else {
+        if (closed) return
+        if (parser === undefined) {
           // raw 模式直接输出
           callbacks.onData(chunk.toString('utf8'))
+        } else {
+          parser.feed(chunk)
         }
       })
 
@@ -305,9 +203,10 @@ export function connectTelnet(
 
       resolve({
         write: (data: string) => {
-          if (!closed) {
-            socket.write(data)
-          }
+          if (closed) return
+          const bytes = Buffer.from(data, 'utf8')
+          // 只有确认/激活的 telnetd 才需要把用户输入里的裸 0xFF 双写；裸 shell 原样透传
+          socket.write(confirmed && mode !== 'raw' ? escapeUserInput(bytes) : bytes)
         },
         resize: (cols: number, rows: number) => {
           requestResize(cols, rows)

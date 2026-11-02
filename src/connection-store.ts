@@ -16,6 +16,23 @@ export type { AuthConfig }
 
 export type Protocol = 'ssh' | 'telnet'
 
+/** Telnet 协商模式：passive（默认，只回应）/ active（主动探测协商）/ raw（纯 TCP 透传）。 */
+export type TelnetMode = 'passive' | 'active' | 'raw'
+/** 入参兼容旧值 `'telnet'`（等价 active）；读取/保存时归一化掉。 */
+export type TelnetModeInput = TelnetMode | 'telnet'
+
+/**
+ * Telnet 模式归一化：旧值 `'telnet'` → `'active'`；合法新值原样返回；
+ * 未知/非法值 → undefined（落盘数据按缺省 passive 处理，不阻断加载）。
+ */
+export function normalizeTelnetMode(mode: unknown): TelnetMode | undefined {
+  if (mode === 'passive' || mode === 'active' || mode === 'raw') return mode
+  if (mode === 'telnet') return 'active'
+  return undefined
+}
+
+const TELNET_MODE_INPUTS = new Set<string>(['passive', 'active', 'raw', 'telnet'])
+
 export interface ConnectionLogConfig {
   /** 连接成功后自动记录会话日志。 */
   enabled: boolean
@@ -43,8 +60,8 @@ export interface ConnectionConfig {
   timeoutMs?: number
   /** 命令守卫白名单（可选，正则源列表） */
   guardWhitelist?: string[]
-  /** Telnet 模式：'telnet'（完整 IAC 协商，默认）| 'raw'（裸 TCP 透传） */
-  telnetMode?: 'telnet' | 'raw'
+  /** Telnet 模式：'passive'（默认，只回应服务器协商）| 'active'（主动探测并协商）| 'raw'（裸 TCP 透传）；旧值 'telnet' 读盘时归一化为 'active' */
+  telnetMode?: TelnetModeInput
   /** SSH 握手超时毫秒（默认 15000；UI 可选 15/30/60/120/180 秒，存毫秒） */
   connectTimeoutMs?: number
   /** 换行模式：'lf' | 'cr' | 'crlf'（默认 'crlf'） */
@@ -111,6 +128,9 @@ function validate(cfg: ConnectionConfig): void {
   if (cfg.deleteByte !== undefined && cfg.deleteByte !== 8 && cfg.deleteByte !== 127) {
     fail('删除字节只能是 8（^H）或 127（DEL）')
   }
+  if (cfg.telnetMode !== undefined && !TELNET_MODE_INPUTS.has(cfg.telnetMode)) {
+    fail('Telnet 模式无效（只能是 passive/active/raw）')
+  }
   if (cfg.log !== undefined) {
     if (typeof cfg.log.enabled !== 'boolean' || typeof cfg.log.timestamp !== 'boolean' || typeof cfg.log.stripAnsi !== 'boolean') {
       fail('日志配置无效')
@@ -146,6 +166,10 @@ export class ConnectionStore {
     for (const cfg of parsed.connections ?? []) {
       // 旧数据可能缺 favorited 字段，归一化为 true（与 create 默认值一致）
       if (cfg.favorited === undefined) cfg.favorited = true
+      // 旧数据可能存 telnetMode='telnet'：读盘归一化为 'active'（保持旧连接行为不变）
+      const telnetMode = normalizeTelnetMode(cfg.telnetMode)
+      if (telnetMode === undefined) delete cfg.telnetMode
+      else cfg.telnetMode = telnetMode
       validate(cfg)
       this.connections.set(cfg.id, cfg)
     }
@@ -174,6 +198,10 @@ export class ConnectionStore {
       favorited: input.favorited ?? true,
     }
     validate(cfg)
+    // 新写入不保留旧值：'telnet' → 'active'
+    const telnetMode = normalizeTelnetMode(cfg.telnetMode)
+    if (telnetMode === undefined) delete cfg.telnetMode
+    else cfg.telnetMode = telnetMode
     this.connections.set(cfg.id, cfg)
     await this.persist()
     return cfg
@@ -190,6 +218,9 @@ export class ConnectionStore {
       protocol: patch.protocol ?? existing.protocol,
     }
     validate(merged)
+    const telnetMode = normalizeTelnetMode(merged.telnetMode)
+    if (telnetMode === undefined) delete merged.telnetMode
+    else merged.telnetMode = telnetMode
     this.connections.set(id, merged)
     await this.persist()
     return merged

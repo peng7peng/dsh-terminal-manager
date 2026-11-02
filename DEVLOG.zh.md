@@ -67,3 +67,10 @@
 - **连接探针**：`connections.probe` + 传输层 `probe.ts`（Telnet TCP / SSH 握手+认证，不开 shell，并发 5），连接列表圆点点击探测。
 - **AI 工具补齐到 13 个**：`tm_keyboard_mode`、`tm_connection_config`、`tm_mapping`、`tm_share`、`tm_session_log`；port-log 扩展暴露结构化工具 API。
 - **port-log 工作区**：端口映射 / 会话日志 / 会话共享三个页签挂载。
+
+## 2026-11-02（续）：Telnet 三档协商 + SSH 半死连接兜底
+
+- **Telnet 改三档**：`passive`（默认，连上不主动发协商、只回应设备请求）/ `active`（发 1 条 DO SGA 后 800ms 探测：收到合法 IAC 判真 telnetd，收到非 IAC 数据判裸 shell 立即退化被动，超时保守按 telnetd 继续）/ `raw`（纯 TCP 透传）。旧配置里的 `telnet` 读盘归一化为 `active`，老连接行为不变。
+- **协商逻辑抽成纯模块** `src/transport/telnet-codec.ts`：跨 chunk IAC 状态机 + per-option 简化 RFC 1143 Q-method（同一选项重复请求不再来回 WILL/WONT 打环）+ TTYPE 回 `xterm-256color` + NAWS 大端 2 字节与 0xFF 转义。用户输入里的 0xFF 只在确认/激活的 telnetd 下才双写。
+- **SSH 半死连接兜底**：keepalive 30s × 3、SFTP 懒开 30s 超时（`TM_SSH_KEEPALIVE_MS` / `TM_SSH_KEEPALIVE_COUNT` / `TM_SFTP_OPEN_TIMEOUT_MS` 可覆盖）；连接关闭时主动 reject 仍 pending 的 SFTP open，避免文件操作无限等待。
+- 连接表单的 Telnet 模式从 Raw/Telnet 两档改成被动/主动/原始三档并带中文说明；测试基线 677 项（+45）。

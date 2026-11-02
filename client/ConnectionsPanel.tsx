@@ -11,9 +11,19 @@ import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, use
 import { rpc, type RpcError } from './rpc.ts'
 import { IconLinkOutline14, IconProbe16 } from './icons.tsx'
 
-export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; backspaceByte?: 8 | 127; deleteByte?: 8 | 127; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
+/** Telnet 三档：passive（默认，只回应）/ active（主动探测协商）/ raw（纯 TCP 透传）。 */
+export type TelnetMode = 'passive' | 'active' | 'raw'
+
+/** 兼容旧数据里的 'telnet'（等价 active）与缺省（passive）。 */
+function normalizeTelnetMode(mode?: string): TelnetMode {
+  if (mode === 'raw') return 'raw'
+  if (mode === 'active' || mode === 'telnet') return 'active'
+  return 'passive'
+}
+
+export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: TelnetMode | 'telnet'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; backspaceByte?: 8 | 127; deleteByte?: 8 | 127; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
-export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string }
+export interface ConnectTarget { connId?: string; protocol?: 'ssh' | 'telnet'; host?: string; port?: number; username?: string; password?: string; label?: string; telnetMode?: TelnetMode }
 
 function CollapsibleSection({ title, count, children }: { title: string; count: number; children: ReactNode }): React.JSX.Element {
   const [open, setOpen] = useState(true)
@@ -57,7 +67,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   const [localEcho, setLocalEcho] = useState(false)
   const [kbBackspace, setKbBackspace] = useState<8 | 127>(127)
   const [kbDelete, setKbDelete] = useState<8 | 127>(127)
-  const [telnetMode, setTelnetMode] = useState<'telnet' | 'raw'>('telnet')
+  const [telnetMode, setTelnetMode] = useState<TelnetMode>('passive')
   const [handshakeTimeout, setHandshakeTimeout] = useState<number>(15)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
   const [renameId, setRenameId] = useState<string | null>(null)
@@ -124,8 +134,8 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
   }, [ctxMenu])
 
   function setField(name: keyof typeof form, value: string): void { setForm(f => ({ ...f, [name]: value })) }
-  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('raw'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setKbBackspace(127); setKbDelete(127); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
-  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(c.telnetMode ?? 'raw'); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setKbBackspace(c.backspaceByte ?? 127); setKbDelete(c.deleteByte ?? 127); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
+  function resetForm(): void { setEditing(null); setProto('ssh'); setAuthMode('password'); setErrors({}); setShowPass(false); setShowAdv(false); setTelnetMode('passive'); setHandshakeTimeout(15); setNewline('crlf'); setLocalEcho(false); setKbBackspace(127); setKbDelete(127); setLogTimestamp(true); setLogStripAnsi(true); setLogDirectory(''); setShowDirPicker(false); setForm({ label: '', host: '', port: '', user: '', pass: '', key: '', passphrase: '', note: '' }) }
+  function loadConn(c: ConnectionCfg): void { setEditing(c.id); setProto(c.protocol); setAuthMode('password'); setErrors({}); setTelnetMode(normalizeTelnetMode(c.telnetMode)); setHandshakeTimeout(c.connectTimeoutMs ? Math.round(c.connectTimeoutMs / 1000) : 15); setNewline(c.newline ?? 'crlf'); setLocalEcho(c.localEcho ?? false); setKbBackspace(c.backspaceByte ?? 127); setKbDelete(c.deleteByte ?? 127); setLogTimestamp(c.log?.timestamp ?? true); setLogStripAnsi(c.log?.stripAnsi ?? true); setLogDirectory(c.log?.directory ?? ''); setShowDirPicker(false); setForm({ label: c.label, host: c.host, port: String(c.port), user: c.username ?? '', pass: '', key: '', passphrase: '', note: c.note ?? '' }) }
   function validate(): boolean {
     const e: Record<string, boolean> = {}
     if (!form.label.trim()) e.label = true
@@ -143,7 +153,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
     if (!validate()) return
     const snap = editing !== null
       ? await onConnect({ connId: editing })
-      : await onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' && telnetMode !== 'raw' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() })
+      : await onConnect({ protocol: proto, host: form.host.trim(), port: Number(form.port) || (proto === 'ssh' ? 22 : 23), ...(proto === 'ssh' ? { username: form.user.trim(), password: form.pass } : {}), ...(proto === 'telnet' ? { telnetMode } : {}), ...(proto === 'ssh' && handshakeTimeout !== 15 ? { connectTimeoutMs: handshakeTimeout * 1000 } : {}), label: form.label.trim() })
     if (snap) {
       try { await portLogRpc('sessionLogs.start', { sessionId: snap.sessionId, timestamp: logTimestamp, stripAnsi: logStripAnsi, ...(logDirectory.trim() ? { directory: logDirectory.trim() } : {}) }) } catch { /* silent */ }
     }
@@ -272,7 +282,16 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           </>
         )}
         {proto === 'telnet' && (
-          <div className="tm-authSwitch"><span className={telnetMode === 'raw' ? 'on' : ''} onClick={() => setTelnetMode('raw')} title="裸 TCP 直连：不协商 Telnet 协议，原样收发字节">Raw TCP</span><span className={telnetMode === 'telnet' ? 'on' : ''} onClick={() => setTelnetMode('telnet')} title="按 Telnet 协议协商：自动剥离 IAC 控制字节（多数网络设备用这个）">Telnet</span></div>
+          <>
+            <div className="tm-authSwitch">
+              <span className={telnetMode === 'passive' ? 'on' : ''} onClick={() => setTelnetMode('passive')} title="被动（推荐）：连接后不主动发协商，只回应设备发来的 Telnet 请求；适合大多数网络设备">被动</span>
+              <span className={telnetMode === 'active' ? 'on' : ''} onClick={() => setTelnetMode('active')} title="主动：连接后发 1 条 DO SGA 探测 800ms；确认设备是真 telnetd 时协商更完整">主动</span>
+              <span className={telnetMode === 'raw' ? 'on' : ''} onClick={() => setTelnetMode('raw')} title="原始：裸 TCP 透传，不解析任何 Telnet 控制字节；串口服务器 / ESL 用">原始</span>
+            </div>
+            <div className="tm-mNote" style={{ padding: '0 0 6px' }}>
+              {telnetMode === 'passive' ? '被动：不主动发协商，只回应设备请求（推荐）' : telnetMode === 'active' ? '主动：连接后探测 800ms，确认是真 telnetd 再协商' : '原始：纯 TCP 透传，不解析 Telnet 控制字节'}
+            </div>
+          </>
         )}
         <div className="tm-fld"><label title="随手记，不影响连接；可写用途、机房位置等">备注 <span className="tm-opt">选填</span></label><input value={form.note} onChange={e => setField('note', e.target.value)} placeholder="用途、位置等" /></div>
         <div className={'tm-advToggle ' + (showAdv ? 'open' : '')} onClick={() => setShowAdv(v => !v)} title="展开/收起高级连接参数"><span className="arrow">▶</span> 连接选项</div>

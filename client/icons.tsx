@@ -121,3 +121,25 @@ export function IconSendOutline14(p: { size?: number; className?: string }): Rea
 export function IconWarningOutline16(p: { size?: number; className?: string }): React.JSX.Element {
   return <Glyph {...p}><path d="M8 2.2l6 11H2l6-11Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M8 6v3.2M8 11.2v.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></Glyph>
 }
+
+/** 齿轮（键盘模式） */
+export function IconGear16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+/** 探针（连接可达性） */
+export function IconProbe16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.2" /><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="8" cy="8" r="1.3" fill="currentColor" /></Glyph>
+}
+/** 共享（链环） */
+export function IconShare16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M6.2 9.8l3.6-3.6M5.2 7.2l-1.1 1.1a2.9 2.9 0 004.1 4.1l1.1-1.1M10.8 8.8l1.1-1.1a2.9 2.9 0 00-4.1-4.1L6.7 4.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+export function IconMinimize16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M3 12.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></Glyph>
+}
+export function IconMaximize16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><rect x="3" y="3" width="10" height="10" rx="1" stroke="currentColor" strokeWidth="1.3" /></Glyph>
+}
+export function IconRestore16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><rect x="2.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" /><path d="M5.5 4.5V2.5h8v8h-2" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}

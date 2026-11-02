@@ -9,7 +9,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { ShareDialog } from './ext/port-log/ShareDialog.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { applyPortLogEvent, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
-import { IconSave16 } from './icons.tsx'
+import { IconCloseFill14, IconGear16, IconMaximize16, IconMinimize16, IconRestore16, IconSave16, IconShare16 } from './icons.tsx'
 import { rpc } from './rpc.ts'
 import { markUnread } from './store.ts'
 import { toast } from './toast.ts'
@@ -313,7 +313,7 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
         {tcIndex !== undefined && <span className="tm-tcn" title="活跃会话列表顺序（拖动列表即切换）">{tcIndex}</span>}
         <span className="tgt">{target}</span>
         {!isClosed && <button type="button" className={`tm-saveBtn ${logging ? 'is-on' : 'is-off'}`} disabled={!isOpen || logPending || autoStartingLog} aria-pressed={logging} aria-label={logging ? '停止存盘' : '开始存盘'} title={logError ? `存盘失败：${logError}；点击重试` : !isOpen ? '等待连接后自动存盘' : logging ? '停止存盘' : '开始存盘'} onClick={() => { void toggleLog() }}><IconSave16 size={13} /></button>}
-        {!isClosed && <button onClick={() => setShowShare(true)} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}>{sharing ? '🔓' : '🔒'}</button>}
+        {!isClosed && <button onClick={() => setShowShare(true)} aria-label={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}><IconShare16 size={13} /></button>}
         {!isClosed && <button onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect()
           if (kbMenu === null) {
@@ -325,7 +325,7 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
           } else {
             setKbMenu(null)
           }
-        }} title={`键盘模式：退格=${keyboard.backspace === 8 ? '^H' : 'DEL'}，删除=${keyboard.delete === 8 ? '^H' : 'DEL'}`}>⚙</button>}
+        }} aria-label="键盘模式" title={`键盘模式：退格=${keyboard.backspace === 8 ? '^H' : 'DEL'}，删除=${keyboard.delete === 8 ? '^H' : 'DEL'}`}><IconGear16 size={14} /></button>}
         {isClosed ? (
           <>
             <span className="tm-closed-label">已断开</span>
@@ -333,13 +333,13 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
           </>
         ) : (
           <>
-            <button onClick={onMinimize} title="最小化">🗕</button>
+            <button onClick={onMinimize} aria-label="最小化" title="最小化"><IconMinimize16 size={13} /></button>
             {isMaximized ? (
-              <button onClick={onToggleMaximize} title="还原">🗗</button>
+              <button onClick={onToggleMaximize} aria-label="还原" title="还原"><IconRestore16 size={13} /></button>
             ) : (
-              <button onClick={onToggleMaximize} title="最大化">🗖</button>
+              <button onClick={onToggleMaximize} aria-label="最大化" title="最大化"><IconMaximize16 size={13} /></button>
             )}
-            <button onClick={() => onDisconnect(sessionId)} title="断开">✕</button>
+            <button onClick={() => onDisconnect(sessionId)} aria-label="断开" title="断开"><IconCloseFill14 size={13} /></button>
           </>
         )}
       </div>

@@ -1,6 +1,6 @@
 # PR 2 视觉证据（Before / After）
 
-同一场景、同一视口（1280×800）、同一主题（浅色），实际 DSH Web 应用截图，连接本机 mock Telnet 设备（127.0.0.1:2323）。
+同一场景、同一视口（1280×800）、同一主题（浅色），实际 DSH Web 应用截图，连接本机 mock Telnet 设备（127.0.0.1:2323）。After 的工具栏已改用 SVG 图标（齿轮/共享/最小化/最大化/关闭），避免 emoji 被渲染成小方块看不清。
 
 - **Before**：`main` + 图标兼容修复。DSH 0.2.1 从 `@deepseek-ai/dsh-client-ui-primitives` 移除了这些通用图标；不携带本 PR 的本地图标实现时，`shell.overlay` 会因 React error #130 崩溃（截图无法呈现功能）。为能对比，Before 用同一份图标修复构建（无键盘/探针/页签功能）。
 - **After**：本 PR 的功能分支。

@@ -9,7 +9,7 @@ import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
-import { IconLinkOutline14 } from './icons.tsx'
+import { IconLinkOutline14, IconProbe16 } from './icons.tsx'
 
 export interface ConnectionCfg { id: string; label: string; protocol: 'ssh' | 'telnet'; host: string; port: number; username?: string; note?: string; favorited?: boolean; telnetMode?: 'telnet' | 'raw'; connectTimeoutMs?: number; newline?: 'lf' | 'cr' | 'crlf'; localEcho?: boolean; backspaceByte?: 8 | 127; deleteByte?: 8 | 127; log?: { enabled: boolean; timestamp: boolean; stripAnsi: boolean; directory?: string } }
 export interface SessionSnap { sessionId: string; connId?: string; label: string; target: string; protocol: 'ssh' | 'telnet'; status: 'connecting' | 'open' | 'closed' | 'removed' }
@@ -220,7 +220,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
 
     const probe = probeResults[c.id]
     const probeTitle = probing.has(c.id) ? '探测中…' : probe === undefined ? '点击探测可达性' : probe.ok ? `可达（${probe.latencyMs ?? '?'}ms）` : `不可达：${probe.reason ?? probe.code ?? '未知'}`
-    return <div key={c.id} className="tm-ritem" onClick={handleClick} onContextMenu={e => onConnContext(e, c)} title={title}><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'tm-probe ' + (probing.has(c.id) ? 'probing' : probe === undefined ? '' : probe.ok ? 'ok' : 'bad')} title={probeTitle} onClick={e => { e.stopPropagation(); void probeConn(c.id) }}>●</span><span className={'st ' + statusClass} /></div>
+    return <div key={c.id} className="tm-ritem" onClick={handleClick} onContextMenu={e => onConnContext(e, c)} title={title}><span className={'tm-pico ' + c.protocol}>{c.protocol.toUpperCase()}</span><span className="nm">{c.label}<span className="tm-sub">{sub}</span></span><span className={'tm-probe ' + (probing.has(c.id) ? 'probing' : probe === undefined ? '' : probe.ok ? 'ok' : 'bad')} role="button" aria-label={probeTitle} title={probeTitle} onClick={e => { e.stopPropagation(); void probeConn(c.id) }}><IconProbe16 size={12} /></span><span className={'st ' + statusClass} /></div>
   }
 
   return (

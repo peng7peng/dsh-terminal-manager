@@ -164,4 +164,7 @@ export const WORKSPACE_CSS = `
 .tm-probe.ok { color:var(--dsw-static-green-500, #22c55e); }
 .tm-probe.bad { color:var(--dsw-alias-state-error-primary, #ef4444); }
 .tm-probe.probing { animation:tm-flash-red 1s infinite; }
+/* 工具栏 SVG 图标对齐；探针图标与文本基线对齐 */
+.tm-paneBar button svg { display:block; }
+.tm-probe svg { display:block; }
 `

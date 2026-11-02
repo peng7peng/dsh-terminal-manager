@@ -18,7 +18,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: deepseek-ai/deepseek-harness
-          path: ../deepseek-harness
+          path: .harness
+
+      # `link:` deps 指向 ../deepseek-harness，Actions 不允许 checkout 到工作区外，
+      # 所以在工作区外建一个符号链接，pnpm 解析时看到的就是兄弟目录。
+      - name: "Link deepseek-harness as sibling"
+        run: ln -sfn "$GITHUB_WORKSPACE/.harness" "$GITHUB_WORKSPACE/../deepseek-harness"
 
       - name: Setup Node
         uses: actions/setup-node@v4

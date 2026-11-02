@@ -42,7 +42,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: deepseek-ai/deepseek-harness
-          path: ../deepseek-harness
+          path: .harness
+
+      - name: 把 deepseek-harness 链接成兄弟目录
+        run: ln -sfn "$GITHUB_WORKSPACE/.harness" "$GITHUB_WORKSPACE/../deepseek-harness"
 
       - name: 安装 Node 22 + pnpm 11
         uses: actions/setup-node@v4

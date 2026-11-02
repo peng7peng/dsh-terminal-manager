@@ -87,6 +87,7 @@ jobs:
           DSH_PORT: '3180'
           DSH_PROFILE: 'tm-ci'
           SKIP_BUILD: '1'
+          E2E_RESULTS_DIR: ${{ github.workspace }}/e2e-results
         run: node scripts/run-e2e.mjs
 
       - name: 上传 E2E 结果
@@ -94,4 +95,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-results
-          path: ../.codeartswork/tests/dsh-terminal-manager/e2e-results.json
+          path: e2e-results/e2e-results.json

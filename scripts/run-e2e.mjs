@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
 const DSH_BIN = process.env.DSH_BIN ?? 'dsh'
-const RESULTS_DIR = join(PROJECT_ROOT, '..', '.codeartswork', 'tests', 'dsh-terminal-manager')
+const RESULTS_DIR = process.env.E2E_RESULTS_DIR ?? join(PROJECT_ROOT, '..', '.codeartswork', 'tests', 'dsh-terminal-manager')
 
 const DSH_PORT = Number(process.env.DSH_PORT ?? 4480)
 const DSH_PROFILE = process.env.DSH_PROFILE ?? 'tm-dev'

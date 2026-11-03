@@ -24,6 +24,7 @@ import { stat } from 'node:fs/promises'
 import { FileServiceError, mapFsError } from './file-errors.ts'
 import { resolveInsideRoot } from './path-security.ts'
 import { SessionError } from './session-manager.ts'
+import { MAX_CHUNK_SIZE, type UploadSessionManager } from './upload-protocol.ts'
 
 /** 指令通道的依赖（注入便于测试）。 */
 export interface RemoteDeps {
@@ -39,6 +40,8 @@ export interface RemoteDeps {
   broadcastFileProgress?: (frame: FileProgressFrame) => void
   /** 本地面板状态镜像（root/cwd）；前端推送、工具层读 */
   localPanel?: LocalPanelState
+  /** 大文件分片上传会话管理器；未注入时 5 条分片路由返回 UNSUPPORTED */
+  uploads?: UploadSessionManager
 }
 
 function requireFiles(deps: RemoteDeps): FileService {
@@ -281,6 +284,7 @@ export const REMOTE_ERROR_CODES = [
   'VALIDATION', 'AUTH_FAILED', 'HOST_UNREACHABLE', 'CONN_TIMEOUT',
   'SESSION_NOT_FOUND', 'SESSION_BUSY', 'DISCONNECTED', 'COMMAND_BLOCKED', 'PROTO_ERROR',
   'PATH_OUTSIDE_ROOT', 'NOT_FOUND', 'FILE_TOO_LARGE', 'REMOTE_IO', 'UNSUPPORTED',
+  'TOO_MANY_UPLOADS',
 ] as const
 
 /** 前端生成的传输关联 id（不透明回显，≤64 字符；缺省时服务端生成）。 */
@@ -315,6 +319,130 @@ function safeQueryOf(url: URL): { sessionId: string; remotePath: string; transfe
 /** 传输路由的错误响应（Fetch 形态，已过 Connection 认证）。 */
 function transferErrorResponse(error: unknown): Response {
   return Response.json({ ok: false, error: toError(error) }, { status: transferErrorStatus(error) })
+}
+
+// ── 大文件分片上传的 5 条精确 Fetch 路由 ─────────────────────
+
+/** 取分片上传会话管理器；未装配 → UNSUPPORTED。 */
+function requireUploads(deps: RemoteDeps): UploadSessionManager {
+  if (deps.uploads === undefined) throw new FileServiceError('UNSUPPORTED', '分片上传未启用')
+  return deps.uploads
+}
+
+/** 读 JSON 对象请求体；非对象 / 非法 JSON → VALIDATION。 */
+async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    throw new FileServiceError('VALIDATION', '请求体不是合法 JSON')
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new FileServiceError('VALIDATION', '请求体必须是 JSON 对象')
+  }
+  return body as Record<string, unknown>
+}
+
+/** 读原始字节请求体（有上限，超过即取消读取）；空 body → VALIDATION。 */
+async function readBodyBytes(request: Request, maxBytes: number): Promise<Buffer> {
+  if (request.body === null) throw new FileServiceError('VALIDATION', '缺少分片内容')
+  const reader = request.body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {})
+      throw new FileServiceError('VALIDATION', `分片超过上限（${maxBytes} 字节）`)
+    }
+    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength))
+  }
+  return Buffer.concat(chunks, total)
+}
+
+/** POST /api/term-manager/files/upload/chunked/create：JSON → 分片计划。 */
+export function createChunkedCreateFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      const body = await readJsonObject(request)
+      const value = await requireUploads(deps).create({
+        sessionId: body.sessionId as string,
+        remotePath: body.remotePath as string,
+        totalBytes: body.totalBytes as number,
+        ...(body.chunkSize !== undefined ? { chunkSize: body.chunkSize as number } : {}),
+      })
+      return Response.json({ ok: true, value })
+    } catch (error) {
+      return transferErrorResponse(error)
+    }
+  }
+}
+
+/** POST /api/term-manager/files/upload/chunked/chunk?uploadId&chunkIndex：raw 分片字节。 */
+export function createChunkedChunkFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      const url = new URL(request.url)
+      const uploadId = url.searchParams.get('uploadId') ?? ''
+      if (uploadId.length === 0) throw new FileServiceError('VALIDATION', '缺少 uploadId')
+      const rawIndex = url.searchParams.get('chunkIndex')
+      const chunkIndex = rawIndex === null || rawIndex.trim().length === 0 ? Number.NaN : Number(rawIndex)
+      if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
+        throw new FileServiceError('VALIDATION', '缺少或非法的 chunkIndex')
+      }
+      const bytes = await readBodyBytes(request, MAX_CHUNK_SIZE)
+      const value = await requireUploads(deps).writeChunk(uploadId, chunkIndex, bytes)
+      return Response.json({ ok: true, value })
+    } catch (error) {
+      return transferErrorResponse(error)
+    }
+  }
+}
+
+/** POST /api/term-manager/files/upload/chunked/complete：JSON { uploadId }。 */
+export function createChunkedCompleteFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      const body = await readJsonObject(request)
+      const uploadId = body.uploadId
+      if (typeof uploadId !== 'string' || uploadId.length === 0) throw new FileServiceError('VALIDATION', '缺少 uploadId')
+      const value = await requireUploads(deps).complete(uploadId)
+      return Response.json({ ok: true, value })
+    } catch (error) {
+      return transferErrorResponse(error)
+    }
+  }
+}
+
+/** GET /api/term-manager/files/upload/chunked/status?uploadId：断点续传查询。 */
+export function createChunkedStatusFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      const uploadId = new URL(request.url).searchParams.get('uploadId') ?? ''
+      if (uploadId.length === 0) throw new FileServiceError('VALIDATION', '缺少 uploadId')
+      const value = await requireUploads(deps).status(uploadId)
+      return Response.json({ ok: true, value })
+    } catch (error) {
+      return transferErrorResponse(error)
+    }
+  }
+}
+
+/** POST /api/term-manager/files/upload/chunked/cancel：JSON { uploadId }（幂等）。 */
+export function createChunkedCancelFetch(deps: RemoteDeps): (request: Request) => Promise<Response> {
+  return async (request) => {
+    try {
+      const body = await readJsonObject(request)
+      const uploadId = body.uploadId
+      if (typeof uploadId !== 'string' || uploadId.length === 0) throw new FileServiceError('VALIDATION', '缺少 uploadId')
+      const value = await requireUploads(deps).cancel(uploadId)
+      return Response.json({ ok: true, value })
+    } catch (error) {
+      return transferErrorResponse(error)
+    }
+  }
 }
 
 /**
@@ -483,6 +611,37 @@ export function registerRemotes(ctx: Context, deps: RemoteDeps): () => void {
     methods: ['GET'],
     requestBody: 'buffered',
     fetch: createDownloadFetch(deps),
+  }))
+  // 大文件分片上传 4 步 + 状态查询（chunk 为 raw 流，其余 JSON）
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload/chunked/create',
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: createChunkedCreateFetch(deps),
+  }))
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload/chunked/chunk',
+    methods: ['POST'],
+    requestBody: 'streaming',
+    fetch: createChunkedChunkFetch(deps),
+  }))
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload/chunked/complete',
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: createChunkedCompleteFetch(deps),
+  }))
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload/chunked/status',
+    methods: ['GET'],
+    requestBody: 'buffered',
+    fetch: createChunkedStatusFetch(deps),
+  }))
+  disposers.push(connection.fetch.register({
+    path: '/api/term-manager/files/upload/chunked/cancel',
+    methods: ['POST'],
+    requestBody: 'buffered',
+    fetch: createChunkedCancelFetch(deps),
   }))
   const disposeAll = (): void => { void Promise.all(disposers.map(dispose => dispose())) }
   ctx.effect(() => disposeAll, 'terminal-manager: /api 控制面路由')

@@ -20,6 +20,7 @@ import { createLocalPanelState } from './local-panel-state.ts'
 import { registerRemotes } from './remotes.ts'
 import { SessionManager } from './session-manager.ts'
 import { registerTerminalTools } from './tools.ts'
+import { UploadSessionManager } from './upload-protocol.ts'
 import { registerWsIo } from './ws-io.ts'
 
 /** Cordis 插件名。 */
@@ -46,6 +47,11 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const sessions = new SessionManager(store)
   const files = new LocalFileService(sessions, sessions.events)
   const localPanel = createLocalPanelState()
+  // 大文件分片上传：upsert 记录落 dataDir/uploads.json；SFTP 句柄懒打开/关
+  const uploads = new UploadSessionManager({
+    getSftp: (sessionId) => files.getSftp(sessionId),
+    dataDir,
+  })
 
   registerAmbiguityHandling(ctx, sessions)
 
@@ -54,7 +60,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   // B7a→B7b 依赖边：传输路由的进度帧经 /term-io 广播，所以 wsIo 要先于 registerRemotes
   const wsIo = registerWsIo(ctx, sessions)
   registerRemotes(ctx, {
-    sessions, store, config: cfg, files, localPanel,
+    sessions, store, config: cfg, files, localPanel, uploads,
     openExternal: (p) => openWithSystem(p),
     broadcastFileProgress: wsIo.broadcastFileProgress,
   })
@@ -66,6 +72,7 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   registerTerminalTools(ctx, { sessions, store, files, workspaceRoot: cfg.workspaceRoot, localPanel, extensions })
 
   ctx.effect(() => () => {
+    void uploads.closeAll()
     void sessions.closeAll()
-  }, 'terminal-manager: 卸载时关闭全部会话')
+  }, 'terminal-manager: 卸载时关闭全部会话与上传句柄')
 }

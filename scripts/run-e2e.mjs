@@ -604,6 +604,91 @@ async function main() {
     assert(!dl.ok, '下载到不存在目录应失败')
   })
 
+  // E-FILE-05 大文件分片上传：5 条 HTTP 路由 + 乱序分片 + 落盘 + 取消
+  await test('E-FILE-05', '大文件分片上传（create/chunk/status/complete/cancel）', async () => {
+    const rootR = await rpc('files.root')
+    if (!rootR.ok) { assert(false, 'files.root 失败'); return }
+    const root = rootR.value.root
+    const text = `chunked-${Date.now()}-${'abcdefghij'.repeat(30)}`
+    const content = Buffer.from(text, 'utf8')
+    const chunkSize = 64
+    const totalChunks = Math.ceil(content.length / chunkSize)
+    const chunkedBase = `${DSH_ORIGIN}/api/term-manager/files/upload/chunked`
+
+    const createRes = await fetch(`${chunkedBase}/create`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ sessionId: sshSession.sessionId, remotePath: '/e2e-chunked.txt', totalBytes: content.length, chunkSize }),
+    })
+    assert(createRes.ok, `create HTTP ${createRes.status}`)
+    const created = (await createRes.json()).value
+    assert(created.totalChunks === totalChunks, `分片数 ${created.totalChunks} = ${totalChunks}`)
+    assert(created.tempPath.startsWith('/.dsh-tmp-'), '临时文件与目标同目录')
+
+    // 乱序发送（最后一片先到），验证 offset 记账与乱序容忍
+    const order = [...Array(totalChunks).keys()].reverse()
+    for (const index of order) {
+      const start = index * chunkSize
+      const part = content.subarray(start, Math.min(start + chunkSize, content.length))
+      const res = await fetch(`${chunkedBase}/chunk?uploadId=${encodeURIComponent(created.uploadId)}&chunkIndex=${index}`, {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/octet-stream' }),
+        body: part,
+      })
+      assert(res.ok, `chunk ${index} HTTP ${res.status}`)
+      const body = await res.json()
+      assert(body.ok === true, `chunk ${index} 响应 ok`)
+    }
+
+    const statusRes = await fetch(`${chunkedBase}/status?uploadId=${encodeURIComponent(created.uploadId)}`, { headers: authHeaders() })
+    const status = await statusRes.json()
+    assert(status.ok === true && status.value.receivedOffsets.length === totalChunks, 'status 记录全部分片')
+
+    const completeRes = await fetch(`${chunkedBase}/complete`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ uploadId: created.uploadId }),
+    })
+    assert(completeRes.ok, `complete HTTP ${completeRes.status}`)
+    const completed = await completeRes.json()
+    assert(completed.ok === true && completed.value.bytes === content.length, 'complete 返回字节数')
+    assert(completed.value.remotePath === '/e2e-chunked.txt', '落位到目标路径')
+
+    // 落盘校验：设备 → 工作区 → 读回
+    const dl = await rpc('files.downloadToLocal', {
+      sessionId: sshSession.sessionId, remotePath: '/e2e-chunked.txt',
+      root, path: `${root}/e2e-chunked-check.txt`, transferId: 'chunked-e2e-check',
+    })
+    assert(dl.ok && dl.value.bytes === content.length, '分片落位文件可下载')
+    const back = await rpc('files.read', { root, path: `${root}/e2e-chunked-check.txt` })
+    assert(back.ok && back.value.content === text, '分片上传内容一致')
+
+    // cancel：第二个会话发一片后取消；之后 status 变 404
+    const create2Res = await fetch(`${chunkedBase}/create`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ sessionId: sshSession.sessionId, remotePath: '/e2e-chunked-cancel.txt', totalBytes: content.length, chunkSize }),
+    })
+    assert(create2Res.ok, '第二个 create 成功')
+    const created2 = (await create2Res.json()).value
+    const oneChunk = await fetch(`${chunkedBase}/chunk?uploadId=${encodeURIComponent(created2.uploadId)}&chunkIndex=0`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/octet-stream' }),
+      body: content.subarray(0, chunkSize),
+    })
+    assert(oneChunk.ok, '第二个会话写一片')
+    const cancelRes = await fetch(`${chunkedBase}/cancel`, {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ uploadId: created2.uploadId }),
+    })
+    assert(cancelRes.ok && (await cancelRes.json()).ok === true, 'cancel 成功')
+    const afterCancel = await fetch(`${chunkedBase}/status?uploadId=${encodeURIComponent(created2.uploadId)}`, { headers: authHeaders() })
+    assert(afterCancel.status === 404, `取消后 status 404（实际 ${afterCancel.status}）`)
+
+    await rm(`${root}/e2e-chunked-check.txt`, { force: true })
+  })
+
   // 6. 清理会话
   console.log('\n▶ 清理会话')
   for (const c of cleanups) { try { await c() } catch {} }

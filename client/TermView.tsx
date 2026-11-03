@@ -54,6 +54,29 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
   const keyboardRef = useRef(keyboard)
   keyboardRef.current = keyboard
   const [kbMenu, setKbMenu] = useState<{ x: number; y: number } | null>(null)
+  const kbMenuRef = useRef<HTMLDivElement>(null)
+  const kbBtnRef = useRef<HTMLButtonElement>(null)
+
+  // 键盘模式弹层：点击外部或按 Esc 关闭；点齿轮本身交给 onClick 切换，避免 pointerdown 先关再开。
+  useEffect(() => {
+    if (kbMenu === null) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (kbMenuRef.current?.contains(target) === true) return
+      if (kbBtnRef.current?.contains(target) === true) return
+      setKbMenu(null)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setKbMenu(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [kbMenu])
   const [logPending, setLogPending] = useState(false)
   const [autoStartingLog, setAutoStartingLog] = useState(isOpen)
   const [logging, setLogging] = useState(isOpen)
@@ -314,7 +337,7 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
         <span className="tgt">{target}</span>
         {!isClosed && <button type="button" className={`tm-saveBtn ${logging ? 'is-on' : 'is-off'}`} disabled={!isOpen || logPending || autoStartingLog} aria-pressed={logging} aria-label={logging ? '停止存盘' : '开始存盘'} title={logError ? `存盘失败：${logError}；点击重试` : !isOpen ? '等待连接后自动存盘' : logging ? '停止存盘' : '开始存盘'} onClick={() => { void toggleLog() }}><IconSave16 size={13} /></button>}
         {!isClosed && <button onClick={() => setShowShare(true)} aria-label={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} title={activeShare === undefined ? '共享此终端' : `共享端口：${activeShare.sharePort}`} style={{ color: sharing ? 'var(--dsw-alias-state-success-primary, #22c55e)' : undefined }}><IconShare16 size={13} /></button>}
-        {!isClosed && <button onClick={(event) => {
+        {!isClosed && <button ref={kbBtnRef} onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect()
           if (kbMenu === null) {
             // 首次打开齿轮时再取实际模式（不打扰不关心键盘的用户）
@@ -360,7 +383,7 @@ export function TermView({ sessionId, connId, label, target, ws, onDisconnect, i
       >{currentLog.path}</div>}
       {showShare && <ShareDialog sessionId={sessionId} label={label} onClose={() => setShowShare(false)} />}
       {kbMenu !== null && (
-        <div className="tm-kbMenu" style={{ left: kbMenu.x, top: kbMenu.y }} onClick={(event) => event.stopPropagation()}>
+        <div ref={kbMenuRef} className="tm-kbMenu" style={{ left: kbMenu.x, top: kbMenu.y }} onClick={(event) => event.stopPropagation()}>
           <div className="tm-kbTitle">键盘模式</div>
           <label>退格键
             <select value={keyboard.backspace} onChange={(event) => { void updateKeyboard({ backspace: Number(event.target.value) }) }}>

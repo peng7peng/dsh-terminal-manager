@@ -30,7 +30,8 @@ export const FILES_CSS = `
 .tm-fpRow { display:flex; align-items:center; gap:8px; padding:3px 8px; border-radius:6px; font-size:12.3px; cursor:pointer; user-select:none; color:var(--dsw-alias-label-primary, #000); }
 .tm-fpRow:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(38,49,72,.06)); }
 .tm-fpRow.sel { background:var(--dsw-alias-state-business-tertiary, #e4edfd); outline:1px solid var(--dsw-alias-state-business-primary, #4170e6); }
-.tm-fpRow .ico { flex:none; width:16px; text-align:center; }
+.tm-fpRow .ico { flex:none; width:16px; display:flex; align-items:center; justify-content:center; color:var(--dsw-alias-label-tertiary, #888); }
+.tm-fpRow .ico svg { width:16px; height:16px; }
 .tm-fpRow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tm-fpRow .sz { margin-left:auto; color:var(--dsw-alias-label-tertiary, #888); font-size:11px; flex:none; font-family:var(--dsw-font-code, monospace); }
 .tm-fpEmpty { color:var(--dsw-alias-label-tertiary, #888); padding:10px; font-size:12px; }

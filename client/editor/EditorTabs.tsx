@@ -5,7 +5,7 @@
  */
 
 import type { EditorTab } from './editorStore.ts'
-import { IconCloseFill14 } from '../icons.tsx'
+import { IconClock16, IconCloseFill14, IconLock16 } from '../icons.tsx'
 
 export function EditorTabs(props: {
   tabs: EditorTab[]
@@ -23,7 +23,7 @@ export function EditorTabs(props: {
           onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); props.onClose(t.id) } }}
           title={`${t.path}${t.truncated ? '（只读）' : ''}`}
         >
-          <span className="nm">{t.loading ? '⏳ ' : ''}{t.name}{t.truncated ? ' 🔒' : ''}</span>
+          <span className="nm">{t.loading ? <IconClock16 size={11} /> : null}<span className="txt">{t.name}</span>{t.truncated ? <IconLock16 size={11} /> : null}</span>
           <span className="dot" title="未保存" />
           <button type="button" className="x" onClick={(e) => { e.stopPropagation(); props.onClose(t.id) }} title="关闭"><IconCloseFill14 /></button>
         </div>

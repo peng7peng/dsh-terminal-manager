@@ -10,6 +10,7 @@ const REQUIRED = [
   'IconCheckOutline14', 'IconCloseFill14', 'IconFullscreenOutline16',
   'IconPlayOutline16', 'IconSendOutline14', 'IconWarningOutline16',
   'IconGear16', 'IconProbe16', 'IconShare16', 'IconMinimize16', 'IconMaximize16', 'IconRestore16',
+  'IconFile16', 'IconFileExternal16', 'IconEye16', 'IconEyeOff16', 'IconPin16', 'IconEditor16', 'IconClock16', 'IconLock16', 'IconGrip16',
 ] as const
 
 describe('client 本地图标', () => {

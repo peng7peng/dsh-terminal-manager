@@ -14,7 +14,7 @@ import { openTargetFor } from './openRule.ts'
 import { clampPanelHeight } from './panel-layout.ts'
 import { remoteFsStore } from './RemoteFilePanel.tsx'
 import { useRemoteFsState } from './remoteFs.ts'
-import { IconChevronRightOutline14, IconChevronUpOutline14, IconFolderClose16, IconFolderOpen16, IconFolderOpenOutline16, IconGoalOutline16, IconRefreshOutline14 } from '../icons.tsx'
+import { IconChevronRightOutline14, IconChevronUpOutline14, IconFile16, IconFileExternal16, IconFolderClose16, IconFolderOpen16, IconFolderOpenOutline16, IconGoalOutline16, IconLinkOutline14, IconRefreshOutline14 } from '../icons.tsx'
 
 let singleton: LocalFsStore | undefined
 /** 模块级单例：面板收起 / 重开不丢状态。 */
@@ -64,7 +64,7 @@ export function FileList(props: {
             onContextMenu={(ev) => { if (onContextMenu !== undefined) { ev.preventDefault(); onSelect(e.path); onContextMenu(e, ev) } }}
             title={isDir ? `${e.path}\n双击进入` : target === 'editor' ? `${e.path}\n双击在编辑器打开` : target === 'system' ? `${e.path}\n双击用系统默认程序打开` : e.path}
           >
-            <span className="ico">{isDir ? '📁' : e.kind === 'symlink' ? '🔗' : target === 'system' ? '📎' : '📄'}</span>
+            <span className="ico">{isDir ? <IconFolderClose16 /> : e.kind === 'symlink' ? <IconLinkOutline14 /> : target === 'system' ? <IconFileExternal16 /> : <IconFile16 />}</span>
             <span className="nm">{e.name}</span>
             <span className="sz">{isDir ? '文件夹' : formatSize(e.size)}</span>
           </div>

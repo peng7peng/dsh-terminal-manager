@@ -11,7 +11,9 @@ export const EDITOR_CSS = `
 .tm-feHead:active { cursor:grabbing; }
 .tm-feTabs { display:flex; gap:4px; flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; }
 .tm-feTab { display:flex; align-items:center; gap:6px; padding:3px 6px 3px 10px; border-radius:6px; font-size:12px; cursor:pointer; color:var(--dsw-alias-label-tertiary, #888); white-space:nowrap; flex:none; max-width:220px; }
-.tm-feTab .nm { overflow:hidden; text-overflow:ellipsis; }
+.tm-feTab .nm { display:flex; align-items:center; gap:3px; min-width:0; overflow:hidden; }
+.tm-feTab .nm .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tm-mRow.tm-fileRow { display:flex; align-items:center; gap:6px; }
 .tm-feTab.active { background:var(--dsw-alias-bg-layer-2, #fff); color:var(--dsw-alias-label-primary, #000); font-weight:600; box-shadow:inset 0 0 0 1px var(--dsw-alias-border-l2, rgba(0,0,0,.1)); }
 .tm-feTab .dot { width:6px; height:6px; border-radius:50%; background:var(--dsw-alias-state-warn-primary, #d29922); display:none; flex:none; }
 .tm-feTab.dirty .dot { display:inline-block; }

@@ -14,7 +14,7 @@ import { CsvView } from './CsvView.tsx'
 import { EditorTabs } from './EditorTabs.tsx'
 import { createEditorStore, extOf, useEditorState, type EditorStore } from './editorStore.ts'
 import { RESIZE_DIRS, useFloatWindow } from './useFloatWindow.ts'
-import { IconCheckOutline14, IconChevronDownOutline14, IconCloseFill14, IconFullscreenOutline16 } from '../icons.tsx'
+import { IconCheckOutline14, IconChevronDownOutline14, IconCloseFill14, IconEditor16, IconFile16, IconFullscreenOutline16 } from '../icons.tsx'
 
 /** CSV 类文件的扩展名集合 */
 const CSV_EXTS = new Set(['csv', 'tsv'])
@@ -53,7 +53,7 @@ function CloseConfirm(props: { names: string[]; onAction: (a: 'save' | 'discard'
       <div className="tm-modal" onClick={e => e.stopPropagation()}>
         <div className="tm-mHead">有未保存的改动</div>
         <div className="tm-mBody">
-          {props.names.map(n => <div key={n} className="tm-mRow">📄 {n}</div>)}
+          {props.names.map(n => <div key={n} className="tm-mRow tm-fileRow"><IconFile16 size={13} /> <span>{n}</span></div>)}
         </div>
         <div className="tm-mNote">关闭前保存吗？「丢弃」会丢掉这些改动。</div>
         <div className="tm-mFoot">
@@ -100,7 +100,7 @@ export function EditorWindow(props: {
         title={`编辑器（${s.tabs.length} 个文件${dirtyCount > 0 ? `，${dirtyCount} 个未保存` : ''}）\n${names}\n点击还原`}
         aria-label="还原编辑器"
       >
-        📝<span className="cnt">{s.tabs.length}</span>
+        <IconEditor16 size={15} /><span className="cnt">{s.tabs.length}</span>
       </button>
     )
   }

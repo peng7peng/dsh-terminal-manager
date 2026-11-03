@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { rpc, type RpcError } from './rpc.ts'
 import { IconBroadcast16, IconPanelBottom16, IconPanelRight16, IconTerminal16 } from './icons.tsx'
 import { TermWs } from './ws.ts'
-import { getEffectiveChatWidth, setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
+import { autoColumnCount, getEffectiveChatWidth, setChatWidth, setWorkspaceVisible, useChatWidth, useFrameLayout, useUnread, useWorkspaceVisible } from './store.ts'
 import { markRead, markUnread } from './store.ts'
 import { ConnectionsPanel, type ConnectionCfg, type SessionSnap } from './ConnectionsPanel.tsx'
 import { TermView } from './TermView.tsx'
@@ -50,7 +50,8 @@ export function TerminalWorkspace(): React.JSX.Element | null {
   const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const [broadcastChips, setBroadcastChips] = useState<Set<string>>(new Set())
   const [bcCmd, setBcCmd] = useState('')
-  const [columns, setColumns] = useState<1 | 2 | 3>(2) // 默认 2 列
+  const [columns, setColumns] = useState<1 | 2 | 3>(2) // 手动选择的列数
+  const [columnsAuto, setColumnsAuto] = useState(true) // 默认按会话数自动分列
   const [maximized, setMaximized] = useState<string | null>(null) // 最大化的会话 ID
   const [sidePanelHidden, setSidePanelHidden] = useState<boolean>(() => { try { return localStorage.getItem('tm.workspace.sideHidden') === '1' } catch { return false } })
   const [bottomPanelHidden, setBottomPanelHidden] = useState<boolean>(() => { try { return localStorage.getItem('tm.workspace.bottomHidden') === '1' } catch { return false } })
@@ -171,6 +172,9 @@ export function TerminalWorkspace(): React.JSX.Element | null {
     [sessions, sessionOrder],
   )
 
+  // 未手动选择时按会话数自动分列（1 台 1 列、2 台以上 2 列），避免单会话也挤在半屏；3 列仍可手动选。
+  const effectiveColumns = columnsAuto ? autoColumnCount(allSessions.length) : columns
+
   // 发送选中的直接发送目标 = 广播栏**明确勾选**的会话；没勾选 = 弹框让用户选（不盲发全部）
   const bcTargets = useMemo(() => [...broadcastChips], [broadcastChips])
 
@@ -210,10 +214,11 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <span className="sp" />
           <label className="tm-col-select">
             <span>列数</span>
-            <select value={columns} onChange={e => setColumns(Number(e.target.value) as 1 | 2 | 3)}>
-              <option value={1}>1 列</option>
-              <option value={2}>2 列</option>
-              <option value={3}>3 列</option>
+            <select value={columnsAuto ? 'auto' : String(columns)} onChange={e => { const v = e.target.value; if (v === 'auto') { setColumnsAuto(true) } else { setColumnsAuto(false); setColumns(Number(v) as 1 | 2 | 3) } }}>
+              <option value="auto">自动</option>
+              <option value="1">1 列</option>
+              <option value="2">2 列</option>
+              <option value="3">3 列</option>
             </select>
           </label>
           <button className="tm-close" onClick={() => setHidden(h => { const n = new Set(h); visibleSessions.forEach(s => n.add(s.sessionId)); return n })}>全部隐藏</button>
@@ -221,7 +226,7 @@ export function TerminalWorkspace(): React.JSX.Element | null {
           <button className="tm-panelBtn" onClick={toggleBottomPanel} title={bottomPanelHidden ? '显示下方文件面板' : '隐藏下方文件面板'}><IconPanelBottom16 visible={!bottomPanelHidden} /></button>
           <button className="tm-panelBtn" onClick={toggleSidePanel} title={sidePanelHidden ? '显示右侧连接面板' : '隐藏右侧连接面板'}><IconPanelRight16 visible={!sidePanelHidden} /></button>
         </div>
-        <div className="tm-grid" style={{ gridTemplateColumns: maximized ? '1fr' : `repeat(${columns}, 1fr)` }}>
+        <div className="tm-grid" style={{ gridTemplateColumns: maximized ? '1fr' : `repeat(${effectiveColumns}, 1fr)` }}>
           {allSessions.length === 0 ? (
             <div className="tm-empty">暂无已连接会话 —— 右侧连接设备</div>
           ) : allSessions.map(s => {

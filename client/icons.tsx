@@ -143,3 +143,35 @@ export function IconMaximize16(p: { size?: number; className?: string }): React.
 export function IconRestore16(p: { size?: number; className?: string }): React.JSX.Element {
   return <Glyph {...p}><rect x="2.5" y="4.5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" /><path d="M5.5 4.5V2.5h8v8h-2" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
 }
+/** 文件（文档轮廓） */
+export function IconFile16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M4 1.8h5.2l3.6 3.6V14a.6.6 0 01-.6.6H4a.6.6 0 01-.6-.6V2.4a.6.6 0 01.6-.6Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M9.2 1.8v3.6h3.6" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></Glyph>
+}
+/** 非文本文件（交给系统默认程序打开） */
+export function IconFileExternal16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M4 1.8h5.2l3.6 3.6V14a.6.6 0 01-.6.6H4a.6.6 0 01-.6-.6V2.4a.6.6 0 01.6-.6Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M9.2 1.8v3.6h3.6" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M6.6 9.2l3.8 3.8M10.4 9.6v3.4H7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+/** 显示密码（眼睛） */
+export function IconEye16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4S1.5 8 1.5 8Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><circle cx="8" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.2" /></Glyph>
+}
+/** 隐藏密码（闭眼） */
+export function IconEyeOff16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M2 8s2.3-3.6 6-3.6c1 0 1.9.2 2.7.6M14 8s-2.3 3.6-6 3.6c-1 0-1.9-.2-2.7-.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M2.5 2.5l11 11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+/** 置顶（图钉） */
+export function IconPin16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M6.1 2.3h3.8l-.6 3.3 2 2H4.7l2-2-.6-3.3Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M8 7.6v5.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+/** 编辑器（铅笔） */
+export function IconEditor16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><path d="M10.7 2.3l3 3-7.2 7.2-3.6.6.6-3.6 7.2-7.2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M9.6 3.4l3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}
+/** 等待 / 加载（时钟） */
+export function IconClock16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="8" cy="8" r="5.7" stroke="currentColor" strokeWidth="1.2" /><path d="M8 4.6V8l2.3 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></Glyph>
+}
+/** 只读 / 锁定（挂锁） */
+export function IconLock16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><rect x="3.4" y="7" width="9.2" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.2" /><path d="M5.4 7V5.3a2.6 2.6 0 015.2 0V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
+}

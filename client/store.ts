@@ -190,3 +190,11 @@ export function subscribeUnread(cb: () => void): () => void {
   unreadListeners.add(cb)
   return () => { unreadListeners.delete(cb) }
 }
+
+/**
+ * 终端窗格默认列数：1 台 1 列、2 台以上 2 列。
+ * 终端模块宽度固定，3 列会把每个窗格压到约 150px，因此自动模式最多 2 列；3 列仍可手动选择。
+ */
+export function autoColumnCount(sessionCount: number): 1 | 2 {
+  return sessionCount <= 1 ? 1 : 2
+}

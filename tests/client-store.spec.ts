@@ -11,9 +11,21 @@ import {
   markRead,
   getUnreadSet,
   subscribeUnread,
+  autoColumnCount,
 } from '../client/store.ts'
 
 describe('client/store.ts', () => {
+
+  describe('终端默认列数', () => {
+    it('按会话数自动分列', () => {
+      expect(autoColumnCount(0)).toBe(1)
+      expect(autoColumnCount(1)).toBe(1)
+      expect(autoColumnCount(2)).toBe(2)
+      expect(autoColumnCount(3)).toBe(2)
+      expect(autoColumnCount(9)).toBe(2)
+    })
+  })
+
   describe('工作区可见性', () => {
     let cleanup: (() => void) | undefined
 

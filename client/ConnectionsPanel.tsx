@@ -9,7 +9,7 @@ import { DirectoryPicker } from './ext/port-log/DirectoryPicker.tsx'
 import { portLogRpc } from './ext/port-log/rpc.ts'
 import { applyPortLogEvent, getDefaultLogDirectory, loadDefaultLogDirectory, usePortLogState, type ClientSessionLog } from './ext/port-log/store.ts'
 import { rpc, type RpcError } from './rpc.ts'
-import { IconLinkOutline14, IconProbe16 } from './icons.tsx'
+import { IconEye16, IconEyeOff16, IconLinkOutline14, IconPin16, IconProbe16 } from './icons.tsx'
 
 /** Telnet 三档：passive（默认，只回应）/ active（主动探测协商）/ raw（纯 TCP 透传）。 */
 export type TelnetMode = 'passive' | 'active' | 'raw'
@@ -221,7 +221,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
       <label title={hint}>{label} {required ? <span className="tm-req">*</span> : <span className="tm-opt">选填</span>}</label>
       <div className="tm-pwdWrap">
         <input type={showPass ? 'text' : 'password'} value={form[name]} onChange={e => setField(name, e.target.value)} placeholder={placeholder} />
-        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)} title={showPass ? '点击隐藏密码' : '点击显示密码'}>{showPass ? '👁' : '👁‍🗨'}</span>
+        <span className="tm-pwdToggle" onClick={() => setShowPass(v => !v)} title={showPass ? '点击隐藏密码' : '点击显示密码'}>{showPass ? <IconEye16 size={14} /> : <IconEyeOff16 size={14} />}</span>
       </div>
     </div>
   )
@@ -342,7 +342,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
                 {tcMap?.has(s.sessionId) && <span className="tm-tcn" title="活跃会话顺序编号">{tcMap.get(s.sessionId)}</span>}
                 <span className={'tm-pico ' + s.protocol}>{s.protocol.toUpperCase()}</span>
                 {renameId === s.sessionId ? (<input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={commitRename} onKeyDown={e => { if (e.key === 'Enter') commitRename() }} onClick={e => e.stopPropagation()} style={{ flex: 1, fontSize: 12, padding: '2px 6px' }} />) : (<span className="nm">{s.label}<span className="tm-sub">{s.target}</span>{isClosed && <span className="tm-disconnected-hint">点击重连</span>}</span>)}
-                {pinned.has(s.sessionId) && <span style={{ fontSize: 10 }}>📌</span>}
+                {pinned.has(s.sessionId) && <span className="tm-pinBadge" title="已置顶"><IconPin16 size={11} /></span>}
                 {hiddenSet.has(s.sessionId) && <span className="tm-eye-off" title="已隐藏">⊘</span>}
                 {unreadSet.has(s.sessionId) && <span className="tm-unread" />}
                 {sessionLogMap.get(s.sessionId)?.state === 'running' && <span style={{ fontSize: 9, color: 'var(--dsw-alias-state-success-primary, #22c55e)', fontWeight: 700, flex: 'none' }} title="日志记录中">LOG</span>}
@@ -351,7 +351,7 @@ export function ConnectionsPanel({ sessions, unreadSet, hiddenSet, sessionOrder,
           })}
         </CollapsibleSection>
 
-        <CollapsibleSection title="⭐ 收藏" count={favConns.length}>
+        <CollapsibleSection title="收藏" count={favConns.length}>
           {favConns.length === 0 ? <div className="tm-empty">暂无收藏</div> : favConns.map(c => renderConn(c))}
         </CollapsibleSection>
 

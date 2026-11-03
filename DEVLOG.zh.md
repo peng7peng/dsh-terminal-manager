@@ -74,3 +74,10 @@
 - **协商逻辑抽成纯模块** `src/transport/telnet-codec.ts`：跨 chunk IAC 状态机 + per-option 简化 RFC 1143 Q-method（同一选项重复请求不再来回 WILL/WONT 打环）+ TTYPE 回 `xterm-256color` + NAWS 大端 2 字节与 0xFF 转义。用户输入里的 0xFF 只在确认/激活的 telnetd 下才双写。
 - **SSH 半死连接兜底**：keepalive 30s × 3、SFTP 懒开 30s 超时（`TM_SSH_KEEPALIVE_MS` / `TM_SSH_KEEPALIVE_COUNT` / `TM_SFTP_OPEN_TIMEOUT_MS` 可覆盖）；连接关闭时主动 reject 仍 pending 的 SFTP open，避免文件操作无限等待。
 - 连接表单的 Telnet 模式从 Raw/Telnet 两档改成被动/主动/原始三档并带中文说明；测试基线 677 项（+45）。
+
+### 2026-11-03：共享文件日志收尾
+
+- 新增 `src/logger.ts`：host 半共享文件日志（级别过滤、串行写、5 MiB×5 轮转、16 KiB 截断、递归脱敏、循环引用、目录不可写降级）；`src/index.ts` 记录插件启停与会话状态/文件传输元数据，**不记录 output/input 明文**。
+- 按用户要求**不做埋点**（本地没有接收服务端），因此没有 `src/track.ts` / 客户端 track 上报。
+- 测试基线 743（741 通过 + 2 跳过）；E2E 27 场景。
+

@@ -15,6 +15,7 @@ import { registerAmbiguityHandling } from './ambiguity.ts'
 import { resolveConfig, type Config } from './config.ts'
 import { registerExtensions } from './ext/index.ts'
 import { LocalFileService } from './file-service.ts'
+import { AppLogger } from './logger.ts'
 import { openWithSystem } from './open-external.ts'
 import { createLocalPanelState } from './local-panel-state.ts'
 import { registerRemotes } from './remotes.ts'
@@ -43,6 +44,9 @@ export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): string {
 export function apply(ctx: Context, config?: Partial<Config>): void {
   const cfg = resolveConfig(config)
   const dataDir = resolveDataDir()
+  // 共享文件日志：连接/会话/文件传输/上传/扩展都可写；不记录 output/input 内容
+  const logger = new AppLogger(join(dataDir, 'log'))
+  void logger.log('info', 'plugin.start', { dataDir })
   const store = new ConnectionStore(join(dataDir, 'connections.json'))
   const sessions = new SessionManager(store)
   const files = new LocalFileService(sessions, sessions.events)
@@ -51,6 +55,20 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   const uploads = new UploadSessionManager({
     getSftp: (sessionId) => files.getSftp(sessionId),
     dataDir,
+  })
+
+  // 会话状态/文件传输只记元数据，绝不写 output/input（可能含密码/命令）
+  const unsubscribeLog = sessions.events.on((event) => {
+    if (event.type === 'status') {
+      void logger.log('info', 'session.status', { sessionId: event.sessionId, status: event.status })
+    } else if (event.type === 'file') {
+      void logger.log(event.ok ? 'info' : 'warn', 'session.file', {
+        ...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
+        op: event.op,
+        ok: event.ok,
+        ...(event.bytes === undefined ? {} : { bytes: event.bytes }),
+      })
+    }
   })
 
   registerAmbiguityHandling(ctx, sessions)
@@ -72,7 +90,10 @@ export function apply(ctx: Context, config?: Partial<Config>): void {
   registerTerminalTools(ctx, { sessions, store, files, workspaceRoot: cfg.workspaceRoot, localPanel, extensions })
 
   ctx.effect(() => () => {
+    unsubscribeLog?.()
+    void logger.log('info', 'plugin.stop')
+    void logger.close()
     void uploads.closeAll()
     void sessions.closeAll()
-  }, 'terminal-manager: 卸载时关闭全部会话与上传句柄')
+  }, 'terminal-manager: 卸载时关闭日志、会话与上传句柄')
 }

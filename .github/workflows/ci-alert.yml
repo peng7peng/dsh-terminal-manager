@@ -1,0 +1,84 @@
+# 合入后 CI 监测：main 的 CI 失败时开 issue 并 @ 仓库负责人，同一个提交重跑成功后自动关闭。
+#
+# 不能写进 ci.yml 自身：报告步骤挂在被测的工作流里，工作流一失败就没有可信的执行者了。
+# 这里用 workflow_run 在 CI 结束后单独收尾，main 每次 push 都会跑一遍 CI，所以合入即被监测。
+name: ci-alert
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  report:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 失败时开 issue，恢复时关闭
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const run = context.payload.workflow_run
+            const { head_sha: sha } = run
+            const short = sha.slice(0, 7)
+            // 用隐藏标记把 issue 和具体提交绑定，重跑或重复事件都不会重复开 issue。
+            const marker = `<!-- ci-alert:${sha} -->`
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            })
+            const existing = open.find(issue => !issue.pull_request && (issue.body ?? '').includes(marker))
+
+            if (run.conclusion === 'failure') {
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: existing.number,
+                  body: `又失败了一次：${run.html_url}`,
+                })
+                core.info(`issue #${existing.number} 已存在，追加失败记录`)
+              } else {
+                // 列 job 只是补充信息；这一步失败也必须把 issue 发出去。
+                let failed = []
+                try {
+                  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                    owner, repo, run_id: run.id, per_page: 100,
+                  })
+                  failed = jobs
+                    .filter(job => job.conclusion === 'failure')
+                    .map(job => `- ${job.name}：${job.html_url}`)
+                } catch (error) {
+                  core.warning(`读取失败的 job 失败，仍创建 issue：${error.message}`)
+                }
+                const created = await github.rest.issues.create({
+                  owner, repo,
+                  title: `main 的 CI 失败了：${short}`,
+                  body: [
+                    `@${owner} main 的 CI 失败了，麻烦看一下。`,
+                    '',
+                    `- 提交：\`${short}\`（\`${sha}\`）`,
+                    `- 运行：${run.html_url}`,
+                    `- 时间：${run.created_at}`,
+                    ...(failed.length ? ['', '失败的 job：', ...failed] : []),
+                    '',
+                    marker,
+                  ].join('\n'),
+                  assignees: [owner],
+                })
+                core.info(`已创建 issue #${created.data.number}`)
+              }
+            } else if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number,
+                body: `同一个提交重跑已恢复：${run.html_url}，自动关闭。`,
+              })
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' })
+              core.info(`issue #${existing.number} 已关闭`)
+            }

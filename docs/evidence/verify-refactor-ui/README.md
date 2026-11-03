@@ -36,3 +36,12 @@ SSH 连接表单。
 ## 5. 其他同类图标（`*-pin.png`、`*-minimized.png`）
 
 置顶图钉、编辑器最小化标签、Tab 加载/只读标记、「收藏」标题里的 emoji 一并换成 SVG 或纯文案。补充截图的 Before 取自 client 代码与 main 一致的旧构建。
+
+## 6. 活跃会话行图标（后续反馈）
+
+用户反馈文件列表修好后，活跃会话行里仍有「叉叉框框」。
+
+| 场景 | Before（本 PR 首个提交 5e374ad） | After（本次提交） |
+| --- | --- | --- |
+| 显示中的会话（拖动/排序手柄） | `before-active-session.png`：`⣿` 显示为方块叉 | `after-active-session.png`：六点 SVG 手柄 |
+| 已隐藏的会话（隐藏标记） | `before-active-session-hidden.png`：`⊘` 字符 | `after-active-session-hidden.png`：闭眼 SVG |

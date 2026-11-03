@@ -175,3 +175,7 @@ export function IconClock16(p: { size?: number; className?: string }): React.JSX
 export function IconLock16(p: { size?: number; className?: string }): React.JSX.Element {
   return <Glyph {...p}><rect x="3.4" y="7" width="9.2" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.2" /><path d="M5.4 7V5.3a2.6 2.6 0 015.2 0V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></Glyph>
 }
+/** 拖动排序手柄（六点） */
+export function IconGrip16(p: { size?: number; className?: string }): React.JSX.Element {
+  return <Glyph {...p}><circle cx="5.6" cy="4" r="1.05" fill="currentColor" /><circle cx="10.4" cy="4" r="1.05" fill="currentColor" /><circle cx="5.6" cy="8" r="1.05" fill="currentColor" /><circle cx="10.4" cy="8" r="1.05" fill="currentColor" /><circle cx="5.6" cy="12" r="1.05" fill="currentColor" /><circle cx="10.4" cy="12" r="1.05" fill="currentColor" /></Glyph>
+}

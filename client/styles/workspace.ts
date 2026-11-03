@@ -131,8 +131,8 @@ export const WORKSPACE_CSS = `
 .tm-ritem .st.on { background:var(--dsw-alias-state-success-primary, #22c55e); box-shadow:0 0 4px var(--dsw-alias-state-success-primary, #22c55e); }
 .tm-ritem.pinned { border-left:2px solid var(--dsw-alias-state-warn-primary, #f59e0b); }
 .tm-ritem.dimmed { opacity:.5; border-style:dashed; }
-.tm-drag { flex:none; cursor:grab; color:var(--dsw-alias-label-caption, #aaa); font-size:14px; padding-right:2px; }
-.tm-eye-off { font-size:13px; color:var(--dsw-alias-label-caption, #aaa); flex:none; }
+.tm-drag { flex:none; display:inline-flex; align-items:center; cursor:grab; color:var(--dsw-alias-label-caption, #aaa); font-size:14px; padding-right:2px; }
+.tm-eye-off { display:inline-flex; align-items:center; font-size:13px; color:var(--dsw-alias-label-caption, #aaa); flex:none; }
 .tm-eye-btn { flex:none; background:none; border:none; cursor:pointer; font-size:14px; padding:0 2px; opacity:.6; }
 .tm-eye-btn:hover { opacity:1; }
 .tm-term-hidden { display:none !important; }

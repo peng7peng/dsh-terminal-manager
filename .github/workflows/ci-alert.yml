@@ -45,12 +45,18 @@ jobs:
                 })
                 core.info(`issue #${existing.number} 已存在，追加失败记录`)
               } else {
-                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                  owner, repo, run_id: run.id, per_page: 100,
-                })
-                const failed = jobs
-                  .filter(job => job.conclusion === 'failure')
-                  .map(job => `- ${job.name}：${job.html_url}`)
+                // 列 job 只是补充信息；这一步失败也必须把 issue 发出去。
+                let failed = []
+                try {
+                  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                    owner, repo, run_id: run.id, per_page: 100,
+                  })
+                  failed = jobs
+                    .filter(job => job.conclusion === 'failure')
+                    .map(job => `- ${job.name}：${job.html_url}`)
+                } catch (error) {
+                  core.warning(`读取失败的 job 失败，仍创建 issue：${error.message}`)
+                }
                 const created = await github.rest.issues.create({
                   owner, repo,
                   title: `main 的 CI 失败了：${short}`,

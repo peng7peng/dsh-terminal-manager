@@ -44,6 +44,9 @@ export type AuthConfig =
   | { kind: 'password'; password: string }
   | { kind: 'key'; privateKey: string; passphrase?: string }
 
+/** Telnet 协商模式：passive（默认，只回应服务器协商）/ active（主动探测并协商）/ raw（纯 TCP 透传）。 */
+export type TelnetMode = 'passive' | 'active' | 'raw'
+
 /** 连接目标的传输层参数（由存储或临时连接提供）。 */
 export interface ConnectTarget {
   protocol: 'ssh' | 'telnet'
@@ -52,8 +55,8 @@ export interface ConnectTarget {
   username?: string
   auth?: AuthConfig
   label?: string
-  /** Telnet 模式：'telnet'（协议协商）| 'raw'（裸 TCP，默认） */
-  telnetMode?: 'telnet' | 'raw'
+  /** Telnet 模式：passive（默认）| active | raw；兼容旧值 'telnet'（等价 active） */
+  telnetMode?: TelnetMode | 'telnet'
   /** SSH 握手超时毫秒（默认 15000） */
   connectTimeoutMs?: number
   /** 换行模式（默认 'crlf'） */

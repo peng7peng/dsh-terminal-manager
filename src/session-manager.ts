@@ -195,6 +195,8 @@ export class SessionManager implements SessionManagerApi {
         favorited: false, // 临时连接（含 AI 工具创建的）入「最近连接」而非「收藏」
         ...(target.username !== undefined ? { username: target.username } : {}),
         ...(target.auth !== undefined ? { auth: target.auth } : {}),
+        // 临时连接也把 Telnet 模式落盘，「最近连接」再次点击/重连时行为一致
+        ...(target.telnetMode !== undefined ? { telnetMode: target.telnetMode } : {}),
       })
       effectiveConnId = autoConn.id
     }

@@ -4,7 +4,7 @@
 
 > 本版本基于 **DeepSeek Harness 0.2.1** 开发（Connection 统一认证 + 精确 Fetch 路由 + WS admit）。
 
-**仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
+**仓库地址**：https://github.com/peng7peng/dsh-terminal-manager
 
 ## 能力
 
@@ -79,8 +79,18 @@
 
 ## 安装
 
+**方式一：下载 Release 的 tgz（推荐）**
+
+从 [GitHub Releases](https://github.com/peng7peng/dsh-terminal-manager/releases) 下载最新的 `dsh-terminal-manager-<版本>.tgz`，然后：
+
 ```bash
-git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+dsh plugin --profile web add ./dsh-terminal-manager-0.2.0.tgz
+```
+
+**方式二：从源码安装**
+
+```bash
+git clone https://github.com/peng7peng/dsh-terminal-manager.git
 cd dsh-terminal-manager
 pnpm install
 pnpm build
@@ -93,8 +103,12 @@ dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
 
 ## 更新插件
 
+Release 安装：下载新版 tgz，再执行一次 `dsh plugin --profile web add ./dsh-terminal-manager-<版本>.tgz`。
+
+源码安装：
+
 ```bash
-cd <插件安装目录>
+cd <源码目录>
 git pull
 pnpm install
 pnpm build

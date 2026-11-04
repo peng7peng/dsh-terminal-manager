@@ -4,7 +4,7 @@
 
 > 本版本基于 **DeepSeek Harness 0.2.1** 开发（Connection 统一认证 + 精确 Fetch 路由 + WS admit）。
 
-**仓库地址**：https://gitcode.com/pengpengR/dsh-terminal-manager
+**仓库地址**：https://github.com/peng7peng/dsh-terminal-manager
 
 ## 能力
 
@@ -79,8 +79,28 @@
 
 ## 安装
 
+**方式一：一条命令安装（推荐）**
+
 ```bash
-git clone https://gitcode.com/pengpengR/dsh-terminal-manager.git
+# 直接装 Release 的 tgz
+dsh plugin --profile web add https://github.com/peng7peng/dsh-terminal-manager/releases/download/v0.2.0/dsh-terminal-manager-0.2.0.tgz
+
+# 或直接从 GitHub 仓库装（默认分支）
+dsh plugin --profile web add github:peng7peng/dsh-terminal-manager
+```
+
+> 安装时 pnpm 会拦截 `ssh2` / `cpu-features` 的构建脚本（本项目走纯 JS 回退，不需要构建）。若命令最后报 `ERR_PNPM_IGNORED_BUILDS`，给命令加 `--config.strictDepBuilds=false`，或一次性在 `~/.dsh/profiles/<profile>/pnpm-workspace.yaml` 里写入：
+>
+> ```yaml
+> allowBuilds:
+>   cpu-features: false
+>   ssh2: false
+> ```
+
+**方式二：从源码安装（需要改代码时）**
+
+```bash
+git clone https://github.com/peng7peng/dsh-terminal-manager.git
 cd dsh-terminal-manager
 pnpm install
 pnpm build
@@ -94,7 +114,11 @@ dsh plugin --profile web add "dsh-terminal-manager@link:$(pwd)"
 ## 更新插件
 
 ```bash
-cd <插件安装目录>
+# Release tgz / git 安装：把安装命令里的版本换掉，再执行一次
+dsh plugin --profile web add <安装命令>
+
+# 源码安装：
+cd <源码目录>
 git pull
 pnpm install
 pnpm build

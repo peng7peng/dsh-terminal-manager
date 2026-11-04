@@ -22,6 +22,7 @@ E2E 改动跑 `node scripts/run-e2e.mjs` 并确认 27/27 全绿。
 
 ## 约定
 
+- **`lib/` 已入库**（供 `dsh plugin add github:...` 免构建直装）：改 `src/` 后必须 `pnpm build` 并把 `lib/` 一起提交；CI 会校验 `lib/` 与源码构建一致。
 - TypeScript strict；React 18 + 全局 `.tm-` 前缀 CSS（无 CSS Modules，无组件库），样式按功能分文件放 `client/styles/`，入口 `index.ts` 拼接。
 - 插件是「双半包」：host 半（Cordis 模块）+ 浏览器半（slot 组件），参考 `extensions/ui-cordis`。
 - **会话不用 `ctx.terminals`**（那是 AI 私有本机 PTY）；本插件自持 `SessionManager` 公共会话池——人机共用是核心需求。

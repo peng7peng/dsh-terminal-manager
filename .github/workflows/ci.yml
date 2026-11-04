@@ -31,6 +31,15 @@ jobs:
       - name: Build (tsdown host + browser halves)
         run: pnpm build
 
+      # lib/ 入库供 `dsh plugin add github:...` 直接安装；这里守住产物与源码一致，
+      # 避免 git 安装装到旧代码。改 src 后记得 pnpm build 并提交 lib/。
+      - name: Check committed lib matches source
+        run: |
+          if ! git diff --exit-code -- lib; then
+            echo "::error::lib/ 与源码构建结果不一致，请运行 pnpm build 并提交 lib/。"
+            exit 1
+          fi
+
       - name: Unit tests with coverage
         run: pnpm vitest run --coverage
 

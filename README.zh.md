@@ -83,13 +83,13 @@
 
 ```bash
 # 直接装 Release 的 tgz
-dsh plugin --profile web add https://github.com/peng7peng/dsh-terminal-manager/releases/download/v0.2.0/dsh-terminal-manager-0.2.0.tgz
+dsh plugin --profile web add https://github.com/peng7peng/dsh-terminal-manager/releases/download/v0.2.0/dsh-terminal-manager-0.2.0.tgz --config.strictDepBuilds=false
 
 # 或直接从 GitHub 仓库装（默认分支）
-dsh plugin --profile web add github:peng7peng/dsh-terminal-manager
+dsh plugin --profile web add github:peng7peng/dsh-terminal-manager --config.strictDepBuilds=false
 ```
 
-> 安装时 pnpm 会拦截 `ssh2` / `cpu-features` 的构建脚本（本项目走纯 JS 回退，不需要构建）。若命令最后报 `ERR_PNPM_IGNORED_BUILDS`，给命令加 `--config.strictDepBuilds=false`，或一次性在 `~/.dsh/profiles/<profile>/pnpm-workspace.yaml` 里写入：
+> `--config.strictDepBuilds=false` 是必须的：pnpm 默认拦截 `ssh2` / `cpu-features` 的构建脚本（本项目走纯 JS 回退，不需要构建），不加该参数安装会以 `ERR_PNPM_IGNORED_BUILDS` 非零退出（插件其实已装好）。也可以一次性在 `~/.dsh/profiles/<profile>/pnpm-workspace.yaml` 里写入下面的配置，之后不加参数也不会报错：
 >
 > ```yaml
 > allowBuilds:
